@@ -1,0 +1,15 @@
+.env
+.venv/
+.python/
+.cache/
+dev_agent_studio.egg-info/
+data/*.db
+data/*.log
+data/*.jsonl
+*.log
+web/node_modules/
+node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+__pycache__/
+*.pyc
