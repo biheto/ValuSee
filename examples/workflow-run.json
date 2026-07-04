@@ -1,0 +1,34 @@
+{
+  "workflow_name": "project_report_workflow",
+  "input_text": "分析项目并生成报告",
+  "nodes": [
+    {
+      "id": "plan",
+      "type": "planner",
+      "name": "任务规划",
+      "config": {}
+    },
+    {
+      "id": "review",
+      "type": "supervisor",
+      "name": "质量检查",
+      "config": {}
+    },
+    {
+      "id": "report",
+      "type": "reporter",
+      "name": "报告生成",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "source": "plan",
+      "target": "review"
+    },
+    {
+      "source": "review",
+      "target": "report"
+    }
+  ]
+}
