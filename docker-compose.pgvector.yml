@@ -1,0 +1,20 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: dev-agent-studio-pgvector
+    environment:
+      POSTGRES_DB: dev_agent_studio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dev_agent_studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgvector_data:
