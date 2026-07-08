@@ -18,7 +18,8 @@ body,
 
 body {
   margin: 0;
-  min-width: 1180px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 button,
@@ -45,6 +46,8 @@ button {
 .app-shell {
   height: 100vh;
   min-height: 0;
+  width: 100%;
+  max-width: 100vw;
   display: grid;
   grid-template-columns: 76px 1fr;
   background: #eef2f5;
@@ -164,7 +167,15 @@ button {
   height: 100%;
   min-height: 0;
   padding: 14px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-content: start;
+  scrollbar-gutter: stable;
+}
+
+.page-grid > *,
+.reports-page > * {
+  min-width: 0;
 }
 
 .panel {
@@ -193,13 +204,15 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .run-page {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(460px, 1fr) 340px;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 340px);
   gap: 14px;
 }
 
@@ -207,7 +220,7 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px minmax(520px, 1fr) 320px;
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(280px, 320px);
   gap: 14px;
 }
 
@@ -215,7 +228,7 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 330px minmax(460px, 1fr) minmax(360px, 0.75fr);
+  grid-template-columns: minmax(280px, 330px) minmax(0, 1fr) minmax(280px, 0.75fr);
   gap: 14px;
 }
 
@@ -223,7 +236,7 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(520px, 1fr) 340px;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 340px);
   gap: 14px;
 }
 
@@ -231,10 +244,12 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(320px, 0.85fr) minmax(440px, 1.05fr) minmax(420px, 1fr);
+  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.05fr) minmax(300px, 1fr);
   align-items: stretch;
+  align-content: start;
   gap: 18px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-bottom: 22px;
   scrollbar-gutter: stable;
 }
@@ -563,9 +578,13 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(340px, 0.9fr) minmax(420px, 1fr) minmax(330px, 0.8fr);
-  grid-template-rows: minmax(0, 0.58fr) minmax(300px, 0.42fr);
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.05fr) minmax(280px, 0.78fr);
+  grid-template-rows: minmax(360px, auto) minmax(320px, auto);
   gap: 16px;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 22px;
 }
 
 .benchmark-control,
@@ -580,10 +599,12 @@ button {
 .benchmark-control,
 .benchmark-history {
   grid-row: 1 / -1;
+  min-height: 700px;
 }
 
 .benchmark-results {
   grid-column: 2 / 3;
+  min-height: 320px;
 }
 
 .benchmark-form {
@@ -596,7 +617,7 @@ button {
 }
 
 .benchmark-form textarea {
-  min-height: 330px;
+  min-height: 280px;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -604,7 +625,7 @@ button {
 
 .benchmark-kpis {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
   padding: 14px;
   border-bottom: 1px solid #e4e9ee;
@@ -681,7 +702,7 @@ button {
 }
 
 .benchmark-result-head {
-  grid-template-columns: minmax(120px, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
 }
 
 .benchmark-error {
@@ -2757,11 +2778,41 @@ textarea:focus {
   font-size: 13px;
 }
 
-@media (max-width: 1180px) {
-  body {
-    min-width: 0;
+@media (max-width: 1440px) {
+  .benchmark-page {
+    grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+    grid-template-rows: auto auto auto;
   }
 
+  .benchmark-control {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .benchmark-summary,
+  .benchmark-results {
+    grid-column: 2;
+  }
+
+  .benchmark-history {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 1360px) {
+  .mcp-page {
+    grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .mcp-call-panel {
+    grid-column: 1 / -1;
+    min-height: 560px;
+  }
+}
+
+@media (max-width: 1180px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -2819,6 +2870,16 @@ textarea:focus {
 
   .markdown-card {
     grid-row: auto;
+  }
+
+  .benchmark-control,
+  .benchmark-summary,
+  .benchmark-history,
+  .benchmark-results,
+  .mcp-call-panel {
+    grid-column: auto;
+    grid-row: auto;
+    min-height: 320px;
   }
 }
 
