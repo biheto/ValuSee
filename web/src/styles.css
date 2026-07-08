@@ -593,12 +593,16 @@ button {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
-  grid-template-rows: minmax(380px, auto) minmax(360px, auto);
-  gap: 16px;
+  grid-template-rows: minmax(520px, auto) minmax(420px, auto);
+  grid-template-areas:
+    "run metrics"
+    "history results";
+  column-gap: 16px;
+  row-gap: 22px;
   align-content: start;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-bottom: 22px;
+  padding-bottom: 28px;
 }
 
 .benchmark-control,
@@ -608,30 +612,27 @@ button {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .benchmark-control {
-  grid-column: 1;
-  grid-row: 1;
+  grid-area: run;
   min-height: 520px;
 }
 
 .benchmark-summary {
-  grid-column: 2;
-  grid-row: 1;
+  grid-area: metrics;
   min-height: 520px;
 }
 
 .benchmark-history {
-  grid-column: 1;
-  grid-row: 2;
-  min-height: 360px;
+  grid-area: history;
+  min-height: 420px;
 }
 
 .benchmark-results {
-  grid-column: 2;
-  grid-row: 2;
-  min-height: 360px;
+  grid-area: results;
+  min-height: 420px;
 }
 
 .benchmark-form {
@@ -2808,29 +2809,10 @@ textarea:focus {
 @media (max-width: 1440px) {
   .benchmark-page {
     grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
-    grid-template-rows: minmax(380px, auto) minmax(360px, auto);
-  }
-
-  .benchmark-control {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .benchmark-summary {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .benchmark-history {
-    grid-column: 1;
-    grid-row: 2;
-    min-height: 360px;
-  }
-
-  .benchmark-results {
-    grid-column: 2;
-    grid-row: 2;
-    min-height: 360px;
+    grid-template-rows: minmax(520px, auto) minmax(420px, auto);
+    grid-template-areas:
+      "run metrics"
+      "history results";
   }
 }
 
@@ -2878,6 +2860,15 @@ textarea:focus {
   .reports-page {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
+  }
+
+  .benchmark-page {
+    grid-template-areas:
+      "run"
+      "metrics"
+      "history"
+      "results";
+    row-gap: 16px;
   }
 
   .llm-recent,
