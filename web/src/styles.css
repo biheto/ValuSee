@@ -266,6 +266,7 @@ button {
 .mcp-call-panel {
   display: flex;
   flex-direction: column;
+  min-height: 820px;
 }
 
 .mcp-status-row {
@@ -418,14 +419,26 @@ button {
 
 .mcp-call-panel .mcp-form {
   flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  padding: 14px;
   overflow: visible;
   border-bottom: 1px solid #e4e9ee;
 }
 
+.mcp-call-panel .mcp-form label:has(textarea),
+.mcp-call-panel .mcp-form button {
+  grid-column: 1 / -1;
+}
+
+.mcp-call-panel .mcp-form textarea {
+  min-height: 88px;
+}
+
 .mcp-result {
   flex: 0 0 auto;
-  max-height: 240px;
-  margin: 0 16px 16px;
+  max-height: 140px;
+  margin: 0 16px 12px;
   overflow: auto;
   padding: 12px;
   border: 1px solid #dce5ed;
@@ -437,7 +450,8 @@ button {
 }
 
 .mcp-log-list {
-  flex: 1 1 auto;
+  flex: 1 1 420px;
+  min-height: 420px;
   display: grid;
   align-content: start;
   gap: 12px;
@@ -578,8 +592,8 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.05fr) minmax(280px, 0.78fr);
-  grid-template-rows: minmax(360px, auto) minmax(320px, auto);
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
+  grid-template-rows: minmax(380px, auto) minmax(360px, auto);
   gap: 16px;
   align-content: start;
   overflow-x: hidden;
@@ -596,15 +610,28 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.benchmark-control,
+.benchmark-control {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 520px;
+}
+
+.benchmark-summary {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 520px;
+}
+
 .benchmark-history {
-  grid-row: 1 / -1;
-  min-height: 700px;
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 360px;
 }
 
 .benchmark-results {
-  grid-column: 2 / 3;
-  min-height: 320px;
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 360px;
 }
 
 .benchmark-form {
@@ -2781,23 +2808,29 @@ textarea:focus {
 @media (max-width: 1440px) {
   .benchmark-page {
     grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
-    grid-template-rows: auto auto auto;
+    grid-template-rows: minmax(380px, auto) minmax(360px, auto);
   }
 
   .benchmark-control {
     grid-column: 1;
-    grid-row: 1 / span 2;
+    grid-row: 1;
   }
 
-  .benchmark-summary,
-  .benchmark-results {
+  .benchmark-summary {
     grid-column: 2;
+    grid-row: 1;
   }
 
   .benchmark-history {
-    grid-column: 1 / -1;
-    grid-row: auto;
-    min-height: 300px;
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 360px;
+  }
+
+  .benchmark-results {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 360px;
   }
 }
 
@@ -2808,7 +2841,11 @@ textarea:focus {
 
   .mcp-call-panel {
     grid-column: 1 / -1;
-    min-height: 560px;
+    min-height: 680px;
+  }
+
+  .mcp-log-list {
+    min-height: 360px;
   }
 }
 
