@@ -36,7 +36,7 @@
 
 ### Architecture / 架构图
 
-![Architecture](docs/assets/architecture.svg)
+![Architecture](docs/assets/architecture.png)
 
 ## Highlights / 项目亮点
 
