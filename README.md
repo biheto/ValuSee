@@ -321,6 +321,26 @@ The repository history was organized from the local development process before o
 
 ## License / 许可证
 
-No license has been selected yet. Add a license before public production use.
+This project is licensed under the [MIT License](LICENSE).
 
-当前尚未选择开源许可证。正式公开使用前建议补充 LICENSE。
+Copyright (c) 2026 biheto. If you use, modify, or distribute this project,
+please keep the original copyright notice and license text.
+
+本项目使用 [MIT License](LICENSE) 开源。你可以使用、修改和分发本项目，
+但需要保留原始版权声明和许可证文本。
+
+## Attribution / 引用说明
+
+If this project helps your research, study, or engineering work, attribution is appreciated:
+
+```text
+DevAgent Studio by biheto
+https://github.com/biheto/DevAgent-Studio
+```
+
+如果本项目对你的研究、学习或工程实践有帮助，欢迎在相关文档、项目说明或引用中注明来源：
+
+```text
+DevAgent Studio by biheto
+https://github.com/biheto/DevAgent-Studio
+```
