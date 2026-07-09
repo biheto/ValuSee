@@ -10,13 +10,29 @@
 
 ## Preview / 页面预览
 
-### Workbench / 多 Agent 工作台
+### Run Workbench / 运行工作台
 
-![DevAgent Studio Workbench](docs/assets/workbench-preview.svg)
+![Run Workbench](docs/assets/run-preview.png)
+
+### Visual Workflow / 可视化 Workflow
+
+![Visual Workflow](docs/assets/workflow-preview.png)
+
+### Interactive Chat / 项目追问
+
+![Interactive Chat](docs/assets/chat-preview.png)
+
+### LLM Console / LLM 控制台
+
+![LLM Console](docs/assets/llm-console-preview.png)
+
+### MCP Console / MCP 管理台
+
+![MCP Console](docs/assets/mcp-console-preview.png)
 
 ### Benchmark Dashboard / Benchmark 评测面板
 
-![Benchmark Dashboard](docs/assets/benchmark-preview.svg)
+![Benchmark Dashboard](docs/assets/benchmark-dashboard-preview.png)
 
 ### Architecture / 架构图
 
@@ -321,26 +337,6 @@ The repository history was organized from the local development process before o
 
 ## License / 许可证
 
-This project is licensed under the [MIT License](LICENSE).
+No license has been selected yet. Add a license before public production use.
 
-Copyright (c) 2026 biheto. If you use, modify, or distribute this project,
-please keep the original copyright notice and license text.
-
-本项目使用 [MIT License](LICENSE) 开源。你可以使用、修改和分发本项目，
-但需要保留原始版权声明和许可证文本。
-
-## Attribution / 引用说明
-
-If this project helps your research, study, or engineering work, attribution is appreciated:
-
-```text
-DevAgent Studio by biheto
-https://github.com/biheto/DevAgent-Studio
-```
-
-如果本项目对你的研究、学习或工程实践有帮助，欢迎在相关文档、项目说明或引用中注明来源：
-
-```text
-DevAgent Studio by biheto
-https://github.com/biheto/DevAgent-Studio
-```
+当前尚未选择开源许可证。正式公开使用前建议补充 LICENSE。
