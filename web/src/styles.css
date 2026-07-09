@@ -644,6 +644,28 @@ button {
   overflow: auto;
 }
 
+.benchmark-type-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.benchmark-type-tabs button {
+  min-height: 32px;
+  border: 1px solid #d8e0e8;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #405064;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.benchmark-type-tabs button.active {
+  border-color: #9fc8dc;
+  background: #e8f4fa;
+  color: #245e88;
+}
+
 .benchmark-form textarea {
   min-height: 280px;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -657,6 +679,15 @@ button {
   gap: 10px;
   padding: 14px;
   border-bottom: 1px solid #e4e9ee;
+}
+
+.benchmark-focus {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e4e9ee;
+  color: #526176;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .benchmark-case-list,

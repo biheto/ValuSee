@@ -8,7 +8,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
-from app.benchmark_runner import run_mcp_benchmark
+from app.benchmark_runner import (
+    run_collaboration_benchmark,
+    run_llm_benchmark,
+    run_mcp_benchmark,
+    run_rag_benchmark,
+    run_workflow_benchmark,
+)
 from app.graphs.project_analyzer_graph import project_analyzer_graph
 from app.graphs.studio_graphs import (
     code_review_graph,
@@ -374,6 +380,42 @@ def list_mcp_tool_call_logs(limit: int = 100, server_id: str | None = None) -> d
 def run_mcp_benchmark_api(request: BenchmarkRunRequest) -> BenchmarkRunResponse:
     try:
         run = run_mcp_benchmark(request.model_dump())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BenchmarkRunResponse(run=run)
+
+
+@router.post("/benchmarks/llm/run", response_model=BenchmarkRunResponse, tags=["Benchmark"])
+def run_llm_benchmark_api(request: BenchmarkRunRequest) -> BenchmarkRunResponse:
+    try:
+        run = run_llm_benchmark(request.model_dump())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BenchmarkRunResponse(run=run)
+
+
+@router.post("/benchmarks/rag/run", response_model=BenchmarkRunResponse, tags=["Benchmark"])
+def run_rag_benchmark_api(request: BenchmarkRunRequest) -> BenchmarkRunResponse:
+    try:
+        run = run_rag_benchmark(request.model_dump())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BenchmarkRunResponse(run=run)
+
+
+@router.post("/benchmarks/workflow/run", response_model=BenchmarkRunResponse, tags=["Benchmark"])
+def run_workflow_benchmark_api(request: BenchmarkRunRequest) -> BenchmarkRunResponse:
+    try:
+        run = run_workflow_benchmark(request.model_dump())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BenchmarkRunResponse(run=run)
+
+
+@router.post("/benchmarks/collaboration/run", response_model=BenchmarkRunResponse, tags=["Benchmark"])
+def run_collaboration_benchmark_api(request: BenchmarkRunRequest) -> BenchmarkRunResponse:
+    try:
+        run = run_collaboration_benchmark(request.model_dump())
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return BenchmarkRunResponse(run=run)

@@ -50,9 +50,9 @@ import {
   listWorkflows,
   queryKnowledge,
   reviewTask,
+  runBenchmark,
   runCollaborationTaskStream,
   runLlmPromptAbTest,
-  runMcpBenchmark,
   runTaskStream,
   saveMcpServer,
   saveLlmPrompt,
@@ -71,6 +71,7 @@ import {
   AskResponse,
   BenchmarkCase,
   BenchmarkRun,
+  BenchmarkType,
   ExecutionMode,
   LearningChatResponse,
   LearningPlanRecord,
@@ -246,6 +247,7 @@ export function App() {
   const [mcpLogs, setMcpLogs] = useState<McpToolCallLog[]>([]);
   const [benchmarkRuns, setBenchmarkRuns] = useState<BenchmarkRun[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkRun | null>(null);
+  const [benchmarkType, setBenchmarkType] = useState<BenchmarkType>('mcp');
   const [benchmarkRunning, setBenchmarkRunning] = useState(false);
   const [benchmarkError, setBenchmarkError] = useState('');
   const [focusPickerOpen, setFocusPickerOpen] = useState(false);
@@ -298,7 +300,7 @@ export function App() {
     refreshLlmTraces().catch(() => undefined);
     refreshLlmGovernance().catch(() => undefined);
     refreshMcp('real_filesystem').catch(() => undefined);
-    refreshBenchmarks().catch(() => undefined);
+    refreshBenchmarks('mcp').catch(() => undefined);
   }, []);
 
   async function refreshTasks() {
@@ -336,19 +338,21 @@ export function App() {
     setMcpLogs(logs);
   }
 
-  async function refreshBenchmarks() {
-    const runs = await listBenchmarks(50, 'mcp');
+  async function refreshBenchmarks(nextType = benchmarkType) {
+    const runs = await listBenchmarks(50, nextType);
     setBenchmarkRuns(runs);
-    if (!selectedBenchmark && runs[0]) setSelectedBenchmark(await getBenchmark(runs[0].run_id));
+    if (!selectedBenchmark || selectedBenchmark.benchmark_type !== nextType) {
+      setSelectedBenchmark(runs[0] ? await getBenchmark(runs[0].run_id) : null);
+    }
   }
 
   async function handleRunBenchmark(payload: { name: string; agent_code: string; iterations: number; cases: BenchmarkCase[] }) {
     setBenchmarkRunning(true);
     setBenchmarkError('');
     try {
-      const run = await runMcpBenchmark(payload);
+      const run = await runBenchmark(benchmarkType, payload);
       setSelectedBenchmark(run);
-      await refreshBenchmarks();
+      await refreshBenchmarks(benchmarkType);
       await refreshMcp();
       return run;
     } catch (error) {
@@ -363,6 +367,13 @@ export function App() {
   async function handleOpenBenchmark(runId: string) {
     setBenchmarkError('');
     setSelectedBenchmark(await getBenchmark(runId));
+  }
+
+  async function handleBenchmarkTypeChange(nextType: BenchmarkType) {
+    setBenchmarkType(nextType);
+    setBenchmarkError('');
+    setSelectedBenchmark(null);
+    await refreshBenchmarks(nextType);
   }
 
   async function handleSaveMcpServer(payload: {
@@ -1285,13 +1296,15 @@ export function App() {
 
         {activeView === 'benchmark' ? (
           <BenchmarkPage
+            benchmarkType={benchmarkType}
             runs={benchmarkRuns}
             selectedRun={selectedBenchmark}
             running={benchmarkRunning}
             error={benchmarkError}
+            onBenchmarkTypeChange={handleBenchmarkTypeChange}
             onRun={handleRunBenchmark}
             onOpen={handleOpenBenchmark}
-            onRefresh={refreshBenchmarks}
+            onRefresh={() => refreshBenchmarks(benchmarkType)}
           />
         ) : null}
 
@@ -2145,8 +2158,100 @@ function defaultMcpCallArguments(toolName: string, serverId: string) {
   return JSON.stringify(samples[name] ?? {}, null, 2);
 }
 
-function defaultBenchmarkCases(): BenchmarkCase[] {
+function defaultBenchmarkCases(type: BenchmarkType = 'mcp'): BenchmarkCase[] {
   const projectPath = defaultProjectPath.replace(/\\/g, '/');
+  if (type === 'llm') {
+    return [
+      {
+        case_id: 'planner_v1_project_plan',
+        tool_name: 'planner.v1',
+        arguments: {
+          agent: 'planner',
+          prompt_version: 'planner.v1',
+          system_prompt: 'You are a concise software project planning agent.',
+          user_prompt: 'Plan how to analyze DevAgent Studio from architecture, risks, knowledge, and workflow.',
+          fallback: 'Analyze architecture, risks, knowledge assets, workflow runtime, and next actions.',
+          expected_keywords: ['architecture', 'risk', 'workflow'],
+        },
+        enabled: true,
+      },
+      {
+        case_id: 'reporter_v1_governance_report',
+        tool_name: 'reporter.v1',
+        arguments: {
+          agent: 'reporter',
+          prompt_version: 'reporter.v1',
+          system_prompt: 'You are a software governance report writer.',
+          user_prompt: 'Write a concise governance summary for a multi-agent project analysis workbench.',
+          fallback: 'The report should cover quality, risk, review, traceability, and next actions.',
+          expected_keywords: ['quality', 'risk', 'traceability'],
+        },
+        enabled: true,
+      },
+    ];
+  }
+  if (type === 'rag') {
+    return [
+      {
+        case_id: 'project_memory_workflow',
+        tool_name: 'rag.query',
+        arguments: {
+          collection: 'project-memory',
+          question: 'workflow runtime human review resume',
+          expected_keywords: ['workflow', 'review', 'resume'],
+          limit: 5,
+        },
+        enabled: true,
+      },
+      {
+        case_id: 'default_project_structure',
+        tool_name: 'rag.query',
+        arguments: {
+          collection: 'default',
+          question: 'project structure FastAPI LangGraph agents',
+          expected_keywords: ['FastAPI', 'LangGraph', 'Agent'],
+          limit: 5,
+        },
+        enabled: true,
+      },
+    ];
+  }
+  if (type === 'workflow') {
+    return [
+      {
+        case_id: 'planner_reporter_smoke',
+        tool_name: 'workflow.run',
+        arguments: {
+          workflow_name: 'benchmark_planner_reporter',
+          input_text: 'Create a short governance summary for DevAgent Studio.',
+          nodes: [
+            { id: 'plan', type: 'planner', name: 'Planner', config: {} },
+            { id: 'report', type: 'reporter', name: 'Reporter', config: {} },
+          ],
+          edges: [{ source: 'plan', target: 'report' }],
+          expected_nodes: ['plan', 'report'],
+        },
+        enabled: true,
+      },
+    ];
+  }
+  if (type === 'collaboration') {
+    return [
+      {
+        case_id: 'collab_project_governance',
+        tool_name: 'collaboration.run',
+        arguments: {
+          goal: 'Analyze DevAgent Studio and produce project structure, code risk, knowledge, and governance suggestions.',
+          project_path: projectPath,
+          max_files: 80,
+          require_human_review: true,
+          expected_sections: ['Project', 'Code', 'RAG', 'Supervisor'],
+          expected_risk_keywords: ['risk', 'review', 'governance', 'quality'],
+        },
+        enabled: true,
+      },
+    ];
+  }
   return [
     {
       case_id: 'fs_read_readme',
@@ -2188,6 +2293,71 @@ function defaultBenchmarkCases(): BenchmarkCase[] {
       enabled: true,
     },
   ];
+}
+
+function benchmarkTypeLabel(type: BenchmarkType) {
+  const labels: Record<BenchmarkType, string> = {
+    mcp: 'MCP',
+    llm: 'LLM',
+    rag: 'RAG',
+    workflow: 'Workflow',
+    collaboration: 'Collab',
+  };
+  return labels[type];
+}
+
+function benchmarkName(type: BenchmarkType) {
+  const names: Record<BenchmarkType, string> = {
+    mcp: 'MCP Tool Benchmark',
+    llm: 'LLM Prompt/Model Benchmark',
+    rag: 'RAG Retrieval Benchmark',
+    workflow: 'Workflow Runtime Benchmark',
+    collaboration: 'Multi-Agent Collaboration Benchmark',
+  };
+  return names[type];
+}
+
+function benchmarkMetricItems(type: BenchmarkType, summary: Record<string, unknown>) {
+  const pct = (value: unknown) => `${Math.round(Number(value ?? 0) * 100)}%`;
+  const base = [
+    { label: 'success', value: pct(summary.success_rate) },
+    { label: 'avg latency', value: `${summary.avg_latency_ms ?? 0}ms` },
+    { label: 'p95 latency', value: `${summary.p95_latency_ms ?? 0}ms` },
+    { label: 'failures', value: String(summary.failed ?? 0) },
+  ];
+  if (type === 'llm') {
+    return [
+      { label: 'quality', value: String(summary.avg_quality_score ?? 0) },
+      { label: 'fallback', value: pct(summary.fallback_rate) },
+      { label: 'tokens', value: String(summary.total_tokens ?? 0) },
+      { label: 'cost', value: `$${Number(summary.estimated_cost_usd ?? 0).toFixed(6)}` },
+    ];
+  }
+  if (type === 'rag') {
+    return [
+      { label: 'hit rate', value: pct(summary.hit_rate) },
+      { label: 'source quality', value: String(summary.avg_source_quality ?? 0) },
+      { label: 'avg results', value: String(summary.avg_result_count ?? 0) },
+      { label: 'failures', value: String(summary.failed ?? 0) },
+    ];
+  }
+  if (type === 'workflow') {
+    return [
+      { label: 'workflow ok', value: pct(summary.workflow_success_rate) },
+      { label: 'failed nodes', value: String(summary.failed_node_count ?? 0) },
+      { label: 'avg nodes', value: String(summary.avg_completed_nodes ?? 0) },
+      { label: 'p95 latency', value: `${summary.p95_latency_ms ?? 0}ms` },
+    ];
+  }
+  if (type === 'collaboration') {
+    return [
+      { label: 'completeness', value: String(summary.avg_completeness_score ?? 0) },
+      { label: 'risk score', value: pct(summary.avg_risk_detection_score) },
+      { label: 'review trigger', value: pct(summary.human_review_trigger_rate) },
+      { label: 'p95 latency', value: `${summary.p95_latency_ms ?? 0}ms` },
+    ];
+  }
+  return base;
 }
 
 function summarizeMcpLogInput(log: McpToolCallLog) {
@@ -2493,30 +2663,41 @@ function McpManagementPage({
 }
 
 function BenchmarkPage({
+  benchmarkType,
   runs,
   selectedRun,
   running,
   error,
+  onBenchmarkTypeChange,
   onRun,
   onOpen,
   onRefresh,
 }: {
+  benchmarkType: BenchmarkType;
   runs: BenchmarkRun[];
   selectedRun: BenchmarkRun | null;
   running: boolean;
   error: string;
+  onBenchmarkTypeChange: (type: BenchmarkType) => Promise<void>;
   onRun: (payload: { name: string; agent_code: string; iterations: number; cases: BenchmarkCase[] }) => Promise<BenchmarkRun>;
   onOpen: (runId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 }) {
-  const [name, setName] = useState('MCP Tool Benchmark');
+  const [name, setName] = useState(benchmarkName(benchmarkType));
   const [agentCode, setAgentCode] = useState('benchmark_runner');
   const [iterations, setIterations] = useState(3);
-  const [casesText, setCasesText] = useState(JSON.stringify(defaultBenchmarkCases(), null, 2));
+  const [casesText, setCasesText] = useState(JSON.stringify(defaultBenchmarkCases(benchmarkType), null, 2));
   const [message, setMessage] = useState('');
   const summary = selectedRun?.summary ?? {};
   const results = selectedRun?.results ?? [];
   const failedResults = results.filter((item) => item.status !== 'completed');
+  const metricItems = benchmarkMetricItems(benchmarkType, summary);
+
+  useEffect(() => {
+    setName(benchmarkName(benchmarkType));
+    setCasesText(JSON.stringify(defaultBenchmarkCases(benchmarkType), null, 2));
+    setMessage('');
+  }, [benchmarkType]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -2531,6 +2712,18 @@ function BenchmarkPage({
       <div className="panel benchmark-control">
         <PanelTitle icon={<BarChart3 size={17} />} title="Benchmark Run" action={<button className="icon-button" onClick={onRefresh}><RefreshCw size={15} /></button>} />
         <form className="benchmark-form" onSubmit={submit}>
+          <div className="benchmark-type-tabs">
+            {(['mcp', 'llm', 'rag', 'workflow', 'collaboration'] as BenchmarkType[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                className={benchmarkType === type ? 'active' : ''}
+                onClick={() => onBenchmarkTypeChange(type)}
+              >
+                {benchmarkTypeLabel(type)}
+              </button>
+            ))}
+          </div>
           <label>
             name
             <input value={name} onChange={(event) => setName(event.target.value)} />
@@ -2553,7 +2746,7 @@ function BenchmarkPage({
           </label>
           <button className="primary" disabled={running} type="submit">
             {running ? <RefreshCw className="spin" size={17} /> : <Play size={17} />}
-            {running ? 'Running...' : 'Run MCP Benchmark'}
+            {running ? 'Running...' : `Run ${benchmarkTypeLabel(benchmarkType)} Benchmark`}
           </button>
           {message ? <p className="benchmark-message">{message}</p> : null}
           {error ? <p className="error-text">{error}</p> : null}
@@ -2563,11 +2756,9 @@ function BenchmarkPage({
       <div className="panel benchmark-summary">
         <PanelTitle icon={<Activity size={17} />} title="Metrics" />
         <div className="benchmark-kpis">
-          <KpiCard label="success" value={`${Math.round(Number(summary.success_rate ?? 0) * 100)}%`} />
-          <KpiCard label="avg latency" value={`${summary.avg_latency_ms ?? 0}ms`} />
-          <KpiCard label="p95 latency" value={`${summary.p95_latency_ms ?? 0}ms`} />
-          <KpiCard label="failures" value={String(summary.failed ?? 0)} />
+          {metricItems.map((item) => <KpiCard key={item.label} label={item.label} value={item.value} />)}
         </div>
+        {summary.benchmark_focus ? <p className="benchmark-focus">{String(summary.benchmark_focus)}</p> : null}
         <div className="benchmark-case-list">
           {(summary.by_case ?? []).map((item) => (
             <article key={item.case_id} className={`benchmark-case-card ${item.failed ? 'failed' : ''}`}>

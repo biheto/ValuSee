@@ -322,10 +322,12 @@ export type McpToolCallLog = {
   created_at: string;
 };
 
+export type BenchmarkType = 'mcp' | 'llm' | 'rag' | 'workflow' | 'collaboration';
+
 export type BenchmarkCase = {
   case_id: string;
   server_id?: string | null;
-  tool_name: string;
+  tool_name?: string;
   arguments: Record<string, unknown>;
   enabled?: boolean;
 };
@@ -371,6 +373,25 @@ export type BenchmarkSummary = {
   iterations?: number;
   case_count?: number;
   by_case?: BenchmarkSummaryCase[];
+  benchmark_focus?: string;
+  avg_quality_score?: number;
+  fallback_calls?: number;
+  fallback_rate?: number;
+  total_tokens?: number;
+  estimated_cost_usd?: number;
+  hit_count?: number;
+  hit_rate?: number;
+  avg_source_quality?: number;
+  avg_result_count?: number;
+  workflow_success_count?: number;
+  workflow_success_rate?: number;
+  failed_node_count?: number;
+  failed_nodes?: string[];
+  avg_completed_nodes?: number;
+  avg_completeness_score?: number;
+  avg_risk_detection_score?: number;
+  human_review_trigger_count?: number;
+  human_review_trigger_rate?: number;
 };
 
 export type BenchmarkRun = {

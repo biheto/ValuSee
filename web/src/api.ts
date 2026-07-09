@@ -3,6 +3,7 @@ import {
   AskResponse,
   BenchmarkCase,
   BenchmarkRun,
+  BenchmarkType,
   ExecutionMode,
   LearningChatResponse,
   LearningPlanRecord,
@@ -414,6 +415,25 @@ export async function runMcpBenchmark(payload: {
     body: JSON.stringify(payload),
   });
   if (!response.ok) throw await apiError(response, 'MCP benchmark failed');
+  const data = await response.json();
+  return data.run;
+}
+
+export async function runBenchmark(
+  benchmarkType: BenchmarkType,
+  payload: {
+    name: string;
+    agent_code: string;
+    iterations: number;
+    cases: BenchmarkCase[];
+  },
+): Promise<BenchmarkRun> {
+  const response = await fetch(`${API_BASE}/api/v1/benchmarks/${benchmarkType}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, `${benchmarkType} benchmark failed`);
   const data = await response.json();
   return data.run;
 }

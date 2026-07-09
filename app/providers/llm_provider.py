@@ -224,9 +224,12 @@ class LLMProvider:
         agent: str = "unknown",
         prompt_version: str = "v1",
         use_active_prompt: bool = True,
+        model_override: str | None = None,
     ) -> dict[str, Any]:
         system_prompt, prompt_version = self._resolve_prompt(agent, prompt_version, system_prompt, use_active_prompt=use_active_prompt)
         config = self._config(agent)
+        if model_override:
+            config = {**config, "model": model_override}
         trace_id = f"llm_{uuid4().hex}"
         started = time.perf_counter()
         trace_input = {
