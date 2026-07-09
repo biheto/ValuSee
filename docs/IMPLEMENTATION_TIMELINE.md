@@ -171,4 +171,4 @@ Because the current workspace did not have a valid historical Git repository, ex
 7. `docs: document implementation timeline and priorities`
    - Add this timeline and completion summary.
 
-If exact chronological commits are required, the project needs either previous backups or a real commit history from the original development process.
+For open-source presentation, keep commits grouped by capability so that reviewers can follow the architecture, runtime, UI, governance, and benchmark evolution clearly.

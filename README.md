@@ -74,6 +74,41 @@
 | MCP Console | Register MCP servers, discover tools, approve calls, view logs | UI: `MCP` |
 | Benchmark | Evaluate MCP, LLM, RAG, Workflow, Collaboration quality | UI: `Bench` |
 
+## Core Components / 核心组件
+
+DevAgent Studio is built as a clean multi-agent workbench with explicit runtime boundaries. Agents are not only prompt wrappers; each capability is exposed through a reusable Skill, executed through a governed Harness Runtime, and then composed by LangGraph workflows.
+
+DevAgent Studio 按“可复用能力 + 可治理运行时 + 可编排图”的方式组织。Agent 不只是 prompt 封装，每个能力都通过 Skill 暴露，再由 Harness Runtime 统一执行，最后交给 LangGraph 工作流编排。
+
+| Component | Role | Implementation |
+| --- | --- | --- |
+| Skill | Encapsulates a reusable agent capability such as code review, RAG processing, learning coaching, or workflow execution. | `app/skills/base.py`, `app/skills/builtin.py`, `app/skills/registry.py` |
+| Harness Runtime | Adds deterministic execution control around skills and agents, including task context, event emission, artifacts, policy checks, and human review state. | `app/harness/runtime.py`, `app/harness/context.py`, `app/harness/events.py`, `app/harness/policy.py` |
+| LangGraph Workflows | Composes skills, agents, tools, review nodes, and reporter nodes into executable graphs. | `app/graphs/studio_graphs.py`, `app/graphs/workflow_compiler.py` |
+| Providers | Connects external capabilities such as LLM, MCP tools, and RAG storage behind stable provider interfaces. | `app/providers/`, `app/persistence/` |
+
+Typical execution flow:
+
+```text
+User task
+  -> FastAPI task API
+  -> Harness Runtime creates execution context
+  -> Skill or LangGraph node runs deterministic/LLM/tool logic
+  -> events, artifacts, traces and review state are persisted
+  -> Reporter produces final governance report
+```
+
+典型执行链路：
+
+```text
+用户任务
+  -> FastAPI 任务接口
+  -> Harness Runtime 创建执行上下文
+  -> Skill 或 LangGraph 节点运行规则、LLM 或工具逻辑
+  -> 持久化事件、产物、Trace 和人工审核状态
+  -> Reporter 生成最终治理报告
+```
+
 ## Quick Start / 快速启动
 
 ### 1. Clone and enter the project / 克隆项目
@@ -275,7 +310,7 @@ DevAgent Studio/
 - **Workflow**: drag and arrange workflow nodes, validate and execute.
 - **Reports**: final report, governance suggestions, Mermaid graph.
 - **Chat**: task Q&A, knowledge query, learning coach.
-- **History**: replay previous tasks and artifacts.
+- **History**: replay task records and artifacts.
 - **LLM**: traces, prompt versions, token/cost dashboard, A/B tests.
 - **MCP**: server config, tool discovery, approval, test call logs.
 - **Bench**: MCP/LLM/RAG/Workflow/Collaboration benchmark dashboard.
@@ -321,10 +356,7 @@ npm run build
 See:
 
 - [Implementation Timeline](docs/IMPLEMENTATION_TIMELINE.md)
-- [Project Design](docs/PROJECT_DESIGN.md)
 - [Workflow Production Notes](docs/PHASE_8_WORKFLOW_PRODUCTION.md)
-
-The repository history was organized from the local development process before open-sourcing.
 
 ## Roadmap / 后续计划
 
@@ -337,6 +369,26 @@ The repository history was organized from the local development process before o
 
 ## License / 许可证
 
-No license has been selected yet. Add a license before public production use.
+This project is licensed under the [MIT License](LICENSE).
 
-当前尚未选择开源许可证。正式公开使用前建议补充 LICENSE。
+Copyright (c) 2026 biheto. If you use, modify, or distribute this project,
+please keep the original copyright notice and license text.
+
+本项目使用 [MIT License](LICENSE) 开源。你可以使用、修改和分发本项目，
+但需要保留原始版权声明和许可证文本。
+
+## Attribution / 引用说明
+
+If this project helps your research, study, or engineering work, attribution is appreciated:
+
+```text
+DevAgent Studio by biheto
+https://github.com/biheto/DevAgent-Studio
+```
+
+如果本项目对你的研究、学习或工程实践有帮助，欢迎在相关文档、项目说明或引用中注明来源：
+
+```text
+DevAgent Studio by biheto
+https://github.com/biheto/DevAgent-Studio
+```
