@@ -12,6 +12,7 @@ from app.graphs.studio_graphs import code_review_graph, learning_coach_graph, ra
 from app.harness.events import utc_now_iso
 from app.persistence.rag_store import rag_store
 from app.providers.mcp_provider import mcp_provider
+from app.skills.executor import execute_skill
 
 
 def _append_list(left: list[Any] | None, right: list[Any] | None) -> list[Any]:
@@ -52,7 +53,7 @@ class WorkflowState(TypedDict, total=False):
     validation: dict[str, Any]
 
 
-SUPPORTED_NODE_TYPES = {"planner", "agent", "rag", "mcp_tool", "supervisor", "human_review", "reporter"}
+SUPPORTED_NODE_TYPES = {"planner", "agent", "rag", "mcp_tool", "skill", "supervisor", "human_review", "reporter"}
 SUPPORTED_EDGE_CONDITIONS = {"always", "on_status", "contains", "truthy_output"}
 
 
@@ -321,6 +322,8 @@ def validate_workflow_definition(nodes: list[dict[str, Any]], edges: list[dict[s
             warnings.append(f"Node `{node.get('id')}` retry_count should be between 0 and 5.")
         if node.get("type") == "agent" and config.get("agent_type") == "file_reviewer" and not config.get("file_path"):
             warnings.append(f"File review node `{node.get('id')}` should set file_path.")
+        if node.get("type") == "skill" and not config.get("skill_code"):
+            warnings.append(f"Skill node `{node.get('id')}` should set skill_code.")
 
     seen_edges: set[tuple[str, str, str]] = set()
     for edge in normalized_edges:
@@ -604,6 +607,30 @@ def _execute_node(node: dict[str, Any], state: WorkflowState, outputs: dict[str,
 
     if node_type == "mcp_tool":
         return _run_tool_node(node, config, project_path, max_files)
+
+    if node_type == "skill":
+        skill_code = str(config.get("skill_code") or "")
+        if not skill_code:
+            raise ValueError("skill_code is required for skill node")
+        skill_input = {
+            "project_path": project_path,
+            "root_path": project_path,
+            "repo_path": project_path,
+            "max_files": max_files,
+            "goal": goal,
+            **(config.get("input") if isinstance(config.get("input"), dict) else {}),
+        }
+        result = execute_skill(
+            skill_code,
+            skill_input,
+            agent_code=str(config.get("agent_code") or "skill_console"),
+            task_id=str(state.get("task_id") or "") or None,
+        )
+        output = result.get("output", {})
+        return output, {
+            "agent_output": _agent_output(node, f"skill:{skill_code}", _compact_output(output)),
+            "suggestions": [f"Skill `{skill_code}` completed in {result.get('latency_ms', 0)}ms."],
+        }
 
     if node_type == "supervisor":
         notes = _supervisor_notes(outputs)

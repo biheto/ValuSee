@@ -411,3 +411,55 @@ export type BenchmarkRun = {
   finished_at?: string | null;
   created_at: string;
 };
+
+export type SkillPlugin = {
+  plugin_id: string;
+  name: string;
+  version: string;
+  source_type: string;
+  source_url?: string | null;
+  author?: string | null;
+  description?: string | null;
+  enabled: boolean;
+  installed_at: string;
+  updated_at: string;
+};
+
+export type SkillRecord = {
+  code: string;
+  plugin_id: string;
+  source_plugin: string;
+  name: string;
+  description?: string | null;
+  category: string;
+  execution_type: string;
+  permissions: string[];
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  default_input: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SkillApproval = {
+  skill_code: string;
+  agent_code: string;
+  allowed: boolean;
+  reason?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SkillExecutionLog = {
+  log_id: string;
+  skill_code: string;
+  agent_code?: string | null;
+  task_id?: string | null;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  status: string;
+  error_message?: string | null;
+  latency_ms: number;
+  created_at: string;
+};

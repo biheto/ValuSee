@@ -37,6 +37,7 @@ from app.persistence.sqlite_store import task_store
 from app.providers.llm_provider import llm_provider
 from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
+from app.skills.executor import ensure_builtin_skills_seeded, execute_skill
 from app.schemas.studio import (
     BenchmarkRunRequest,
     BenchmarkRunResponse,
@@ -283,6 +284,72 @@ def update_learning_plan(plan_id: str, request: LearningPlanStatusRequest) -> Le
         }
     )
     return LearningPlanResponse(plan=updated)
+
+
+@router.get("/skills/plugins", tags=["Skills"])
+def list_skill_plugins() -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    return {"plugins": task_store.list_skill_plugins()}
+
+
+@router.get("/skills", tags=["Skills"])
+def list_skills(category: str | None = None) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    return {"skills": task_store.list_skills(category)}
+
+
+@router.get("/skills/approvals", tags=["Skills"])
+def list_skill_approvals(agent_code: str | None = None) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    return {"approvals": task_store.list_skill_approvals(agent_code)}
+
+
+@router.get("/skills/execution-logs", tags=["Skills"])
+def list_skill_execution_logs(limit: int = 100, skill_code: str | None = None) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    return {"logs": task_store.list_skill_execution_logs(limit=limit, skill_code=skill_code)}
+
+
+@router.post("/skills/{skill_code}/enabled", tags=["Skills"])
+def set_skill_enabled(skill_code: str, payload: dict[str, object]) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    skill = task_store.update_skill_enabled(skill_code, bool(payload.get("enabled")))
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"skill": skill}
+
+
+@router.post("/skills/{skill_code}/approval", tags=["Skills"])
+def set_skill_approval(skill_code: str, payload: dict[str, object]) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    if not task_store.get_skill(skill_code):
+        raise HTTPException(status_code=404, detail="Skill not found")
+    agent_code = str(payload.get("agent_code") or "skill_console").strip()
+    approval = task_store.set_skill_approval(
+        skill_code,
+        agent_code,
+        bool(payload.get("allowed")),
+        str(payload.get("reason") or "").strip() or None,
+    )
+    return {"approval": approval}
+
+
+@router.post("/skills/{skill_code}/execute", tags=["Skills"])
+def execute_skill_api(skill_code: str, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        result = execute_skill(
+            skill_code,
+            payload.get("input") if isinstance(payload.get("input"), dict) else {},
+            agent_code=str(payload.get("agent_code") or "skill_console"),
+            task_id=str(payload.get("task_id") or "") or None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
 
 
 @router.get("/mcp/tools", tags=["MCP Tool Marketplace"])

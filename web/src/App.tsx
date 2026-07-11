@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Play,
+  Puzzle,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -32,6 +33,7 @@ import {
   chatLearningCoach,
   createTaskLearningPlan,
   discoverMcpServer,
+  executeSkill,
   getBenchmark,
   getLlmUsage,
   getMcpStatus,
@@ -44,6 +46,10 @@ import {
   listMcpRegisteredTools,
   listMcpServers,
   listMcpToolCallLogs,
+  listSkillApprovals,
+  listSkillExecutionLogs,
+  listSkillPlugins,
+  listSkills,
   listProjectFiles,
   listKnowledgeDocuments,
   listTasks,
@@ -57,6 +63,8 @@ import {
   saveMcpServer,
   saveLlmPrompt,
   saveWorkflow,
+  setSkillApproval,
+  setSkillEnabled,
   setMcpRegisteredToolEnabled,
   setMcpServerEnabled,
   setMcpToolApproval,
@@ -88,6 +96,10 @@ import {
   RagDocument,
   RagResult,
   ResumeSnapshot,
+  SkillApproval,
+  SkillExecutionLog,
+  SkillPlugin,
+  SkillRecord,
   SuggestionRecord,
   TaskResultPayload,
   TaskSummary,
@@ -98,7 +110,7 @@ import {
   WorkflowValidation,
 } from './types';
 
-type ViewKey = 'run' | 'workflow' | 'reports' | 'chat' | 'history' | 'llm' | 'mcp' | 'benchmark';
+type ViewKey = 'run' | 'workflow' | 'reports' | 'chat' | 'history' | 'llm' | 'mcp' | 'skills' | 'benchmark';
 type ChatMode = 'task' | 'knowledge' | 'coach';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; source?: string; day?: number | null; theme?: string | null };
 type FocusKind = 'module' | 'file';
@@ -156,6 +168,7 @@ const navItems: Array<{ view: ViewKey; label: string; icon: typeof LayoutDashboa
   { view: 'history', label: '历史', icon: History },
   { view: 'llm', label: 'LLM', icon: BarChart3 },
   { view: 'mcp', label: 'MCP', icon: Wrench },
+  { view: 'skills', label: 'Skills', icon: Puzzle },
   { view: 'benchmark', label: 'Bench', icon: Activity },
 ];
 
@@ -167,6 +180,7 @@ const palette = [
   { type: 'agent', name: 'RAG Processor', icon: BookOpen, config: { agent_type: 'rag_processor', max_files: 100, ingest: true, collection: 'project-memory' } },
   { type: 'rag', name: 'Knowledge Query', icon: Database, config: { collection: 'default', top_k: 5 } },
   { type: 'mcp_tool', name: 'MCP Tool', icon: Wrench, config: { tool_name: 'filesystem.list' } },
+  { type: 'skill', name: 'Skill', icon: Puzzle, config: { skill_code: 'code.review', agent_code: 'skill_console' } },
   { type: 'supervisor', name: 'Supervisor', icon: Activity, config: {} },
   { type: 'human_review', name: 'Human Review', icon: Check, config: { require_comment: false } },
   { type: 'reporter', name: 'Reporter', icon: FileSearch, config: {} },
@@ -245,6 +259,11 @@ export function App() {
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
   const [mcpTools, setMcpTools] = useState<McpRegisteredTool[]>([]);
   const [mcpLogs, setMcpLogs] = useState<McpToolCallLog[]>([]);
+  const [skillPlugins, setSkillPlugins] = useState<SkillPlugin[]>([]);
+  const [skills, setSkills] = useState<SkillRecord[]>([]);
+  const [skillApprovals, setSkillApprovals] = useState<SkillApproval[]>([]);
+  const [skillLogs, setSkillLogs] = useState<SkillExecutionLog[]>([]);
+  const [selectedSkillCode, setSelectedSkillCode] = useState('code.review');
   const [benchmarkRuns, setBenchmarkRuns] = useState<BenchmarkRun[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkRun | null>(null);
   const [benchmarkType, setBenchmarkType] = useState<BenchmarkType>('mcp');
@@ -300,6 +319,7 @@ export function App() {
     refreshLlmTraces().catch(() => undefined);
     refreshLlmGovernance().catch(() => undefined);
     refreshMcp('real_filesystem').catch(() => undefined);
+    refreshSkills().catch(() => undefined);
     refreshBenchmarks('mcp').catch(() => undefined);
   }, []);
 
@@ -317,6 +337,20 @@ export function App() {
 
   async function refreshLlmTraces(agent = llmTraceAgent) {
     setLlmTraces(await listLlmTraces(50, agent));
+  }
+
+  async function refreshSkills(skillCode = selectedSkillCode) {
+    const [plugins, nextSkills, approvals, logs] = await Promise.all([
+      listSkillPlugins(),
+      listSkills(),
+      listSkillApprovals(),
+      listSkillExecutionLogs(80, skillCode),
+    ]);
+    setSkillPlugins(plugins);
+    setSkills(nextSkills);
+    setSkillApprovals(approvals);
+    setSkillLogs(logs);
+    if (!selectedSkillCode && nextSkills[0]) setSelectedSkillCode(nextSkills[0].code);
   }
 
   async function refreshLlmGovernance(agent = llmAgentFilter) {
@@ -344,6 +378,43 @@ export function App() {
     if (!selectedBenchmark || selectedBenchmark.benchmark_type !== nextType) {
       setSelectedBenchmark(runs[0] ? await getBenchmark(runs[0].run_id) : null);
     }
+  }
+
+  async function handleSkillEnabled(skillCode: string, enabled: boolean) {
+    await setSkillEnabled(skillCode, enabled);
+    await refreshSkills(skillCode);
+  }
+
+  async function handleSkillApproval(skillCode: string, agentCode: string, allowed: boolean, reason: string) {
+    await setSkillApproval({ skill_code: skillCode, agent_code: agentCode, allowed, reason });
+    await refreshSkills(skillCode);
+  }
+
+  async function handleExecuteSkill(skillCode: string, agentCode: string, input: Record<string, unknown>) {
+    const result = await executeSkill({ skill_code: skillCode, agent_code: agentCode, input, task_id: latestTaskId || undefined });
+    await refreshSkills(skillCode);
+    return result;
+  }
+
+  function handleAddSkillToWorkflow(skill: SkillRecord) {
+    const id = `skill_${Date.now()}`;
+    const previous = nodes[nodes.length - 1];
+    const nextNode: WorkflowNode = {
+      id,
+      type: 'skill',
+      name: skill.name,
+      x: previous ? previous.x + 220 : 80,
+      y: previous ? previous.y : 120,
+      config: {
+        skill_code: skill.code,
+        agent_code: 'skill_console',
+        input: skill.default_input ?? {},
+      },
+    };
+    setNodes((items) => [...items, nextNode]);
+    if (previous) setEdges((items) => [...items, { source: previous.id, target: id }]);
+    setSelectedNodeId(id);
+    setActiveView('workflow');
   }
 
   async function handleRunBenchmark(payload: { name: string; agent_code: string; iterations: number; cases: BenchmarkCase[] }) {
@@ -1294,6 +1365,26 @@ export function App() {
           />
         ) : null}
 
+        {activeView === 'skills' ? (
+          <SkillsPage
+            plugins={skillPlugins}
+            skills={skills}
+            approvals={skillApprovals}
+            logs={skillLogs}
+            selectedSkillCode={selectedSkillCode}
+            projectPath={projectPath}
+            onSelectSkill={(code) => {
+              setSelectedSkillCode(code);
+              refreshSkills(code).catch(() => undefined);
+            }}
+            onRefresh={() => refreshSkills(selectedSkillCode)}
+            onSkillEnabled={handleSkillEnabled}
+            onSkillApproval={handleSkillApproval}
+            onExecuteSkill={handleExecuteSkill}
+            onAddToWorkflow={handleAddSkillToWorkflow}
+          />
+        ) : null}
+
         {activeView === 'benchmark' ? (
           <BenchmarkPage
             benchmarkType={benchmarkType}
@@ -1865,6 +1956,7 @@ function NodeConfig({
           <option value="agent">agent</option>
           <option value="rag">rag</option>
           <option value="mcp_tool">mcp_tool</option>
+          <option value="skill">skill</option>
           <option value="supervisor">supervisor</option>
           <option value="human_review">human_review</option>
           <option value="reporter">reporter</option>
@@ -1979,6 +2071,35 @@ function NodeConfig({
             arguments JSON
             <textarea value={mcpArgumentsText} onChange={(event) => handleMcpArgumentsChange(event.target.value)} />
             <FieldHelp>传给真实 MCP Tool 的参数。local 模式也会读取 root_path、file_path、max_files、limit 等字段。</FieldHelp>
+          </label>
+        </>
+      ) : null}
+      {node.type === 'skill' ? (
+        <>
+          <label>
+            skill_code
+            <input value={String(node.config.skill_code ?? 'code.review')} onChange={(event) => onConfigChange('skill_code', event.target.value)} />
+            <FieldHelp>要执行的 Skill 编号，例如 code.review、rag.chunk、security.scan。</FieldHelp>
+          </label>
+          <label>
+            agent_code
+            <input value={String(node.config.agent_code ?? 'skill_console')} onChange={(event) => onConfigChange('agent_code', event.target.value)} />
+            <FieldHelp>用于 Skill 权限审批的执行身份，需要在 Skills 页面审批通过。</FieldHelp>
+          </label>
+          <label>
+            input JSON
+            <textarea
+              value={String(node.config.input_text ?? JSON.stringify(node.config.input ?? {}, null, 2))}
+              onChange={(event) => {
+                onConfigChange('input_text', event.target.value);
+                try {
+                  onConfigChange('input', JSON.parse(event.target.value));
+                } catch {
+                  // Keep raw text until the JSON becomes valid.
+                }
+              }}
+            />
+            <FieldHelp>传给 Skill 的额外输入，会和任务的 project_path、goal、max_files 合并。</FieldHelp>
           </label>
         </>
       ) : null}
@@ -2380,6 +2501,235 @@ function summarizeMcpLogOutput(log: McpToolCallLog) {
     if (data.structuredContent) return summarizeValue(data.structuredContent);
   }
   return summarizeValue(log.output) || '无输出';
+}
+
+function SkillsPage({
+  plugins,
+  skills,
+  approvals,
+  logs,
+  selectedSkillCode,
+  projectPath,
+  onSelectSkill,
+  onRefresh,
+  onSkillEnabled,
+  onSkillApproval,
+  onExecuteSkill,
+  onAddToWorkflow,
+}: {
+  plugins: SkillPlugin[];
+  skills: SkillRecord[];
+  approvals: SkillApproval[];
+  logs: SkillExecutionLog[];
+  selectedSkillCode: string;
+  projectPath: string;
+  onSelectSkill: (code: string) => void;
+  onRefresh: () => Promise<void>;
+  onSkillEnabled: (skillCode: string, enabled: boolean) => Promise<void>;
+  onSkillApproval: (skillCode: string, agentCode: string, allowed: boolean, reason: string) => Promise<void>;
+  onExecuteSkill: (skillCode: string, agentCode: string, input: Record<string, unknown>) => Promise<{ output: Record<string, unknown>; log_id: string; status: string; latency_ms: number }>;
+  onAddToWorkflow: (skill: SkillRecord) => void;
+}) {
+  const selectedSkill = skills.find((item) => item.code === selectedSkillCode) ?? skills[0] ?? null;
+  const [agentCode, setAgentCode] = useState('skill_console');
+  const [approvalReason, setApprovalReason] = useState('Approved from Skills console.');
+  const [inputText, setInputText] = useState('{}');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [message, setMessage] = useState('');
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const categories = Array.from(new Set(skills.map((skill) => skill.category))).sort();
+  const filteredSkills = categoryFilter === 'all' ? skills : skills.filter((skill) => skill.category === categoryFilter);
+  const activeApproval = selectedSkill
+    ? approvals.find((item) => item.skill_code === selectedSkill.code && item.agent_code === agentCode)
+    : undefined;
+  const activePlugin = selectedSkill ? plugins.find((plugin) => plugin.plugin_id === selectedSkill.plugin_id) : null;
+
+  useEffect(() => {
+    if (!selectedSkill) return;
+    const nextInput = { ...(selectedSkill.default_input ?? {}) };
+    for (const key of ['project_path', 'root_path', 'repo_path']) {
+      if (nextInput[key] === '.' || !nextInput[key]) nextInput[key] = projectPath;
+    }
+    setInputText(JSON.stringify(nextInput, null, 2));
+    setResult(null);
+    setMessage('');
+  }, [selectedSkill?.code, projectPath]);
+
+  async function runAction(label: string, action: () => Promise<unknown>) {
+    setMessage('');
+    try {
+      await action();
+      setMessage(`${label} completed.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `${label} failed`);
+    }
+  }
+
+  async function submitExecution(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedSkill) return;
+    await runAction('Skill execution', async () => {
+      const response = await onExecuteSkill(selectedSkill.code, agentCode, parseJsonValue<Record<string, unknown>>(inputText, {}));
+      setResult(response.output);
+    });
+  }
+
+  return (
+    <section className="page-grid skills-page">
+      <div className="panel skill-plugin-panel">
+        <PanelTitle icon={<Puzzle size={17} />} title="已安装插件" action={<button className="icon-button" onClick={onRefresh}><RefreshCw size={15} /></button>} />
+        <div className="skill-kpis">
+          <KpiCard label="plugins" value={String(plugins.length)} />
+          <KpiCard label="skills" value={String(skills.length)} />
+          <KpiCard label="enabled" value={String(skills.filter((skill) => skill.enabled).length)} />
+        </div>
+        <div className="skill-plugin-list">
+          {plugins.map((plugin) => (
+            <article key={plugin.plugin_id} className={activePlugin?.plugin_id === plugin.plugin_id ? 'active' : ''}>
+              <strong>{plugin.name}</strong>
+              <span>{plugin.plugin_id} / {plugin.version} / {plugin.source_type}</span>
+              <p>{plugin.description || 'No description.'}</p>
+            </article>
+          ))}
+          {!plugins.length ? <p className="empty-text">暂无已安装插件。</p> : null}
+        </div>
+      </div>
+
+      <div className="panel skill-list-panel">
+        <PanelTitle icon={<Puzzle size={17} />} title="Skill 列表" />
+        <div className="skill-toolbar">
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            <option value="all">all categories</option>
+            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+          <button className="secondary" onClick={() => selectedSkill && onAddToWorkflow(selectedSkill)} disabled={!selectedSkill}>
+            添加到 Workflow
+          </button>
+        </div>
+        <div className="skill-list">
+          {filteredSkills.map((skill) => (
+            <button key={skill.code} className={selectedSkill?.code === skill.code ? 'active' : ''} onClick={() => onSelectSkill(skill.code)}>
+              <strong>{skill.name}</strong>
+              <span>{skill.code} / {skill.category} / {skill.execution_type}</span>
+              <span>{skill.enabled ? 'enabled' : 'disabled'} / {skill.plugin_id}</span>
+            </button>
+          ))}
+          {!filteredSkills.length ? <p className="empty-text">暂无 Skill。</p> : null}
+        </div>
+      </div>
+
+      <div className="panel skill-detail-panel">
+        <PanelTitle icon={<FileText size={17} />} title="插件详情" />
+        {selectedSkill ? (
+          <div className="skill-detail">
+            <div>
+              <h3>{selectedSkill.name}</h3>
+              <span>{selectedSkill.code}</span>
+            </div>
+            <p>{selectedSkill.description}</p>
+            <dl>
+              <dt>分类</dt>
+              <dd>{selectedSkill.category}</dd>
+              <dt>来源插件</dt>
+              <dd>{selectedSkill.plugin_id}</dd>
+              <dt>执行类型</dt>
+              <dd>{selectedSkill.execution_type}</dd>
+              <dt>状态</dt>
+              <dd>{selectedSkill.enabled ? 'enabled' : 'disabled'}</dd>
+            </dl>
+            <div className="skill-tags">
+              {selectedSkill.permissions.map((permission) => <span key={permission}>{permission}</span>)}
+              {!selectedSkill.permissions.length ? <span>no permission</span> : null}
+            </div>
+            <div className="skill-actions">
+              <button className="secondary" onClick={() => runAction('Skill toggle', () => onSkillEnabled(selectedSkill.code, !selectedSkill.enabled))}>
+                {selectedSkill.enabled ? '停用 Skill' : '启用 Skill'}
+              </button>
+              <button className="secondary" onClick={() => onAddToWorkflow(selectedSkill)}>添加到 Workflow</button>
+            </div>
+            <details className="skill-json">
+              <summary>输入 / 输出 Schema</summary>
+              <pre>{JSON.stringify({ input_schema: selectedSkill.input_schema, output_schema: selectedSkill.output_schema }, null, 2)}</pre>
+            </details>
+          </div>
+        ) : (
+          <p className="empty-text">请选择一个 Skill。</p>
+        )}
+      </div>
+
+      <div className="panel skill-approval-panel">
+        <PanelTitle icon={<ShieldCheck size={17} />} title="权限审批" />
+        <div className="skill-form">
+          <label>
+            agent_code
+            <input value={agentCode} onChange={(event) => setAgentCode(event.target.value)} />
+            <FieldHelp>审批记录按 agent_code 隔离；Workflow 节点执行 Skill 时也会使用这个身份。</FieldHelp>
+          </label>
+          <label>
+            reason
+            <input value={approvalReason} onChange={(event) => setApprovalReason(event.target.value)} />
+          </label>
+          <div className="skill-actions">
+            <button className="secondary" disabled={!selectedSkill} onClick={() => selectedSkill && runAction('Skill approval', () => onSkillApproval(selectedSkill.code, agentCode, true, approvalReason))}>
+              审批通过
+            </button>
+            <button className="secondary" disabled={!selectedSkill} onClick={() => selectedSkill && runAction('Skill approval revoke', () => onSkillApproval(selectedSkill.code, agentCode, false, 'Revoked from Skills console.'))}>
+              撤销审批
+            </button>
+          </div>
+        </div>
+        <div className={`skill-approval-state ${activeApproval?.allowed ? 'approved' : 'pending'}`}>
+          {activeApproval?.allowed ? '当前 Agent 已审批' : '当前 Agent 未审批'}
+          {activeApproval?.reason ? <span>{activeApproval.reason}</span> : null}
+        </div>
+        <div className="skill-approval-list">
+          {approvals.slice(0, 8).map((approval) => (
+            <article key={`${approval.skill_code}-${approval.agent_code}`}>
+              <strong>{approval.skill_code}</strong>
+              <span>{approval.agent_code} / {approval.allowed ? 'allowed' : 'blocked'}</span>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel skill-execute-panel">
+        <PanelTitle icon={<Play size={17} />} title="测试调用" />
+        <form className="skill-form" onSubmit={submitExecution}>
+          <label>
+            input JSON
+            <textarea value={inputText} onChange={(event) => setInputText(event.target.value)} />
+            <FieldHelp>这里是传给 Skill 的输入。项目类 Skill 会读取 project_path / root_path / repo_path。</FieldHelp>
+          </label>
+          <button className="primary" disabled={!selectedSkill || !selectedSkill.enabled} type="submit">
+            <Play size={16} />
+            测试调用 Skill
+          </button>
+        </form>
+        {message ? <p className="skill-message">{message}</p> : null}
+        {result ? <pre className="skill-result">{JSON.stringify(result, null, 2)}</pre> : null}
+      </div>
+
+      <div className="panel skill-log-panel">
+        <PanelTitle icon={<History size={17} />} title="执行日志" />
+        <div className="skill-log-list">
+          {logs.map((log) => (
+            <article key={log.log_id} className={`skill-log-item ${log.status}`}>
+              <div>
+                <strong>{log.skill_code}</strong>
+                <span>{log.status} / {log.latency_ms}ms / {log.created_at}</span>
+              </div>
+              {log.error_message ? <p>{log.error_message}</p> : <p>{summarizeValue(log.output)}</p>}
+              <details className="skill-json">
+                <summary>完整 JSON</summary>
+                <pre>{JSON.stringify(log, null, 2)}</pre>
+              </details>
+            </article>
+          ))}
+          {!logs.length ? <p className="empty-text">暂无 Skill 执行日志。</p> : null}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function McpManagementPage({

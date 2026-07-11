@@ -236,6 +236,72 @@ class SQLiteTaskStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS skill_plugin (
+                    plugin_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    source_url TEXT,
+                    author TEXT,
+                    description TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    installed_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS skill_registry (
+                    skill_code TEXT PRIMARY KEY,
+                    plugin_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    category TEXT NOT NULL,
+                    execution_type TEXT NOT NULL,
+                    permissions_json TEXT,
+                    input_schema_json TEXT,
+                    output_schema_json TEXT,
+                    default_input_json TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            self._ensure_column(conn, "skill_registry", "default_input_json", "TEXT")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS skill_approval (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    skill_code TEXT NOT NULL,
+                    agent_code TEXT NOT NULL,
+                    allowed INTEGER NOT NULL DEFAULT 0,
+                    reason TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(skill_code, agent_code)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS skill_execution_log (
+                    log_id TEXT PRIMARY KEY,
+                    skill_code TEXT NOT NULL,
+                    agent_code TEXT,
+                    task_id TEXT,
+                    input_json TEXT,
+                    output_json TEXT,
+                    status TEXT NOT NULL,
+                    error_message TEXT,
+                    latency_ms INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
 
     def create_task(self, task_id: str, goal: str, project_path: str | None, status: str) -> None:
         now = utc_now_iso()
@@ -696,6 +762,249 @@ class SQLiteTaskStore:
             "by_prompt": [self._finalize_usage(item) for item in by_prompt.values()],
             "sample_size": len(traces),
         }
+
+    def seed_builtin_skills(self, plugin: dict[str, Any], skills: list[dict[str, Any]]) -> None:
+        now = utc_now_iso()
+        with self._connect() as conn:
+            existing_plugin = conn.execute(
+                "SELECT installed_at FROM skill_plugin WHERE plugin_id = ?",
+                (plugin["plugin_id"],),
+            ).fetchone()
+            installed_at = existing_plugin["installed_at"] if existing_plugin else now
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO skill_plugin(
+                    plugin_id, name, version, source_type, source_url, author,
+                    description, enabled, installed_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    plugin["plugin_id"],
+                    plugin["name"],
+                    plugin.get("version") or "1.0.0",
+                    plugin.get("source_type") or "builtin",
+                    plugin.get("source_url"),
+                    plugin.get("author"),
+                    plugin.get("description"),
+                    1 if plugin.get("enabled", True) else 0,
+                    installed_at,
+                    now,
+                ),
+            )
+            for skill in skills:
+                existing_skill = conn.execute(
+                    "SELECT created_at, enabled FROM skill_registry WHERE skill_code = ?",
+                    (skill["code"],),
+                ).fetchone()
+                created_at = existing_skill["created_at"] if existing_skill else now
+                enabled = existing_skill["enabled"] if existing_skill else 1
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO skill_registry(
+                        skill_code, plugin_id, name, description, category, execution_type,
+                        permissions_json, input_schema_json, output_schema_json, default_input_json,
+                        enabled, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        skill["code"],
+                        skill.get("source_plugin") or plugin["plugin_id"],
+                        skill["name"],
+                        skill.get("description"),
+                        skill.get("category") or "general",
+                        skill.get("execution_type") or "agent",
+                        json.dumps(skill.get("permissions") or [], ensure_ascii=False),
+                        json.dumps(skill.get("input_schema") or {}, ensure_ascii=False),
+                        json.dumps(skill.get("output_schema") or {}, ensure_ascii=False),
+                        json.dumps(skill.get("default_input") or {}, ensure_ascii=False),
+                        enabled,
+                        created_at,
+                        now,
+                    ),
+                )
+                if not conn.execute(
+                    "SELECT id FROM skill_approval WHERE skill_code = ? AND agent_code = ?",
+                    (skill["code"], "skill_console"),
+                ).fetchone():
+                    conn.execute(
+                        """
+                        INSERT INTO skill_approval(skill_code, agent_code, allowed, reason, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (skill["code"], "skill_console", 1, "Built-in skill approved for console testing.", now, now),
+                    )
+
+    def list_skill_plugins(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT plugin_id, name, version, source_type, source_url, author,
+                       description, enabled, installed_at, updated_at
+                FROM skill_plugin
+                ORDER BY installed_at DESC
+                """
+            ).fetchall()
+        return [self._skill_plugin_row_to_dict(row) for row in rows]
+
+    def list_skills(self, category: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT skill_code, plugin_id, name, description, category, execution_type,
+                   permissions_json, input_schema_json, output_schema_json, default_input_json,
+                   enabled, created_at, updated_at
+            FROM skill_registry
+        """
+        params: list[Any] = []
+        if category:
+            query += " WHERE category = ?"
+            params.append(category)
+        query += " ORDER BY category ASC, skill_code ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._skill_row_to_dict(row) for row in rows]
+
+    def get_skill(self, skill_code: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT skill_code, plugin_id, name, description, category, execution_type,
+                       permissions_json, input_schema_json, output_schema_json, default_input_json,
+                       enabled, created_at, updated_at
+                FROM skill_registry
+                WHERE skill_code = ?
+                """,
+                (skill_code,),
+            ).fetchone()
+        return self._skill_row_to_dict(row) if row else None
+
+    def update_skill_enabled(self, skill_code: str, enabled: bool) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE skill_registry SET enabled = ?, updated_at = ? WHERE skill_code = ?",
+                (1 if enabled else 0, utc_now_iso(), skill_code),
+            )
+        return self.get_skill(skill_code)
+
+    def set_skill_approval(self, skill_code: str, agent_code: str, allowed: bool, reason: str | None = None) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM skill_approval WHERE skill_code = ? AND agent_code = ?",
+                (skill_code, agent_code),
+            ).fetchone()
+            created_at = existing["created_at"] if existing else now
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO skill_approval(
+                    skill_code, agent_code, allowed, reason, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (skill_code, agent_code, 1 if allowed else 0, reason, created_at, now),
+            )
+        return self.get_skill_approval(skill_code, agent_code) or {}
+
+    def get_skill_approval(self, skill_code: str, agent_code: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT skill_code, agent_code, allowed, reason, created_at, updated_at
+                FROM skill_approval
+                WHERE skill_code = ? AND agent_code = ?
+                """,
+                (skill_code, agent_code),
+            ).fetchone()
+        return self._skill_approval_row_to_dict(row) if row else None
+
+    def list_skill_approvals(self, agent_code: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT skill_code, agent_code, allowed, reason, created_at, updated_at
+            FROM skill_approval
+        """
+        params: list[Any] = []
+        if agent_code:
+            query += " WHERE agent_code = ?"
+            params.append(agent_code)
+        query += " ORDER BY updated_at DESC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._skill_approval_row_to_dict(row) for row in rows]
+
+    def save_skill_execution_log(self, log: dict[str, Any]) -> dict[str, Any]:
+        created_at = log.get("created_at") or utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO skill_execution_log(
+                    log_id, skill_code, agent_code, task_id, input_json, output_json,
+                    status, error_message, latency_ms, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    log["log_id"],
+                    log["skill_code"],
+                    log.get("agent_code"),
+                    log.get("task_id"),
+                    json.dumps(log.get("input") or {}, ensure_ascii=False),
+                    json.dumps(log.get("output") or {}, ensure_ascii=False),
+                    log.get("status") or "completed",
+                    log.get("error_message"),
+                    int(log.get("latency_ms") or 0),
+                    created_at,
+                ),
+            )
+        return {
+            **log,
+            "created_at": created_at,
+            "input": log.get("input") or {},
+            "output": log.get("output") or {},
+            "latency_ms": int(log.get("latency_ms") or 0),
+        }
+
+    def list_skill_execution_logs(self, limit: int = 100, skill_code: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT log_id, skill_code, agent_code, task_id, input_json, output_json,
+                   status, error_message, latency_ms, created_at
+            FROM skill_execution_log
+        """
+        params: list[Any] = []
+        if skill_code:
+            query += " WHERE skill_code = ?"
+            params.append(skill_code)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._skill_log_row_to_dict(row) for row in rows]
+
+    def _skill_plugin_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["enabled"] = bool(item["enabled"])
+        return item
+
+    def _skill_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["code"] = item.pop("skill_code")
+        item["source_plugin"] = item["plugin_id"]
+        item["permissions"] = json.loads(item.pop("permissions_json") or "[]")
+        item["input_schema"] = json.loads(item.pop("input_schema_json") or "{}")
+        item["output_schema"] = json.loads(item.pop("output_schema_json") or "{}")
+        item["default_input"] = json.loads(item.pop("default_input_json") or "{}")
+        item["enabled"] = bool(item["enabled"])
+        return item
+
+    def _skill_approval_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["allowed"] = bool(item["allowed"])
+        return item
+
+    def _skill_log_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["input"] = json.loads(item.pop("input_json") or "{}")
+        item["output"] = json.loads(item.pop("output_json") or "{}")
+        return item
 
     def _workflow_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
