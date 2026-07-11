@@ -43,6 +43,8 @@ import {
   listLearningPlans,
   listLlmPrompts,
   listLlmTraces,
+  listMarketplaceCatalog,
+  listMarketplaceInstalls,
   listMcpRegisteredTools,
   listMcpServers,
   listMcpToolCallLogs,
@@ -54,6 +56,7 @@ import {
   listKnowledgeDocuments,
   listTasks,
   listWorkflows,
+  previewMarketplacePackage,
   queryKnowledge,
   reviewTask,
   runBenchmark,
@@ -61,6 +64,7 @@ import {
   runLlmPromptAbTest,
   runTaskStream,
   saveMcpServer,
+  installMarketplacePackage,
   saveLlmPrompt,
   saveWorkflow,
   setSkillApproval,
@@ -88,6 +92,9 @@ import {
   LlmPromptVersion,
   LlmTrace,
   LlmUsageDashboard,
+  MarketplaceCatalogItem,
+  MarketplaceInstall,
+  MarketplacePreview,
   McpRegisteredTool,
   McpServerConfig,
   McpStatus,
@@ -110,7 +117,7 @@ import {
   WorkflowValidation,
 } from './types';
 
-type ViewKey = 'run' | 'workflow' | 'reports' | 'chat' | 'history' | 'llm' | 'mcp' | 'skills' | 'benchmark';
+type ViewKey = 'run' | 'workflow' | 'reports' | 'chat' | 'history' | 'llm' | 'mcp' | 'skills' | 'marketplace' | 'benchmark';
 type ChatMode = 'task' | 'knowledge' | 'coach';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; source?: string; day?: number | null; theme?: string | null };
 type FocusKind = 'module' | 'file';
@@ -169,6 +176,7 @@ const navItems: Array<{ view: ViewKey; label: string; icon: typeof LayoutDashboa
   { view: 'llm', label: 'LLM', icon: BarChart3 },
   { view: 'mcp', label: 'MCP', icon: Wrench },
   { view: 'skills', label: 'Skills', icon: Puzzle },
+  { view: 'marketplace', label: 'Market', icon: Puzzle },
   { view: 'benchmark', label: 'Bench', icon: Activity },
 ];
 
@@ -264,6 +272,9 @@ export function App() {
   const [skillApprovals, setSkillApprovals] = useState<SkillApproval[]>([]);
   const [skillLogs, setSkillLogs] = useState<SkillExecutionLog[]>([]);
   const [selectedSkillCode, setSelectedSkillCode] = useState('code.review');
+  const [marketplaceCatalog, setMarketplaceCatalog] = useState<MarketplaceCatalogItem[]>([]);
+  const [marketplaceInstalls, setMarketplaceInstalls] = useState<MarketplaceInstall[]>([]);
+  const [marketplacePreview, setMarketplacePreview] = useState<MarketplacePreview | null>(null);
   const [benchmarkRuns, setBenchmarkRuns] = useState<BenchmarkRun[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkRun | null>(null);
   const [benchmarkType, setBenchmarkType] = useState<BenchmarkType>('mcp');
@@ -320,6 +331,7 @@ export function App() {
     refreshLlmGovernance().catch(() => undefined);
     refreshMcp('real_filesystem').catch(() => undefined);
     refreshSkills().catch(() => undefined);
+    refreshMarketplace().catch(() => undefined);
     refreshBenchmarks('mcp').catch(() => undefined);
   }, []);
 
@@ -351,6 +363,15 @@ export function App() {
     setSkillApprovals(approvals);
     setSkillLogs(logs);
     if (!selectedSkillCode && nextSkills[0]) setSelectedSkillCode(nextSkills[0].code);
+  }
+
+  async function refreshMarketplace(packageType = '') {
+    const [catalog, installs] = await Promise.all([
+      listMarketplaceCatalog(),
+      listMarketplaceInstalls(80, packageType),
+    ]);
+    setMarketplaceCatalog(catalog);
+    setMarketplaceInstalls(installs);
   }
 
   async function refreshLlmGovernance(agent = llmAgentFilter) {
@@ -415,6 +436,22 @@ export function App() {
     if (previous) setEdges((items) => [...items, { source: previous.id, target: id }]);
     setSelectedNodeId(id);
     setActiveView('workflow');
+  }
+
+  async function handlePreviewMarketplace(sourceUrl: string) {
+    const preview = await previewMarketplacePackage(sourceUrl);
+    setMarketplacePreview(preview);
+    return preview;
+  }
+
+  async function handleInstallMarketplace(sourceUrl: string) {
+    const install = await installMarketplacePackage(sourceUrl);
+    await refreshMarketplace();
+    await refreshSkills();
+    await refreshMcp();
+    await refreshWorkflows();
+    await refreshLlmGovernance();
+    return install;
   }
 
   async function handleRunBenchmark(payload: { name: string; agent_code: string; iterations: number; cases: BenchmarkCase[] }) {
@@ -1382,6 +1419,17 @@ export function App() {
             onSkillApproval={handleSkillApproval}
             onExecuteSkill={handleExecuteSkill}
             onAddToWorkflow={handleAddSkillToWorkflow}
+          />
+        ) : null}
+
+        {activeView === 'marketplace' ? (
+          <PluginMarketplacePage
+            catalog={marketplaceCatalog}
+            installs={marketplaceInstalls}
+            preview={marketplacePreview}
+            onRefresh={() => refreshMarketplace()}
+            onPreview={handlePreviewMarketplace}
+            onInstall={handleInstallMarketplace}
           />
         ) : null}
 
@@ -2501,6 +2549,155 @@ function summarizeMcpLogOutput(log: McpToolCallLog) {
     if (data.structuredContent) return summarizeValue(data.structuredContent);
   }
   return summarizeValue(log.output) || '无输出';
+}
+
+function PluginMarketplacePage({
+  catalog,
+  installs,
+  preview,
+  onRefresh,
+  onPreview,
+  onInstall,
+}: {
+  catalog: MarketplaceCatalogItem[];
+  installs: MarketplaceInstall[];
+  preview: MarketplacePreview | null;
+  onRefresh: () => Promise<void>;
+  onPreview: (sourceUrl: string) => Promise<MarketplacePreview>;
+  onInstall: (sourceUrl: string) => Promise<MarketplaceInstall>;
+}) {
+  const [sourceUrl, setSourceUrl] = useState('builtin://security-governance-skill-pack');
+  const [packageType, setPackageType] = useState('all');
+  const [message, setMessage] = useState('');
+  const filteredCatalog = packageType === 'all' ? catalog : catalog.filter((item) => item.package_type === packageType);
+  const packageTypes = ['all', 'skill_pack', 'rag_pack', 'mcp_pack', 'benchmark_pack', 'workflow_pack', 'prompt_pack'];
+  const installCounts = packageTypes.slice(1).map((type) => ({
+    type,
+    count: installs.filter((item) => item.package_type === type && item.status === 'installed').length,
+  }));
+
+  async function runAction(label: string, action: () => Promise<unknown>) {
+    setMessage('');
+    try {
+      await action();
+      setMessage(`${label} completed.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `${label} failed`);
+    }
+  }
+
+  return (
+    <section className="page-grid marketplace-page">
+      <div className="panel marketplace-source-panel">
+        <PanelTitle icon={<Puzzle size={17} />} title="Plugin Marketplace" action={<button className="icon-button" onClick={onRefresh}><RefreshCw size={15} /></button>} />
+        <div className="marketplace-kpis">
+          <KpiCard label="catalog" value={String(catalog.length)} />
+          <KpiCard label="installed" value={String(installs.filter((item) => item.status === 'installed').length)} />
+          <KpiCard label="failed" value={String(installs.filter((item) => item.status === 'failed').length)} />
+        </div>
+        <form className="marketplace-form">
+          <label>
+            GitHub / URL / local path
+            <input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} />
+            <FieldHelp>支持 builtin://package-id、GitHub 仓库 URL、zip/json URL、本地目录、本地 plugin.json。安装器只读取声明式 plugin.json。</FieldHelp>
+          </label>
+          <div className="marketplace-actions">
+            <button type="button" className="secondary" onClick={() => runAction('Preview', () => onPreview(sourceUrl))}>预览插件</button>
+            <button type="button" className="primary" onClick={() => runAction('Install', () => onInstall(sourceUrl))}>安装插件包</button>
+          </div>
+        </form>
+        {message ? <p className="marketplace-message">{message}</p> : null}
+        <div className="marketplace-type-row">
+          {installCounts.map((item) => <KpiCard key={item.type} label={marketplaceTypeLabel(item.type)} value={String(item.count)} />)}
+        </div>
+      </div>
+
+      <div className="panel marketplace-catalog-panel">
+        <PanelTitle icon={<Puzzle size={17} />} title="资源包目录" />
+        <div className="marketplace-tabs">
+          {packageTypes.map((type) => (
+            <button key={type} className={packageType === type ? 'active' : ''} onClick={() => setPackageType(type)}>
+              {marketplaceTypeLabel(type)}
+            </button>
+          ))}
+        </div>
+        <div className="marketplace-card-list">
+          {filteredCatalog.map((item) => (
+            <article key={item.package_id} className="marketplace-card">
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.package_id} / {item.version}</span>
+              </div>
+              <p>{item.description}</p>
+              <div className="skill-tags">
+                <span>{marketplaceTypeLabel(item.package_type)}</span>
+                {item.permissions.map((permission) => <span key={permission}>{permission}</span>)}
+              </div>
+              <div className="marketplace-actions">
+                <button className="secondary" onClick={() => setSourceUrl(item.source_url)}>填入 URL</button>
+                <button className="secondary" onClick={() => runAction('Preview', () => onPreview(item.source_url))}>预览</button>
+                <button className="primary" onClick={() => runAction('Install', () => onInstall(item.source_url))}>安装</button>
+              </div>
+            </article>
+          ))}
+          {!filteredCatalog.length ? <p className="empty-text">暂无该类型资源包。</p> : null}
+        </div>
+      </div>
+
+      <div className="panel marketplace-preview-panel">
+        <PanelTitle icon={<FileText size={17} />} title="预览 / 权限" />
+        {preview ? (
+          <div className="marketplace-preview">
+            <div className="marketplace-summary-grid">
+              {Object.entries(preview.summary).map(([key, value]) => (
+                <KpiCard key={key} label={key} value={Array.isArray(value) ? String(value.length) : String(value)} />
+              ))}
+            </div>
+            <details className="skill-json" open>
+              <summary>plugin.json</summary>
+              <pre>{JSON.stringify(preview.manifest, null, 2)}</pre>
+            </details>
+          </div>
+        ) : (
+          <p className="empty-text">先选择资源包或输入 URL 进行预览。</p>
+        )}
+      </div>
+
+      <div className="panel marketplace-history-panel">
+        <PanelTitle icon={<History size={17} />} title="安装历史" />
+        <div className="marketplace-install-list">
+          {installs.map((install) => (
+            <article key={install.install_id} className={`marketplace-install ${install.status}`}>
+              <div>
+                <strong>{install.name}</strong>
+                <span>{install.package_type} / {install.version || '-'} / {install.installed_at}</span>
+              </div>
+              <p>{install.source_url}</p>
+              {install.error_message ? <p className="error-text">{install.error_message}</p> : null}
+              <details className="skill-json">
+                <summary>安装摘要</summary>
+                <pre>{JSON.stringify({ summary: install.summary, manifest: install.manifest }, null, 2)}</pre>
+              </details>
+            </article>
+          ))}
+          {!installs.length ? <p className="empty-text">暂无安装历史。</p> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function marketplaceTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    all: 'All',
+    skill_pack: 'Skill',
+    rag_pack: 'RAG',
+    mcp_pack: 'MCP',
+    benchmark_pack: 'Benchmark',
+    workflow_pack: 'Workflow',
+    prompt_pack: 'Prompt',
+  };
+  return labels[type] ?? type;
 }
 
 function SkillsPage({

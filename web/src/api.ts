@@ -12,6 +12,9 @@ import {
   LlmPromptVersion,
   LlmTrace,
   LlmUsageDashboard,
+  MarketplaceCatalogItem,
+  MarketplaceInstall,
+  MarketplacePreview,
   McpRegisteredTool,
   McpServerConfig,
   McpStatus,
@@ -537,6 +540,43 @@ export async function executeSkill(payload: {
   });
   if (!response.ok) throw await apiError(response, 'Skill execution failed');
   return response.json();
+}
+
+export async function listMarketplaceCatalog(): Promise<MarketplaceCatalogItem[]> {
+  const response = await fetch(`${API_BASE}/api/v1/marketplace/catalog`);
+  if (!response.ok) throw await apiError(response, 'Marketplace catalog failed');
+  const data = await response.json();
+  return data.items ?? [];
+}
+
+export async function listMarketplaceInstalls(limit = 80, packageType = ''): Promise<MarketplaceInstall[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (packageType) params.set('package_type', packageType);
+  const response = await fetch(`${API_BASE}/api/v1/marketplace/installs?${params.toString()}`);
+  if (!response.ok) throw await apiError(response, 'Marketplace installs failed');
+  const data = await response.json();
+  return data.installs ?? [];
+}
+
+export async function previewMarketplacePackage(sourceUrl: string): Promise<MarketplacePreview> {
+  const response = await fetch(`${API_BASE}/api/v1/marketplace/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_url: sourceUrl }),
+  });
+  if (!response.ok) throw await apiError(response, 'Marketplace preview failed');
+  return response.json();
+}
+
+export async function installMarketplacePackage(sourceUrl: string): Promise<MarketplaceInstall> {
+  const response = await fetch(`${API_BASE}/api/v1/marketplace/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_url: sourceUrl }),
+  });
+  if (!response.ok) throw await apiError(response, 'Marketplace install failed');
+  const data = await response.json();
+  return data.install;
 }
 
 export async function chatLearningCoach(payload: {
