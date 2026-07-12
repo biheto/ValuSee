@@ -903,6 +903,37 @@ class SQLiteTaskStore:
             )
         return self.get_skill(skill_code)
 
+    def uninstall_skill_plugin(self, plugin_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            plugin = conn.execute(
+                """
+                SELECT plugin_id, name, version, source_type, source_url, author,
+                       description, enabled, installed_at, updated_at
+                FROM skill_plugin
+                WHERE plugin_id = ?
+                """,
+                (plugin_id,),
+            ).fetchone()
+            if not plugin:
+                return None
+            plugin_item = self._skill_plugin_row_to_dict(plugin)
+            if plugin_item["source_type"] == "builtin":
+                raise ValueError("Built-in skill plugins cannot be uninstalled.")
+            skill_rows = conn.execute(
+                "SELECT skill_code FROM skill_registry WHERE plugin_id = ?",
+                (plugin_id,),
+            ).fetchall()
+            skill_codes = [row["skill_code"] for row in skill_rows]
+            for skill_code in skill_codes:
+                conn.execute("DELETE FROM skill_approval WHERE skill_code = ?", (skill_code,))
+            conn.execute("DELETE FROM skill_registry WHERE plugin_id = ?", (plugin_id,))
+            conn.execute("DELETE FROM skill_plugin WHERE plugin_id = ?", (plugin_id,))
+        return {
+            "plugin": plugin_item,
+            "removed_skills": skill_codes,
+            "removed_skill_count": len(skill_codes),
+        }
+
     def set_skill_approval(self, skill_code: str, agent_code: str, allowed: bool, reason: str | None = None) -> dict[str, Any]:
         now = utc_now_iso()
         with self._connect() as conn:
@@ -1035,11 +1066,26 @@ class SQLiteTaskStore:
         if package_type:
             query += " WHERE package_type = ?"
             params.append(package_type)
-        query += " ORDER BY installed_at DESC LIMIT ?"
+        query += " ORDER BY installed_at DESC, rowid DESC LIMIT ?"
         params.append(limit)
         with self._connect() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [self._marketplace_install_row_to_dict(row) for row in rows]
+
+    def get_latest_marketplace_install(self, package_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT install_id, package_id, name, package_type, version, source_url,
+                       status, summary_json, manifest_json, error_message, installed_at
+                FROM plugin_marketplace_install
+                WHERE package_id = ?
+                ORDER BY installed_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (package_id,),
+            ).fetchone()
+        return self._marketplace_install_row_to_dict(row) if row else None
 
     def _skill_plugin_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)

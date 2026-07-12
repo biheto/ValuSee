@@ -504,6 +504,15 @@ export async function setSkillEnabled(skillCode: string, enabled: boolean): Prom
   return data.skill;
 }
 
+export async function uninstallSkillPlugin(pluginId: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/plugins/${encodeURIComponent(pluginId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw await apiError(response, 'Uninstall skill plugin failed');
+  const data = await response.json();
+  return data.uninstall ?? {};
+}
+
 export async function setSkillApproval(payload: {
   skill_code: string;
   agent_code: string;
@@ -577,6 +586,15 @@ export async function installMarketplacePackage(sourceUrl: string): Promise<Mark
   if (!response.ok) throw await apiError(response, 'Marketplace install failed');
   const data = await response.json();
   return data.install;
+}
+
+export async function uninstallMarketplacePackage(packageId: string): Promise<MarketplaceInstall> {
+  const response = await fetch(`${API_BASE}/api/v1/marketplace/packages/${encodeURIComponent(packageId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw await apiError(response, 'Marketplace uninstall failed');
+  const data = await response.json();
+  return data.uninstall;
 }
 
 export async function chatLearningCoach(payload: {

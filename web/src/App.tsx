@@ -69,6 +69,8 @@ import {
   saveWorkflow,
   setSkillApproval,
   setSkillEnabled,
+  uninstallMarketplacePackage,
+  uninstallSkillPlugin,
   setMcpRegisteredToolEnabled,
   setMcpServerEnabled,
   setMcpToolApproval,
@@ -452,6 +454,20 @@ export function App() {
     await refreshWorkflows();
     await refreshLlmGovernance();
     return install;
+  }
+
+  async function handleUninstallMarketplace(packageId: string) {
+    const uninstall = await uninstallMarketplacePackage(packageId);
+    await refreshMarketplace();
+    await refreshSkills();
+    return uninstall;
+  }
+
+  async function handleUninstallSkillPlugin(pluginId: string) {
+    const uninstall = await uninstallSkillPlugin(pluginId);
+    await refreshMarketplace();
+    await refreshSkills();
+    return uninstall;
   }
 
   async function handleRunBenchmark(payload: { name: string; agent_code: string; iterations: number; cases: BenchmarkCase[] }) {
@@ -1419,6 +1435,7 @@ export function App() {
             onSkillApproval={handleSkillApproval}
             onExecuteSkill={handleExecuteSkill}
             onAddToWorkflow={handleAddSkillToWorkflow}
+            onUninstallPlugin={handleUninstallSkillPlugin}
           />
         ) : null}
 
@@ -1430,6 +1447,7 @@ export function App() {
             onRefresh={() => refreshMarketplace()}
             onPreview={handlePreviewMarketplace}
             onInstall={handleInstallMarketplace}
+            onUninstall={handleUninstallMarketplace}
           />
         ) : null}
 
@@ -1490,6 +1508,14 @@ function PanelTitle({ icon, title, action }: { icon?: ReactNode; title: string; 
 
 function FieldHelp({ children }: { children: ReactNode }) {
   return <small className="field-help">{children}</small>;
+}
+
+function EnabledState({ enabled, label = '状态' }: { enabled: boolean; label?: string }) {
+  return (
+    <span className={`mcp-approval-state enabled-state ${enabled ? 'approved' : 'revoked'}`}>
+      {label}: {enabled ? 'enabled' : 'disabled'}
+    </span>
+  );
 }
 
 function ModeTabs({ executionMode, onChange }: { executionMode: ExecutionMode; onChange: (mode: ExecutionMode) => void }) {
@@ -2558,6 +2584,7 @@ function PluginMarketplacePage({
   onRefresh,
   onPreview,
   onInstall,
+  onUninstall,
 }: {
   catalog: MarketplaceCatalogItem[];
   installs: MarketplaceInstall[];
@@ -2565,15 +2592,21 @@ function PluginMarketplacePage({
   onRefresh: () => Promise<void>;
   onPreview: (sourceUrl: string) => Promise<MarketplacePreview>;
   onInstall: (sourceUrl: string) => Promise<MarketplaceInstall>;
+  onUninstall: (packageId: string) => Promise<MarketplaceInstall>;
 }) {
   const [sourceUrl, setSourceUrl] = useState('builtin://security-governance-skill-pack');
   const [packageType, setPackageType] = useState('all');
   const [message, setMessage] = useState('');
   const filteredCatalog = packageType === 'all' ? catalog : catalog.filter((item) => item.package_type === packageType);
   const packageTypes = ['all', 'skill_pack', 'rag_pack', 'mcp_pack', 'benchmark_pack', 'workflow_pack', 'prompt_pack'];
+  const latestInstallByPackage = new Map<string, MarketplaceInstall>();
+  for (const install of installs) {
+    if (!latestInstallByPackage.has(install.package_id)) latestInstallByPackage.set(install.package_id, install);
+  }
+  const isInstalled = (packageId: string) => latestInstallByPackage.get(packageId)?.status === 'installed';
   const installCounts = packageTypes.slice(1).map((type) => ({
     type,
-    count: installs.filter((item) => item.package_type === type && item.status === 'installed').length,
+    count: Array.from(latestInstallByPackage.values()).filter((item) => item.package_type === type && item.status === 'installed').length,
   }));
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -2592,14 +2625,14 @@ function PluginMarketplacePage({
         <PanelTitle icon={<Puzzle size={17} />} title="Plugin Marketplace" action={<button className="icon-button" onClick={onRefresh}><RefreshCw size={15} /></button>} />
         <div className="marketplace-kpis">
           <KpiCard label="catalog" value={String(catalog.length)} />
-          <KpiCard label="installed" value={String(installs.filter((item) => item.status === 'installed').length)} />
-          <KpiCard label="failed" value={String(installs.filter((item) => item.status === 'failed').length)} />
+          <KpiCard label="installed" value={String(Array.from(latestInstallByPackage.values()).filter((item) => item.status === 'installed').length)} />
+          <KpiCard label="failed" value={String(Array.from(latestInstallByPackage.values()).filter((item) => item.status === 'failed').length)} />
         </div>
         <form className="marketplace-form">
           <label>
             GitHub / URL / local path
             <input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} />
-            <FieldHelp>支持 builtin://package-id、GitHub 仓库 URL、zip/json URL、本地目录、本地 plugin.json。安装器只读取声明式 plugin.json。</FieldHelp>
+            <FieldHelp>支持 builtin://package-id、GitHub 仓库 URL、zip/json/SKILL.md URL、本地目录、本地 plugin.json。没有 plugin.json 但包含 SKILL.md 时，会自动转换成声明式 Skill 插件。</FieldHelp>
           </label>
           <div className="marketplace-actions">
             <button type="button" className="secondary" onClick={() => runAction('Preview', () => onPreview(sourceUrl))}>预览插件</button>
@@ -2631,12 +2664,18 @@ function PluginMarketplacePage({
               <p>{item.description}</p>
               <div className="skill-tags">
                 <span>{marketplaceTypeLabel(item.package_type)}</span>
+                {isInstalled(item.package_id) ? <span className="installed">installed</span> : <span>not installed</span>}
                 {item.permissions.map((permission) => <span key={permission}>{permission}</span>)}
               </div>
               <div className="marketplace-actions">
                 <button className="secondary" onClick={() => setSourceUrl(item.source_url)}>填入 URL</button>
                 <button className="secondary" onClick={() => runAction('Preview', () => onPreview(item.source_url))}>预览</button>
-                <button className="primary" onClick={() => runAction('Install', () => onInstall(item.source_url))}>安装</button>
+                <button className="primary" onClick={() => runAction('Install', () => onInstall(item.source_url))}>
+                  {isInstalled(item.package_id) ? '重新安装' : '安装'}
+                </button>
+                <button className="secondary danger" disabled={!isInstalled(item.package_id)} onClick={() => runAction('Uninstall', () => onUninstall(item.package_id))}>
+                  卸载
+                </button>
               </div>
             </article>
           ))}
@@ -2654,7 +2693,7 @@ function PluginMarketplacePage({
               ))}
             </div>
             <details className="skill-json" open>
-              <summary>plugin.json</summary>
+              <summary>manifest / plugin.json / SKILL.md</summary>
               <pre>{JSON.stringify(preview.manifest, null, 2)}</pre>
             </details>
           </div>
@@ -2713,6 +2752,7 @@ function SkillsPage({
   onSkillApproval,
   onExecuteSkill,
   onAddToWorkflow,
+  onUninstallPlugin,
 }: {
   plugins: SkillPlugin[];
   skills: SkillRecord[];
@@ -2726,6 +2766,7 @@ function SkillsPage({
   onSkillApproval: (skillCode: string, agentCode: string, allowed: boolean, reason: string) => Promise<void>;
   onExecuteSkill: (skillCode: string, agentCode: string, input: Record<string, unknown>) => Promise<{ output: Record<string, unknown>; log_id: string; status: string; latency_ms: number }>;
   onAddToWorkflow: (skill: SkillRecord) => void;
+  onUninstallPlugin: (pluginId: string) => Promise<Record<string, unknown>>;
 }) {
   const selectedSkill = skills.find((item) => item.code === selectedSkillCode) ?? skills[0] ?? null;
   const [agentCode, setAgentCode] = useState('skill_console');
@@ -2786,6 +2827,15 @@ function SkillsPage({
               <strong>{plugin.name}</strong>
               <span>{plugin.plugin_id} / {plugin.version} / {plugin.source_type}</span>
               <p>{plugin.description || 'No description.'}</p>
+              <div className="skill-actions">
+                <button
+                  className="secondary danger"
+                  disabled={plugin.source_type === 'builtin'}
+                  onClick={() => runAction('Plugin uninstall', () => onUninstallPlugin(plugin.plugin_id))}
+                >
+                  卸载插件
+                </button>
+              </div>
             </article>
           ))}
           {!plugins.length ? <p className="empty-text">暂无已安装插件。</p> : null}
@@ -2808,7 +2858,10 @@ function SkillsPage({
             <button key={skill.code} className={selectedSkill?.code === skill.code ? 'active' : ''} onClick={() => onSelectSkill(skill.code)}>
               <strong>{skill.name}</strong>
               <span>{skill.code} / {skill.category} / {skill.execution_type}</span>
-              <span>{skill.enabled ? 'enabled' : 'disabled'} / {skill.plugin_id}</span>
+              <span className="state-with-meta">
+                <EnabledState enabled={skill.enabled} label="Skill" />
+                <span>{skill.plugin_id}</span>
+              </span>
             </button>
           ))}
           {!filteredSkills.length ? <p className="empty-text">暂无 Skill。</p> : null}
@@ -2832,7 +2885,7 @@ function SkillsPage({
               <dt>执行类型</dt>
               <dd>{selectedSkill.execution_type}</dd>
               <dt>状态</dt>
-              <dd>{selectedSkill.enabled ? 'enabled' : 'disabled'}</dd>
+              <dd><EnabledState enabled={selectedSkill.enabled} label="Skill" /></dd>
             </dl>
             <div className="skill-tags">
               {selectedSkill.permissions.map((permission) => <span key={permission}>{permission}</span>)}
@@ -2902,8 +2955,10 @@ function SkillsPage({
             测试调用 Skill
           </button>
         </form>
-        {message ? <p className="skill-message">{message}</p> : null}
-        {result ? <pre className="skill-result">{JSON.stringify(result, null, 2)}</pre> : null}
+        <div className="skill-execute-output">
+          {message ? <p className="skill-message">{message}</p> : null}
+          {result ? <pre className="skill-result">{JSON.stringify(result, null, 2)}</pre> : <p className="empty-text">暂无测试输出。</p>}
+        </div>
       </div>
 
       <div className="panel skill-log-panel">
@@ -3094,7 +3149,10 @@ function McpManagementPage({
           {servers.map((server) => (
             <button key={server.server_id} className={activeServerId === server.server_id ? 'active' : ''} onClick={() => loadServer(server)}>
               <strong>{server.name}</strong>
-              <span>{server.server_id} / {server.status} / {server.enabled ? 'enabled' : 'disabled'}</span>
+              <span className="state-with-meta">
+                <span>{server.server_id} / {server.status}</span>
+                <EnabledState enabled={server.enabled} label="Server" />
+              </span>
             </button>
           ))}
           {!servers.length ? <p className="empty-text">暂无 MCP server 配置。</p> : null}
@@ -3129,7 +3187,10 @@ function McpManagementPage({
                   setCallArgsText(defaultMcpCallArguments(tool.name, tool.server_id));
                 }}>
                   <strong>{tool.name}</strong>
-                  <span>{tool.server_id} / {tool.status} / {tool.enabled ? 'enabled' : 'disabled'}</span>
+                  <span className="state-with-meta">
+                    <span>{tool.server_id} / {tool.status}</span>
+                    <EnabledState enabled={tool.enabled} label="Tool" />
+                  </span>
                   <span className={`mcp-approval-state ${approvalClass}`}>
                     {approvalText}
                     {tool.approval_agent_code ? ` · ${tool.approval_agent_code}` : ''}

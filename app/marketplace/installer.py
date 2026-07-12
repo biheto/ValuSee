@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import urllib.parse
 import urllib.request
@@ -60,6 +61,47 @@ def install_marketplace_package(source_url: str) -> dict[str, Any]:
     if error_message:
         raise RuntimeError(error_message)
     return record
+
+
+def uninstall_marketplace_package(package_id: str) -> dict[str, Any]:
+    package_id = package_id.strip()
+    if not package_id:
+        raise ValueError("package_id is required")
+    latest = task_store.get_latest_marketplace_install(package_id)
+    if not latest:
+        raise FileNotFoundError(f"Marketplace package is not installed: {package_id}")
+    if latest.get("status") == "uninstalled":
+        return latest
+
+    package_type = str(latest.get("package_type") or "")
+    manifest = latest.get("manifest") if isinstance(latest.get("manifest"), dict) else {}
+    summary: dict[str, Any]
+    if package_type == "skill_pack":
+        removed = task_store.uninstall_skill_plugin(package_id)
+        if not removed:
+            raise FileNotFoundError(f"Skill plugin not found: {package_id}")
+        summary = {"removed": True, **removed}
+    else:
+        summary = {
+            "removed": False,
+            "package_type": package_type,
+            "message": "Package inventory was marked uninstalled. Shared artifacts are kept to avoid deleting user data.",
+        }
+
+    return task_store.save_marketplace_install(
+        {
+            "install_id": f"mpi_{uuid4().hex}",
+            "package_id": package_id,
+            "name": str(latest.get("name") or manifest.get("name") or package_id),
+            "package_type": package_type,
+            "version": latest.get("version") or manifest.get("version"),
+            "source_url": latest.get("source_url"),
+            "status": "uninstalled",
+            "summary": summary,
+            "manifest": manifest,
+            "error_message": None,
+        }
+    )
 
 
 def _apply_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -138,6 +180,7 @@ def _normalize_skill(plugin_id: str, skill: dict[str, Any]) -> dict[str, Any]:
 def _summarize_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "package_type": manifest.get("package_type"),
+        "source_format": manifest.get("source_format") or "plugin_json",
         "permissions": manifest.get("permissions") or [],
         "skills": len(manifest.get("skills") or []),
         "rag_notes": len(manifest.get("rag_notes") or []),
@@ -156,6 +199,8 @@ def _public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "package_type",
         "author",
         "description",
+        "source_format",
+        "compatibility",
         "permissions",
         "skills",
         "rag_notes",
@@ -208,15 +253,25 @@ def _load_local_manifest(path: Path) -> dict[str, Any]:
             with zipfile.ZipFile(manifest_path) as archive:
                 archive.extractall(temp_dir)
             return _find_manifest(Path(temp_dir))
+    if manifest_path.is_dir() or not manifest_path.exists():
+        return _find_manifest(path)
+    if manifest_path.name.lower() == "skill.md":
+        return _skill_md_manifest(manifest_path.parent, [manifest_path])
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
 def _load_remote_manifest(url: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as temp_dir:
         target = Path(temp_dir) / "package"
-        if url.endswith(".json") or url.endswith("/plugin.json"):
+        lower_url = url.lower()
+        if lower_url.endswith(".json") or lower_url.endswith("/plugin.json"):
             data = _download_bytes(url)
             return json.loads(data.decode("utf-8"))
+        if lower_url.endswith("skill.md"):
+            target.mkdir(parents=True, exist_ok=True)
+            skill_path = target / "SKILL.md"
+            skill_path.write_bytes(_download_bytes(url))
+            return _skill_md_manifest(target, [skill_path])
         download_url = _github_zip_url(url) or url
         data = _download_bytes(download_url)
         zip_path = target.with_suffix(".zip")
@@ -251,6 +306,115 @@ def _find_manifest(root: Path) -> dict[str, Any]:
     if direct.exists():
         return json.loads(direct.read_text(encoding="utf-8"))
     matches = list(root.rglob("plugin.json"))
-    if not matches:
-        raise FileNotFoundError("plugin.json not found in package")
-    return json.loads(matches[0].read_text(encoding="utf-8"))
+    if matches:
+        return json.loads(matches[0].read_text(encoding="utf-8"))
+    skill_matches = sorted(root.rglob("SKILL.md"), key=lambda path: (len(path.relative_to(root).parts), path.as_posix()))
+    if not skill_matches:
+        raise FileNotFoundError("plugin.json or SKILL.md not found in package")
+    package_root = _external_skill_package_root(root, skill_matches)
+    return _skill_md_manifest(package_root, skill_matches)
+
+
+def _external_skill_package_root(root: Path, skill_paths: list[Path]) -> Path:
+    children = [path for path in root.iterdir() if path.is_dir()]
+    if len(children) == 1 and all(_is_relative_to(path, children[0]) for path in skill_paths):
+        return children[0]
+    return root
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _skill_md_manifest(package_root: Path, skill_paths: list[Path]) -> dict[str, Any]:
+    package_id = _slugify(package_root.name) or "external-skill-pack"
+    skills = []
+    used_codes: set[str] = set()
+    for index, skill_path in enumerate(skill_paths, start=1):
+        content = skill_path.read_text(encoding="utf-8", errors="replace").strip()
+        title = _skill_md_title(content) or _title_from_path(skill_path)
+        description = _skill_md_description(content, title)
+        code_base = f"external.{package_id}.{_slugify(title) or f'skill-{index}'}"
+        code = code_base
+        suffix = 2
+        while code in used_codes:
+            code = f"{code_base}-{suffix}"
+            suffix += 1
+        used_codes.add(code)
+        relative_path = skill_path.relative_to(package_root).as_posix() if _is_relative_to(skill_path, package_root) else skill_path.name
+        skills.append(
+            {
+                "code": code,
+                "name": title,
+                "description": description,
+                "category": "external-skill",
+                "execution_type": "prompt",
+                "permissions": ["llm.call"],
+                "input_schema": {"goal": "string", "context": "string", "project_path": "string"},
+                "output_schema": {"report_markdown": "string"},
+                "default_input": {"goal": "Use this imported SKILL.md capability.", "context": "", "project_path": "."},
+                "prompt_template": _external_skill_prompt(title, relative_path, content),
+            }
+        )
+    return {
+        "package_id": package_id,
+        "name": _title_from_path(package_root),
+        "version": "1.0.0",
+        "package_type": "skill_pack",
+        "author": "External SKILL.md",
+        "description": f"Converted from {len(skills)} external SKILL.md file(s).",
+        "source_format": "skill_md",
+        "compatibility": {"imported_from": "SKILL.md", "mode": "declarative_prompt"},
+        "permissions": ["llm.call"],
+        "skills": skills,
+    }
+
+
+def _external_skill_prompt(title: str, relative_path: str, content: str) -> str:
+    return (
+        f"You are executing the imported external Skill `{title}` from `{relative_path}`.\n\n"
+        "Use the following SKILL.md instructions as policy and task guidance. Do not claim to have executed external code.\n\n"
+        f"--- SKILL.md ---\n{content}\n--- END SKILL.md ---\n\n"
+        "User goal: {{goal}}\n"
+        "Project path: {{project_path}}\n"
+        "Context: {{context}}\n\n"
+        "Return a concise Markdown result with assumptions, steps, and next actions."
+    )
+
+
+def _skill_md_title(content: str) -> str | None:
+    frontmatter_name = re.search(r"(?im)^title:\s*(.+)$|^name:\s*(.+)$", content)
+    if frontmatter_name:
+        return (frontmatter_name.group(1) or frontmatter_name.group(2) or "").strip().strip("\"'")
+    heading = re.search(r"(?m)^#\s+(.+)$", content)
+    if heading:
+        return heading.group(1).strip()
+    return None
+
+
+def _skill_md_description(content: str, title: str) -> str:
+    lines = content.splitlines()
+    if lines and lines[0].strip() == "---":
+        for index, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                lines = lines[index + 1 :]
+                break
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("---"):
+            continue
+        return line[:280]
+    return f"External Skill imported from SKILL.md: {title}"
+
+
+def _title_from_path(path: Path) -> str:
+    return path.stem.replace("-", " ").replace("_", " ").strip().title() or path.name
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug[:80]
