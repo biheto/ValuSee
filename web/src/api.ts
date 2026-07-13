@@ -18,6 +18,10 @@ import {
   McpToolCallLog,
   RagDocument,
   RagResult,
+  SkillApproval,
+  SkillExecutionLog,
+  SkillPlugin,
+  SkillRecord,
   TaskDetail,
   TaskSummary,
   WorkflowEdge,
@@ -452,6 +456,87 @@ export async function getBenchmark(runId: string): Promise<BenchmarkRun> {
   if (!response.ok) throw await apiError(response, 'Benchmark detail failed');
   const data = await response.json();
   return data.run;
+}
+
+export async function listSkillPlugins(): Promise<SkillPlugin[]> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/plugins`);
+  if (!response.ok) throw await apiError(response, 'Skill plugins failed');
+  const data = await response.json();
+  return data.plugins ?? [];
+}
+
+export async function listSkills(category = ''): Promise<SkillRecord[]> {
+  const suffix = category ? `?category=${encodeURIComponent(category)}` : '';
+  const response = await fetch(`${API_BASE}/api/v1/skills${suffix}`);
+  if (!response.ok) throw await apiError(response, 'Skills failed');
+  const data = await response.json();
+  return data.skills ?? [];
+}
+
+export async function listSkillApprovals(agentCode = ''): Promise<SkillApproval[]> {
+  const suffix = agentCode ? `?agent_code=${encodeURIComponent(agentCode)}` : '';
+  const response = await fetch(`${API_BASE}/api/v1/skills/approvals${suffix}`);
+  if (!response.ok) throw await apiError(response, 'Skill approvals failed');
+  const data = await response.json();
+  return data.approvals ?? [];
+}
+
+export async function listSkillExecutionLogs(limit = 100, skillCode = ''): Promise<SkillExecutionLog[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (skillCode) params.set('skill_code', skillCode);
+  const response = await fetch(`${API_BASE}/api/v1/skills/execution-logs?${params.toString()}`);
+  if (!response.ok) throw await apiError(response, 'Skill logs failed');
+  const data = await response.json();
+  return data.logs ?? [];
+}
+
+export async function setSkillEnabled(skillCode: string, enabled: boolean): Promise<SkillRecord> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(skillCode)}/enabled`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) throw await apiError(response, 'Toggle skill failed');
+  const data = await response.json();
+  return data.skill;
+}
+
+export async function setSkillApproval(payload: {
+  skill_code: string;
+  agent_code: string;
+  allowed: boolean;
+  reason?: string;
+}): Promise<SkillApproval> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(payload.skill_code)}/approval`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'Skill approval failed');
+  const data = await response.json();
+  return data.approval;
+}
+
+export async function executeSkill(payload: {
+  skill_code: string;
+  agent_code: string;
+  input: Record<string, unknown>;
+  task_id?: string;
+}): Promise<{
+  log_id: string;
+  skill: SkillRecord;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  status: string;
+  latency_ms: number;
+}> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(payload.skill_code)}/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'Skill execution failed');
+  return response.json();
 }
 
 export async function chatLearningCoach(payload: {

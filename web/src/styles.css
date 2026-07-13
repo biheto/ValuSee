@@ -588,6 +588,279 @@ button {
   overflow-wrap: anywhere;
 }
 
+.skills-page {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr) minmax(320px, 0.9fr);
+  grid-template-areas:
+    "plugins list detail"
+    "approval execute execute"
+    "logs logs logs";
+  gap: 18px;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 28px;
+  scrollbar-gutter: stable;
+}
+
+.skill-plugin-panel { grid-area: plugins; }
+.skill-list-panel { grid-area: list; }
+.skill-detail-panel { grid-area: detail; }
+.skill-approval-panel { grid-area: approval; }
+.skill-execute-panel { grid-area: execute; }
+.skill-log-panel { grid-area: logs; }
+
+.skill-plugin-panel,
+.skill-list-panel,
+.skill-detail-panel,
+.skill-approval-panel,
+.skill-execute-panel,
+.skill-log-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.skill-plugin-panel,
+.skill-list-panel,
+.skill-detail-panel {
+  min-height: 430px;
+}
+
+.skill-approval-panel,
+.skill-execute-panel {
+  min-height: 360px;
+}
+
+.skill-log-panel {
+  min-height: 460px;
+}
+
+.skill-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid #e4e9ee;
+}
+
+.skill-plugin-list,
+.skill-list,
+.skill-approval-list,
+.skill-log-list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding: 14px;
+  scrollbar-gutter: stable;
+}
+
+.skill-plugin-list article,
+.skill-approval-list article,
+.skill-log-item,
+.skill-list button {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid #dce5ed;
+  border-radius: 7px;
+  background: #fbfcfd;
+  color: #405064;
+  text-align: left;
+}
+
+.skill-plugin-list article.active,
+.skill-list button.active {
+  border-color: #9fc8dc;
+  background: #eef8fc;
+}
+
+.skill-plugin-list strong,
+.skill-list strong,
+.skill-approval-list strong,
+.skill-log-item strong {
+  color: #253349;
+}
+
+.skill-plugin-list span,
+.skill-list span,
+.skill-approval-list span,
+.skill-log-item span {
+  min-width: 0;
+  color: #657386;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.skill-plugin-list p,
+.skill-detail p,
+.skill-log-item p {
+  margin: 0;
+  color: #526176;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.skill-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e4e9ee;
+}
+
+.skill-detail,
+.skill-form {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.skill-detail h3 {
+  margin: 0;
+  color: #253349;
+  font-size: 17px;
+}
+
+.skill-detail dl {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e0e7ee;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.skill-detail dt {
+  color: #748296;
+  font-size: 12px;
+}
+
+.skill-detail dd {
+  min-width: 0;
+  margin: 0;
+  color: #253349;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.skill-tags,
+.skill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-tags span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf4f8;
+  color: #245e88;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.skill-approval-state {
+  display: grid;
+  gap: 4px;
+  margin: 0 16px 14px;
+  padding: 10px 12px;
+  border: 1px solid #ecd2a5;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: #7a5a1c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.skill-approval-state.approved {
+  border-color: #b9d8c8;
+  background: #f2fbf6;
+  color: #206b50;
+}
+
+.skill-approval-state span {
+  color: #657386;
+  font-weight: 500;
+}
+
+.skill-form textarea {
+  min-height: 150px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.skill-result,
+.skill-json pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #e4e9ee;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #34445a;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-result {
+  margin: 0 16px 16px;
+}
+
+.skill-message {
+  margin: 0 16px 10px;
+  color: #526176;
+  font-size: 12px;
+}
+
+.skill-json {
+  min-width: 0;
+}
+
+.skill-json summary {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid #d8e0e8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #657386;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.skill-json[open] summary {
+  margin-bottom: 8px;
+  color: #245e88;
+  border-color: #bdd5e2;
+  background: #f2f8fb;
+}
+
+.skill-log-item.failed {
+  border-color: #edc5c2;
+  background: #fff6f5;
+}
+
 .benchmark-page {
   height: 100%;
   min-height: 0;
@@ -2845,6 +3118,15 @@ textarea:focus {
       "run metrics"
       "history results";
   }
+
+  .skills-page {
+    grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+    grid-template-areas:
+      "plugins list"
+      "detail approval"
+      "execute execute"
+      "logs logs";
+  }
 }
 
 @media (max-width: 1360px) {
@@ -2886,11 +3168,22 @@ textarea:focus {
   .chat-page,
   .history-page,
   .mcp-page,
+  .skills-page,
   .benchmark-page,
   .llm-page,
   .reports-page {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
+  }
+
+  .skills-page {
+    grid-template-areas:
+      "plugins"
+      "list"
+      "detail"
+      "approval"
+      "execute"
+      "logs";
   }
 
   .benchmark-page {
@@ -2935,6 +3228,12 @@ textarea:focus {
   .benchmark-summary,
   .benchmark-history,
   .benchmark-results,
+  .skill-plugin-panel,
+  .skill-list-panel,
+  .skill-detail-panel,
+  .skill-approval-panel,
+  .skill-execute-panel,
+  .skill-log-panel,
   .mcp-call-panel {
     grid-column: auto;
     grid-row: auto;
