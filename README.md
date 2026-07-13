@@ -1,487 +1,476 @@
 # DevAgent Studio
 
-**DevAgent Studio** is a multi-agent workbench for software project understanding and engineering governance. It uses **FastAPI + LangGraph + React** to orchestrate project analysis, code review, RAG knowledge processing, learning coaching, MCP tools, visual workflows, human review, LLM governance, and benchmark evaluation.
+[English](#english) | [中文](#中文)
 
-**DevAgent Studio** 是一个面向软件项目理解与研发治理的多 Agent 工作台。项目基于 **FastAPI + LangGraph + React**，用于编排项目分析、代码审查、RAG 知识加工、学习陪练、MCP 工具、可视化 Workflow、人工审核、LLM 治理和 Benchmark 评测。
+<a id="english"></a>
 
-> This is not a code-writing IDE. It focuses on project understanding, traceable agent workflows, risk discovery, knowledge preservation, and evaluation.
->
-> 它不是代码编写平台，而是面向项目理解、流程追踪、风险识别、知识沉淀和评测治理的 Agent 工作台。
+DevAgent Studio is an open-source multi-agent workbench for **software project understanding and engineering governance**. It is built with FastAPI, LangGraph, and React to help teams inspect project structure, review code risks, preserve project knowledge, govern AI and tool calls, and run traceable workflows.
 
-## Preview / 页面预览
+It is deliberately not a code-writing IDE. Its focus is making software delivery work easier to understand, audit, evaluate, and improve.
 
-### Run Workbench / 运行工作台
+![DevAgent Studio architecture](docs/assets/architecture.png)
 
-![Run Workbench](docs/assets/run-preview.png)
+## Why DevAgent Studio
 
-### Visual Workflow / 可视化 Workflow
+- **Multi-agent workflows, not isolated prompts**: Planner, Project Analyzer, Code Reviewer, RAG Processor, Supervisor, and Reporter are composed through LangGraph.
+- **Governed runtime**: Harness Runtime provides task context, event timelines, artifacts, review state, persistence, deterministic policy checks, and resume support.
+- **Visual workflows that execute**: a drag-and-drop canvas is compiled into executable LangGraph workflows instead of serving as a static diagram.
+- **Observable LLM operations**: prompt versions, model configuration, traces, token and cost data, fallback records, and A/B comparison are available from the UI.
+- **Extensible Skills with guardrails**: Skills are versioned, permission-scoped, testable, dependency-aware, and usable from both the console and a workflow.
+- **Plugin Marketplace**: install resource packs from built-in catalogs, local paths, URLs, GitHub-style sources, or an external `SKILL.md` file.
+- **Safe third-party code execution**: Code Skills can run in a constrained Docker sandbox with no network, read-only mounts, resource limits, and audit logs.
 
-![Visual Workflow](docs/assets/workflow-preview.png)
+## Product Preview
 
-### Interactive Chat / 项目追问
+| Run workbench | Visual workflow |
+| --- | --- |
+| ![Run workbench](docs/assets/run-preview.png) | ![Visual workflow](docs/assets/workflow-preview.png) |
 
-![Interactive Chat](docs/assets/chat-preview.png)
+| Skills console | Plugin Marketplace |
+| --- | --- |
+| ![Skills console](docs/assets/skill-preview.png) | ![Plugin Marketplace](docs/assets/market-preview.png) |
 
-### LLM Console / LLM 控制台
+| LLM console | Benchmark dashboard |
+| --- | --- |
+| ![LLM console](docs/assets/llm-console-preview.png) | ![Benchmark dashboard](docs/assets/benchmark-dashboard-preview.png) |
 
-![LLM Console](docs/assets/llm-console-preview.png)
-
-### MCP Console / MCP 管理台
-
-![MCP Console](docs/assets/mcp-console-preview.png)
-
-### Skills Console / Skill 插件控制台
-
-![Skills Console](docs/assets/skill-preview.png)
-
-### Plugin Marketplace / 插件市场
-
-![Plugin Marketplace](docs/assets/market-preview.png)
-
-### Benchmark Dashboard / Benchmark 评测面板
-
-![Benchmark Dashboard](docs/assets/benchmark-dashboard-preview.png)
-
-### Architecture / 架构图
-
-![Architecture](docs/assets/architecture.png)
-
-## Highlights / 项目亮点
-
-- **LangGraph orchestration**: project analyzer, code reviewer, RAG processor, supervisor, reporter, and collaboration graph.
-- **Visual workflow execution**: drag-and-drop workflow canvas compiled into executable LangGraph workflows.
-- **Harness Runtime**: deterministic runtime wrapper with task events, artifacts, persistence, and review flow.
-- **LLM governance**: prompt versions, LLM call traces, token/cost dashboard, prompt A/B testing, and per-agent model config.
-- **RAG persistence**: SQLite keyword retrieval by default, optional PostgreSQL + pgvector semantic retrieval.
-- **Real MCP client**: stdio MCP server configuration, tool discovery, approval, enable/disable, call logs, and workflow tool nodes.
-- **Skill plugin system**: reusable Skills can be installed, enabled, approved, tested, logged, and inserted into visual workflows.
-- **Plugin Marketplace**: supports built-in packs, local paths, URLs, `plugin.json` packages, and external `SKILL.md` compatibility import.
-- **Benchmark suite**: MCP, LLM, RAG, Workflow, and multi-agent collaboration benchmark runners.
-- **Human-in-the-loop**: node-level review, approval/rejection, resume visualization, and governance suggestions.
-
-中文概览：
-
-- **LangGraph 编排**：项目分析、代码审查、RAG 加工、监督、报告和多 Agent 协作。
-- **可视化 Workflow**：拖拽画布可以编译为真实 LangGraph 工作流执行。
-- **Harness Runtime**：统一任务运行、事件、产物、持久化和人工审核流程。
-- **LLM 治理**：Prompt 版本、调用 Trace、token/cost 看板、A/B Test、不同 Agent 模型配置。
-- **RAG 持久化**：默认 SQLite 关键词检索，可切换 PostgreSQL + pgvector 向量检索。
-- **真实 MCP Client**：MCP Server 配置、Discover、审批、启停、调用日志和 Workflow Tool 节点。
-- **Benchmark 体系**：覆盖 MCP、LLM、RAG、Workflow、多 Agent 协作评测。
-- **人工审核闭环**：节点级审核、拒绝/通过、resume 可视化和治理建议。
-
-## What Can It Do? / 能做什么
-
-| Area | Capability | API / UI |
-| --- | --- | --- |
-| Project Analysis | Scan structure, stack, modules, risks, suggestions | `POST /api/v1/projects/analyze` |
-| Code Review | Rule + call-chain + semantic review, suggestions, test ideas | `POST /api/v1/code/review` |
-| RAG Knowledge | Process, ingest, retrieve, and save project notes | `/api/v1/rag/*` |
-| Learning Coach | Generate learning plans and interactive follow-up questions | `/api/v1/learning/*` |
-| Workflow | Compile visual workflow JSON into LangGraph execution | `/api/v1/workflows/*` |
-| Collaboration | Run planner, analyzer, reviewer, RAG, supervisor, reporter | `/api/v1/tasks/collaborate` |
-| LLM Console | Trace calls, manage prompts, compare prompt versions | UI: `LLM` |
-| MCP Console | Register MCP servers, discover tools, approve calls, view logs | UI: `MCP` |
-| Skills | Install, enable, approve, test, log, and reuse Skill capabilities | UI: `Skills` |
-| Plugin Marketplace | Install Skill/RAG/MCP/Prompt/Workflow/Benchmark packs from built-in sources, local paths, or URLs | UI: `Market` |
-| Benchmark | Evaluate MCP, LLM, RAG, Workflow, Collaboration quality | UI: `Bench` |
-
-## Core Components / 核心组件
-
-DevAgent Studio is built as a clean multi-agent workbench with explicit runtime boundaries. Agents are not only prompt wrappers; each capability is exposed through a reusable Skill, executed through a governed Harness Runtime, and then composed by LangGraph workflows.
-
-DevAgent Studio 按“可复用能力 + 可治理运行时 + 可编排图”的方式组织。Agent 不只是 prompt 封装，每个能力都通过 Skill 暴露，再由 Harness Runtime 统一执行，最后交给 LangGraph 工作流编排。
-
-| Component | Role | Implementation |
-| --- | --- | --- |
-| Skill | Encapsulates a reusable agent capability such as code review, RAG processing, learning coaching, or workflow execution. | `app/skills/base.py`, `app/skills/builtin.py`, `app/skills/registry.py` |
-| Plugin Marketplace | Installs resource packs, converts external `SKILL.md` files into prompt Skills, records install history, and exposes installed resources to the UI. | `app/marketplace/`, `web/src/App.tsx` |
-| Harness Runtime | Adds deterministic execution control around skills and agents, including task context, event emission, artifacts, policy checks, and human review state. | `app/harness/runtime.py`, `app/harness/context.py`, `app/harness/events.py`, `app/harness/policy.py` |
-| LangGraph Workflows | Composes skills, agents, tools, review nodes, and reporter nodes into executable graphs. | `app/graphs/studio_graphs.py`, `app/graphs/workflow_compiler.py` |
-| Providers | Connects external capabilities such as LLM, MCP tools, and RAG storage behind stable provider interfaces. | `app/providers/`, `app/persistence/` |
-
-Typical execution flow:
+## Architecture
 
 ```text
-User task
-  -> FastAPI task API
-  -> Harness Runtime creates execution context
-  -> Skill or LangGraph node runs deterministic/LLM/tool logic
-  -> events, artifacts, traces and review state are persisted
-  -> Reporter produces final governance report
+User / React workbench
+        |
+        v
+FastAPI APIs ---- Marketplace ---- Skills Console ---- MCP Console
+        |
+        v
+Harness Runtime
+  context | policy | events | artifacts | human review | persistence
+        |
+        +-----------------------+
+        |                       |
+        v                       v
+LangGraph workflows          Skill Runtime
+planner / reviewer /         prompt skills / code skills /
+RAG / supervisor / reporter  dependency and permission checks
+        |                       |
+        +-----------+-----------+
+                    v
+      LLM / MCP / RAG / SQLite / pgvector / Docker sandbox
 ```
 
-典型执行链路：
+### Typical execution flow
 
 ```text
-用户任务
-  -> FastAPI 任务接口
-  -> Harness Runtime 创建执行上下文
-  -> Skill 或 LangGraph 节点运行规则、LLM 或工具逻辑
-  -> 持久化事件、产物、Trace 和人工审核状态
-  -> Reporter 生成最终治理报告
+Task request
+  -> FastAPI creates a task
+  -> Harness Runtime creates context and emits events
+  -> LangGraph invokes agents, Skills, LLMs, RAG, or MCP tools
+  -> policy and human-review checks gate sensitive operations
+  -> traces, artifacts, logs, and state are persisted
+  -> Reporter produces a governance report
 ```
 
-## Skill Plugins and Marketplace / Skill 插件与插件市场
+## Core Capabilities
 
-DevAgent Studio includes a governed Skill plugin system. A Skill is a reusable capability that can be called from the Skills console or inserted into a visual Workflow node.
+| Area | What it provides |
+| --- | --- |
+| Project analysis | Structure scanning, technology identification, module summary, risks, and governance suggestions. |
+| Code review | Hybrid rule, call-chain, and LLM semantic review with findings and test recommendations. |
+| RAG knowledge | Document chunking, ingestion, retrieval, project notes, SQLite default storage, and optional pgvector retrieval. |
+| Learning coach | Project-oriented learning plans and interactive follow-up questions. |
+| Collaboration | Planner, analyzer, reviewer, RAG, supervisor, and reporter run as a traceable collaboration graph. |
+| Workflow | Drag, connect, configure, validate, save, and execute workflow JSON compiled to LangGraph. |
+| Human review | Node-level approval/rejection, checkpoint/resume, retry, and recovery visualization. |
+| LLM governance | Per-agent model configuration, call trace, prompt versions, token/cost data, fallback display, and A/B tests. |
+| MCP management | Server registration, stdio tool discovery, enable/disable, approval, test invocation, and call logs. |
+| Benchmark | LLM, RAG, Workflow, MCP, and multi-agent evaluation with success rate, P95 latency, recall, completeness, token, and cost metrics. |
 
-DevAgent Studio 内置可治理的 Skill 插件系统。Skill 是一个可复用能力，可以在 Skills 页面手动测试，也可以作为 Workflow 节点参与自动执行。
+## Governed Skill Plugin System
 
-Supported install sources:
+A Skill is a reusable capability such as code review, RAG processing, learning coaching, security scanning, or workflow execution. A Skill can be tested in the Skills console or added to a visual workflow.
 
-- Built-in packs, such as security governance Skill packs.
-- Local directories or local `plugin.json` files.
-- URL or GitHub-style package sources.
-- External `SKILL.md` files. If no `plugin.json` is found but `SKILL.md` exists, DevAgent Studio imports it as a safe Prompt Skill.
+### Skill governance
 
-支持的安装来源：
+| Capability | Purpose |
+| --- | --- |
+| Contract validation | Validates `input_schema`, `output_schema`, `permissions`, and `execution_type` during package preview and install. |
+| Permission levels | Classifies access as `safe`, `project-read`, `llm`, `workflow-write`, `network`, or `filesystem`, and calculates risk. |
+| Strict approvals | Approval is scoped by `skill_code + agent_code`; testing and workflow execution are independently approved. |
+| Version management | Keeps Skill snapshots for upgrade comparison and rollback. |
+| Dependencies | Declares MCP tools, RAG collections, prompt versions, and model requirements before execution. |
+| Built-in tests | Allows packages to provide test cases and lets users run them after installation. |
+| Trust metadata | Records source URL, author, manifest signature verification, install count, and local validation state. |
+| Workflow mapping | Maps outputs from earlier workflow nodes into a Skill node input. |
 
-- 内置资源包，例如安全治理 Skill 包。
-- 本地目录或本地 `plugin.json` 文件。
-- URL 或 GitHub 风格的资源包来源。
-- 外部 `SKILL.md` 文件。如果没有发现 `plugin.json`，但存在 `SKILL.md`，系统会自动转换为安全的 Prompt Skill。
+### Prompt Skill and Code Skill
 
-Prompt Skill vs code Skill:
+An external `SKILL.md` is imported as a **Prompt Skill** when there is no `plugin.json`. The system reads its instruction text and uses it as an LLM prompt. It never executes third-party code.
 
-- Current external `SKILL.md` imports are Prompt Skills. The system reads the instruction text and sends it to the LLM; it does not execute third-party code.
-- Code Skills are a future extension direction. They would contain executable plugin code and therefore require sandboxing, timeouts, permission checks, and stricter audit logs.
+A **Code Skill** contains an executable entry point, for example:
 
-Prompt Skill 与代码型 Skill：
+```text
+plugin/
+  plugin.json
+  skills/
+    security_scan.py
+```
 
-- 当前外部 `SKILL.md` 导入的是 Prompt Skill。系统只读取说明文本并交给 LLM，不执行第三方代码，安全性更高。
-- 代码型 Skill 是后续扩展方向。它会携带可执行插件代码，因此需要沙箱、超时限制、权限校验和更严格的审计日志。
+```json
+{
+  "code": "security.scan",
+  "execution_type": "python",
+  "entrypoint": "skills/security_scan.py:run",
+  "permissions": ["project-read"]
+}
+```
 
-### Skill Approval Model / Skill 权限审批模型
+### Docker sandbox for Code Skills
 
-Skill approval is strict and identity-scoped:
+Code Skills can use a Docker sandbox. The runtime starts a temporary container and removes it when execution ends. The sandbox applies:
+
+- `--network none`: no outbound network access.
+- `--read-only`: immutable container root filesystem.
+- read-only mount for the Skill package.
+- memory, CPU, PID, and execution-time limits.
+- dropped Linux capabilities and `no-new-privileges`.
+- invocation result and failure logging.
+
+This makes third-party extensions practical without treating them as trusted local code. Docker isolation is a defense layer, not a substitute for reviewing plugin source and permissions.
+
+## Plugin Marketplace
+
+The Marketplace installs and tracks resource packages. Supported package types include `skill_pack`, `rag_pack`, `mcp_pack`, `prompt_pack`, `workflow_pack`, and `benchmark_pack`.
+
+Supported sources:
+
+- Built-in catalog packages.
+- Local folders or a local `plugin.json`.
+- URL and GitHub-style package sources.
+- External `SKILL.md` files, automatically converted to a safe Prompt Skill.
+
+After installation, the UI shows installed resources, source and trust details, available Skills, approval actions, test calls, workflow insertion, and uninstall status.
+
+### Strict approval model
 
 ```text
 approval key = skill_code + agent_code
 ```
 
-That means approval for one identity does not approve every usage path.
+The two common execution identities are:
 
-权限审批采用严格匹配：
+| Agent code | Meaning |
+| --- | --- |
+| `skill_console` | Manual test call from the Skills page. |
+| `workflow_runner` | Automatic call from a visual workflow. |
 
-```text
-审批键 = skill_code + agent_code
-```
+Approving `skill_console` does not approve `workflow_runner`. A Skill must be explicitly approved for the context in which it will run.
 
-这意味着某个身份审批通过，不代表所有调用方式都通过。
+## Quick Start
 
-Common agent codes:
+### Requirements
 
-- `skill_console`: manual testing from the Skills page.
-- `workflow_runner`: automatic execution from a visual Workflow.
+- Python 3.11+ (Python 3.13 is supported by the current project setup)
+- Node.js 18+
+- Docker Desktop, optional for pgvector and Docker Code Skill sandboxing
 
-常见执行身份：
-
-- `skill_console`：Skills 页面手动测试调用。
-- `workflow_runner`：Workflow 自动执行调用。
-
-Example:
-
-| Approval Record | Skills Test Call | Workflow Run |
-| --- | --- | --- |
-| `code.review + skill_console = allowed` | Allowed | Not allowed |
-| `code.review + workflow_runner = allowed` | Does not affect manual test | Allowed |
-| `code.review + workflow_runner = blocked` | Does not affect manual test | Blocked |
-
-Marketplace strict mode:
-
-- `Approve test only` only approves `skill_console`.
-- `Add to Workflow` only creates a Workflow Skill node.
-- Workflow execution remains pending until `workflow_runner` is manually approved from the Workflow node config or the Skills approval panel.
-
-插件市场严格模式：
-
-- “审批手动测试”只会审批 `skill_console`。
-- “添加到 Workflow”只创建 Workflow Skill 节点。
-- Workflow 运行前必须手动审批 `workflow_runner`，可以在 Workflow 节点配置区或 Skills 权限审批区完成。
-
-## Quick Start / 快速启动
-
-### 1. Clone and enter the project / 克隆项目
+### Install
 
 ```powershell
 git clone https://github.com/biheto/DevAgent-Studio.git
 cd DevAgent-Studio
-```
 
-### 2. Create Python environment / 创建 Python 环境
-
-Python 3.11+ is recommended. Python 3.13 is also supported by the current local setup.
-
-推荐 Python 3.11+，当前项目也可以在 Python 3.13 下运行。
-
-```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install -e .
-```
+pip install -e ".[llm,vector,dev]"
 
-Optional extras:
-
-```powershell
-# LLM support
-pip install -e ".[llm]"
-
-# pgvector RAG support
-pip install -e ".[vector]"
-
-# development tools
-pip install -e ".[dev]"
-```
-
-### 3. Install frontend dependencies / 安装前端依赖
-
-```powershell
 cd web
 npm install
 npm run build
 cd ..
+
+copy .env.example .env
 ```
 
-### 4. Start backend / 启动后端
+### Start the application
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8100
 ```
 
-Open:
+Open `http://127.0.0.1:8100/` for the workbench and `http://127.0.0.1:8100/docs` for the API documentation.
 
-```text
-http://127.0.0.1:8100/
-http://127.0.0.1:8100/docs
-```
+### Optional services
 
-### One-command Windows setup / Windows 一键启动
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\setup-and-start.ps1
-```
-
-The script installs dependencies, builds the frontend, and starts the backend on port `8100`.
-
-该脚本会安装依赖、构建前端，并在 `8100` 端口启动后端。
-
-## Configuration / 配置
-
-Copy the example environment file:
-
-复制示例配置：
-
-```powershell
-copy .env.example .env
-```
-
-### LLM
-
-Without an API key, the system still works in fallback mode. With an API key, Planner, Reporter, Supervisor, Code Review, Learning Coach, task Q&A, and Benchmark can use real LLM calls.
-
-没有 API Key 时系统会走 fallback；配置 API Key 后，Planner、Reporter、Supervisor、代码审查、学习陪练、任务追问和 Benchmark 会调用真实 LLM。
-
-```env
-OPENAI_API_KEY=your_api_key
-OPENAI_BASE_URL=
-DEV_AGENT_LLM_MODEL=gpt-4o-mini
-```
-
-Per-agent model override:
-
-```env
-DEV_AGENT_LLM_MODEL_PLANNER=gpt-4o-mini
-DEV_AGENT_LLM_MODEL_REPORTER=gpt-4o-mini
-DEV_AGENT_LLM_MODEL_CODE_REVIEWER=gpt-4o-mini
-```
-
-### RAG Store
-
-Default:
-
-```env
-DEV_AGENT_RAG_STORE=sqlite
-```
-
-pgvector:
-
-```env
-DEV_AGENT_RAG_STORE=pgvector
-PGVECTOR_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dev_agent_studio
-```
-
-Start pgvector:
+Run pgvector:
 
 ```powershell
 docker compose -f docker-compose.pgvector.yml up -d
 ```
 
-### MCP Provider
-
-Local deterministic provider:
+Configure Docker Code Skill sandboxing in `.env`:
 
 ```env
-DEV_AGENT_MCP_PROVIDER=local
+DEV_AGENT_SKILL_SANDBOX=docker
+DEV_AGENT_SKILL_SANDBOX_IMAGE=python:3.13-slim
+DEV_AGENT_SKILL_SANDBOX_MEMORY=256m
+DEV_AGENT_SKILL_SANDBOX_CPUS=0.5
+DEV_AGENT_SKILL_SANDBOX_PIDS_LIMIT=64
+DEV_AGENT_SKILL_SANDBOX_FALLBACK=false
 ```
 
-Real MCP provider:
+`subprocess` is the default sandbox mode for local development. `docker` requires Docker Desktop to be running. The sandbox status can be checked at `GET /api/v1/skills/sandbox/status`.
+
+### LLM configuration
+
+The application works with deterministic fallback responses when no key is configured. Set an API key for real LLM calls:
 
 ```env
-DEV_AGENT_MCP_PROVIDER=mcp
+OPENAI_API_KEY=your_api_key
+OPENAI_BASE_URL=
+DEV_AGENT_LLM_MODEL=gpt-4o-mini
+
+# Optional per-agent overrides
+DEV_AGENT_LLM_MODEL_PLANNER=gpt-4o-mini
+DEV_AGENT_LLM_MODEL_REPORTER=gpt-4o-mini
+DEV_AGENT_LLM_MODEL_CODE_REVIEWER=gpt-4o-mini
 ```
 
-Built-in stdio MCP examples:
+## Development Checks
 
-```text
-scripts/launch_mcp_filesystem.py
-scripts/launch_mcp_memory.py
-scripts/fake_mcp_server.py
+```powershell
+# Backend compilation
+.\.venv\Scripts\python.exe -m compileall -q app
+
+# Frontend production build
+cd web
+npm run build
+cd ..
+
+# Verify the Skill sandbox configuration
+.\.venv\Scripts\python.exe -c "from app.skills.sandbox import python_skill_sandbox_status; print(python_skill_sandbox_status())"
 ```
 
-## Benchmark / 评测体系
-
-DevAgent Studio includes an internal benchmark suite.
-
-DevAgent Studio 内置 Benchmark 评测体系。
-
-| Benchmark | What It Evaluates | Key Metrics |
-| --- | --- | --- |
-| MCP Benchmark | Tool stability and approval correctness | success rate, latency, P95, failures |
-| LLM Benchmark | Prompt/model response quality | quality score, tokens, estimated cost, fallback |
-| RAG Benchmark | Retrieval quality | hit rate, source quality, result count |
-| Workflow Benchmark | Workflow runtime reliability | success rate, failed nodes, latency |
-| Collaboration Benchmark | Multi-agent report quality | completeness, risk score, human review trigger |
-
-API examples:
-
-```text
-POST /api/v1/benchmarks/mcp/run
-POST /api/v1/benchmarks/llm/run
-POST /api/v1/benchmarks/rag/run
-POST /api/v1/benchmarks/workflow/run
-POST /api/v1/benchmarks/collaboration/run
-GET  /api/v1/benchmarks
-GET  /api/v1/benchmarks/{run_id}
-```
-
-P95 means the 95th percentile latency. It is useful because average latency can hide long-tail slow runs.
-
-P95 表示 95 分位延迟，比平均值更能反映长尾慢请求。
-
-## Project Structure / 项目结构
+## Project Structure
 
 ```text
 DevAgent Studio/
   app/
-    agents/              # Project, code review, RAG, learning, workflow helpers
-    api/                 # FastAPI routes
-    graphs/              # LangGraph workflows and workflow compiler
-    harness/             # Runtime context, events, policy, execution wrapper
-    marketplace/         # Plugin Marketplace catalog, installer, and SKILL.md compatibility
-    persistence/         # SQLite task store and RAG stores
-    providers/           # LLM and MCP providers
-    schemas/             # Pydantic schemas
-    skills/              # Skill abstraction and registry
-    benchmark_runner.py  # MCP/LLM/RAG/Workflow/Collaboration benchmarks
-    main.py              # FastAPI app entry
-  web/
-    src/                 # React workbench
-    package.json
-  scripts/               # MCP server launchers and fake MCP server
-  docs/                  # Design docs and implementation timeline
-  examples/              # Example API payloads
+    agents/              # Project, review, RAG, learning, and report logic
+    api/                 # FastAPI route modules
+    graphs/              # LangGraph graphs and visual workflow compiler
+    harness/             # Context, events, policy, artifacts, review/resume runtime
+    marketplace/         # Package preview, installer, trust, and SKILL.md compatibility
+    persistence/         # Task, governance, RAG, and trace persistence
+    providers/           # LLM, MCP, and RAG provider interfaces
+    skills/              # Registry, contracts, versions, dependencies, sandbox runtime
+    benchmark_runner.py  # LLM/RAG/Workflow/MCP/collaboration benchmarks
+  web/                   # React workbench
+  scripts/               # MCP launchers and test servers
+  docs/                  # Architecture and implementation notes
+  examples/              # API request examples
   docker-compose.pgvector.yml
-  pyproject.toml
-  README.md
 ```
 
-## Main Pages / 主要页面
+## Documentation
 
-- **Run**: run Agent, Planner, Workflow, Tool, Knowledge, or Collaboration mode.
-- **Workflow**: drag and arrange workflow nodes, validate and execute.
-- **Reports**: final report, governance suggestions, Mermaid graph.
-- **Chat**: task Q&A, knowledge query, learning coach.
-- **History**: replay task records and artifacts.
-- **LLM**: traces, prompt versions, token/cost dashboard, A/B tests.
-- **MCP**: server config, tool discovery, approval, test call logs.
-- **Skills**: installed plugins, Skill list, approval, test execution, logs, and Workflow insertion.
-- **Market**: install built-in/local/URL resource packs, preview manifests, and import external `SKILL.md`.
-- **Bench**: MCP/LLM/RAG/Workflow/Collaboration benchmark dashboard.
+- [Implementation timeline](docs/IMPLEMENTATION_TIMELINE.md)
+- [Workflow production notes](docs/PHASE_8_WORKFLOW_PRODUCTION.md)
 
-中文：
+## Roadmap
 
-- **Run**：运行 Agent、Planner、Workflow、Tool、Knowledge、Collaboration 模式。
-- **Workflow**：拖拽编排节点，校验并执行。
-- **Reports**：查看最终报告、治理建议和 Mermaid 图。
-- **Chat**：任务追问、知识库问答、学习陪练。
-- **History**：历史任务回放。
-- **LLM**：Trace、Prompt 版本、token/cost、A/B Test。
-- **MCP**：Server 配置、工具发现、审批和调用日志。
-- **Bench**：MCP、LLM、RAG、Workflow、多 Agent 协作评测。
+- Add a richer UI for Docker sandbox health and test invocation.
+- Add signed external plugin publishing examples and contributor tooling.
+- Expand API, workflow compiler, runtime-state, MCP contract, RAG retrieval, LLM fallback, and benchmark test coverage.
+- Add conditional branch, parallel node, and richer input/output mapping UX for workflows.
 
-## Example Request / 示例请求
-
-```powershell
-curl -X POST "http://127.0.0.1:8100/api/v1/tasks/run" `
-  -H "Content-Type: application/json" `
-  -d '{
-    "goal": "Analyze this project and provide governance suggestions",
-    "project_path": "D:/Java/project/Project/AI Agent/DevAgent Studio",
-    "max_files": 100,
-    "require_human_review": true,
-    "execution_mode": "planner"
-  }'
-```
-
-## Development Checks / 开发验证
-
-```powershell
-# Backend import/compile check
-.\.venv\Scripts\python.exe -m compileall -q app
-
-# Frontend build
-cd web
-npm run build
-```
-
-## Implementation Timeline / 实现时间线
-
-See:
-
-- [Implementation Timeline](docs/IMPLEMENTATION_TIMELINE.md)
-- [Workflow Production Notes](docs/PHASE_8_WORKFLOW_PRODUCTION.md)
-
-## Roadmap / 后续计划
-
-- Rewrite and expand automated tests.
-- Add benchmark dataset management and benchmark report export.
-- Improve workflow input/output mapping and conditional branch UI.
-- Add richer permission controls for high-risk MCP tools.
-- Add Skill contract validation, permission risk levels, version rollback, and sandboxed code Skill support.
-- Add screenshots/GIFs generated from real demo sessions.
-- Improve documentation for deployment and production hardening.
-
-## License / 许可证
+## License and Attribution
 
 This project is licensed under the [MIT License](LICENSE).
 
-Copyright (c) 2026 biheto. If you use, modify, or distribute this project,
-please keep the original copyright notice and license text.
-
-本项目使用 [MIT License](LICENSE) 开源。你可以使用、修改和分发本项目，
-但需要保留原始版权声明和许可证文本。
-
-## Attribution / 引用说明
-
-If this project helps your research, study, or engineering work, attribution is appreciated:
+Copyright (c) 2026 biheto. When redistributing the project, preserve the original copyright notice and license text.
 
 ```text
 DevAgent Studio by biheto
 https://github.com/biheto/DevAgent-Studio
 ```
 
-如果本项目对你的研究、学习或工程实践有帮助，欢迎在相关文档、项目说明或引用中注明来源：
+---
+
+<a id="中文"></a>
+
+# DevAgent Studio 中文说明
+
+DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多 Agent 工作台。项目基于 FastAPI、LangGraph 和 React 构建，用于帮助团队理解项目结构、识别代码风险、沉淀项目知识、治理 LLM 与工具调用，并执行可追踪的研发工作流。
+
+它不是代码编写 IDE，核心目标是让研发过程更容易理解、审计、评估和持续改进。
+
+## 项目亮点
+
+- **多 Agent 协作而非单次 Prompt**：通过 LangGraph 编排 Planner、项目分析、代码审查、RAG、监督和报告节点。
+- **Harness Runtime 运行时治理**：统一任务上下文、事件时间线、产物、策略、人工审核、持久化与恢复执行。
+- **真正可执行的可视化 Workflow**：前端拖拽画布会编译成 LangGraph 工作流执行，而不只是展示图。
+- **LLM 可观测与可治理**：可查看 Prompt 版本、调用 Trace、token/cost、fallback、A/B Test，以及按 Agent 配置模型。
+- **安全可治理的 Skill 插件体系**：Skill 有契约校验、权限分级、严格审批、版本快照、依赖检测、测试用例和执行日志。
+- **插件市场与外部兼容**：支持内置包、本地路径、URL、GitHub 风格来源，以及外部 `SKILL.md` 自动转换。
+- **Docker 代码型 Skill 沙箱**：第三方代码可以在禁网、只读、限时限资源的临时容器中运行。
+
+## 核心能力
+
+| 模块 | 能力 |
+| --- | --- |
+| 项目分析 | 扫描目录、识别技术栈、归纳模块职责、风险和治理建议。 |
+| 代码审查 | 结合规则、调用链与 LLM 语义审查，输出问题和测试建议。 |
+| RAG 知识加工 | 文档切片、入库、检索、项目笔记；默认 SQLite，可选 pgvector。 |
+| 学习陪练 | 基于项目上下文生成学习计划和追问。 |
+| 多 Agent 协作 | Planner、Analyzer、Reviewer、RAG、Supervisor、Reporter 组成协作图。 |
+| Workflow | 拖拽、连线、配置、校验、保存并执行 Workflow JSON。 |
+| 人工审核 | 支持节点级通过/拒绝、checkpoint/resume、重试与恢复事件展示。 |
+| MCP | 支持 Server 配置、工具发现、启停、审批、测试调用和日志追踪。 |
+| Benchmark | 覆盖 LLM、RAG、Workflow、MCP、多 Agent 协作的指标评估。 |
+
+## Skill 插件体系
+
+Skill 是可复用能力，例如代码审查、RAG 加工、学习陪练、安全扫描或 Workflow 执行。它可以在 Skills 页面单独测试，也可以加入可视化 Workflow。
+
+已实现的治理能力：
+
+- **契约校验**：安装和预览时校验 `input_schema`、`output_schema`、`permissions`、`execution_type`，避免格式错误的包进入运行时。
+- **权限风险分级**：使用 `safe`、`project-read`、`llm`、`workflow-write`、`network`、`filesystem` 标识访问能力和风险级别。
+- **严格审批**：审批键为 `skill_code + agent_code`。手动测试和工作流执行分别审批，互不放行。
+- **版本与回滚**：安装升级会保留版本快照，可对比和回滚。
+- **依赖声明**：Skill 可声明依赖的 MCP 工具、RAG collection、Prompt 版本和 LLM 模型，运行前会检查缺失项。
+- **测试用例**：插件包可携带测试用例，安装后可一键运行并记录结果。
+- **可信来源**：记录来源 URL、作者、manifest SHA-256 签名校验、安装次数和本地校验状态。
+- **Workflow 输入输出映射**：前序节点输出可映射到 Skill 节点输入，让 Skill 参与复杂工作流。
+
+### Prompt Skill 与代码型 Skill
+
+如果外部来源没有 `plugin.json`，但包含 `SKILL.md`，系统会将其识别为 **Prompt Skill**：只读取其中的指令文本并交给 LLM，不执行第三方代码。
+
+**代码型 Skill** 则带有可执行入口，例如 Python 文件。它能力更强，但必须通过权限审批和沙箱限制后执行。
+
+### Docker 沙箱
+
+当 `.env` 中设置 `DEV_AGENT_SKILL_SANDBOX=docker` 后，代码型 Skill 会在临时 Docker 容器中执行，并使用以下限制：
+
+- 禁止网络访问。
+- 容器根文件系统只读，Skill 包只读挂载。
+- 限制内存、CPU、进程数和执行超时。
+- 移除 Linux capabilities，禁止提升权限。
+- 执行结束自动删除容器，同时保留调用结果和失败日志。
+
+Docker 沙箱是隔离层，不代表插件天然可信。安装前仍应检查来源、manifest、权限和代码内容。
+
+## 插件市场
+
+Marketplace 支持安装和管理 `skill_pack`、`rag_pack`、`mcp_pack`、`prompt_pack`、`workflow_pack`、`benchmark_pack` 等资源包。
+
+支持的来源：内置资源包、本地目录或 `plugin.json`、URL/GitHub 风格地址，以及外部 `SKILL.md`。安装后可查看已安装资源、来源与信任信息、Skill 列表、权限审批、测试调用、添加到 Workflow 和卸载状态。
+
+### 审批如何隔离
+
+```text
+审批键 = skill_code + agent_code
+```
+
+| Agent code | 使用场景 |
+| --- | --- |
+| `skill_console` | 在 Skills 页面手动点击测试调用。 |
+| `workflow_runner` | 在可视化 Workflow 中自动执行。 |
+
+因此，批准 `skill_console` 不等于批准 `workflow_runner`。Skill 必须在实际运行身份下单独获得批准。
+
+## 快速启动
+
+环境要求：Python 3.11+（当前项目支持 Python 3.13）、Node.js 18+；如需 pgvector 或 Docker 沙箱，还需要 Docker Desktop。
+
+```powershell
+git clone https://github.com/biheto/DevAgent-Studio.git
+cd DevAgent-Studio
+
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -e ".[llm,vector,dev]"
+
+cd web
+npm install
+npm run build
+cd ..
+
+copy .env.example .env
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+```
+
+打开 `http://127.0.0.1:8100/` 使用工作台，打开 `http://127.0.0.1:8100/docs` 查看 API 文档。
+
+可选配置：
+
+```env
+# LLM
+OPENAI_API_KEY=your_api_key
+DEV_AGENT_LLM_MODEL=gpt-4o-mini
+
+# pgvector RAG
+DEV_AGENT_RAG_STORE=pgvector
+PGVECTOR_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dev_agent_studio
+
+# Docker 代码型 Skill 沙箱
+DEV_AGENT_SKILL_SANDBOX=docker
+DEV_AGENT_SKILL_SANDBOX_IMAGE=python:3.13-slim
+DEV_AGENT_SKILL_SANDBOX_MEMORY=256m
+DEV_AGENT_SKILL_SANDBOX_CPUS=0.5
+DEV_AGENT_SKILL_SANDBOX_PIDS_LIMIT=64
+DEV_AGENT_SKILL_SANDBOX_FALLBACK=false
+```
+
+启动 pgvector：
+
+```powershell
+docker compose -f docker-compose.pgvector.yml up -d
+```
+
+可通过 `GET /api/v1/skills/sandbox/status` 查看 Skill 沙箱配置状态。
+
+## 开发验证
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q app
+
+cd web
+npm run build
+cd ..
+
+.\.venv\Scripts\python.exe -c "from app.skills.sandbox import python_skill_sandbox_status; print(python_skill_sandbox_status())"
+```
+
+## 项目结构
+
+```text
+DevAgent Studio/
+  app/
+    agents/              # 项目分析、代码审查、RAG、学习、报告逻辑
+    api/                 # FastAPI 路由
+    graphs/              # LangGraph 图与 Workflow 编译器
+    harness/             # 上下文、事件、策略、产物、审核/恢复运行时
+    marketplace/         # 资源包预览、安装、可信信息、SKILL.md 兼容层
+    persistence/         # 任务、治理、RAG、Trace 持久化
+    providers/           # LLM、MCP、RAG Provider
+    skills/              # Registry、契约、版本、依赖、沙箱运行时
+  web/                   # React 工作台
+  scripts/               # MCP 启动和测试脚本
+  docs/                  # 设计和实现说明
+```
+
+## 后续计划
+
+- 增加 Docker 沙箱状态和测试调用的前端可视化。
+- 增加外部签名插件发布示例和贡献工具。
+- 补齐 API、Workflow 编译、Harness 状态、MCP 契约、RAG 命中、LLM fallback 和 Benchmark 的自动化测试。
+- 增强 Workflow 条件分支、并行节点和输入输出映射交互。
+
+## License / 引用
+
+项目使用 [MIT License](LICENSE)。分发或修改时请保留原版权和许可证文本。
 
 ```text
 DevAgent Studio by biheto
