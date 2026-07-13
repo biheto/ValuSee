@@ -1266,6 +1266,12 @@ export function App() {
   return (
     <div className="app-shell">
       <aside className="side-nav">
+        <div className="nav-garden nav-garden-top" aria-hidden="true">
+          <i>✦</i>
+          <i>✿</i>
+          <i>☘</i>
+          <i>✽</i>
+        </div>
         <div className="brand-mark">D</div>
         <nav>
           {navItems.map((item) => {
@@ -1283,6 +1289,17 @@ export function App() {
             );
           })}
         </nav>
+        <div className="nav-garden nav-garden-middle" aria-hidden="true">
+          <i>✦</i>
+          <i>❀</i>
+          <i>☘</i>
+          <i>✿</i>
+        </div>
+        <div className="nav-garden nav-garden-bottom" aria-hidden="true">
+          <i>❀</i>
+          <i>✦</i>
+          <i>☘</i>
+        </div>
       </aside>
 
       <main className="app-main">

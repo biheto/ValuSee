@@ -20,19 +20,27 @@ It is deliberately not a code-writing IDE. Its focus is making software delivery
 - **Plugin Marketplace**: install resource packs from built-in catalogs, local paths, URLs, GitHub-style sources, or an external `SKILL.md` file.
 - **Safe third-party code execution**: Code Skills can run in a constrained Docker sandbox with no network, read-only mounts, resource limits, and audit logs.
 
-## Product Preview
+## Product Preview / 页面预览
 
-| Run workbench | Visual workflow |
+| Run workbench / 运行 | Visual workflow / 编排 |
 | --- | --- |
 | ![Run workbench](docs/assets/run-preview.png) | ![Visual workflow](docs/assets/workflow-preview.png) |
 
-| Skills console | Plugin Marketplace |
+| Reports / 报告 | Interactive chat / 追问 |
 | --- | --- |
-| ![Skills console](docs/assets/skill-preview.png) | ![Plugin Marketplace](docs/assets/market-preview.png) |
+| ![Reports](docs/assets/report-preview.png) | ![Interactive chat](docs/assets/chat-preview.png) |
 
-| LLM console | Benchmark dashboard |
+| Task history / 历史 | LLM governance / LLM |
 | --- | --- |
-| ![LLM console](docs/assets/llm-console-preview.png) | ![Benchmark dashboard](docs/assets/benchmark-dashboard-preview.png) |
+| ![Task history](docs/assets/history-preview.png) | ![LLM console](docs/assets/llm-console-preview.png) |
+
+| MCP console / MCP | Skills console / Skills |
+| --- | --- |
+| ![MCP console](docs/assets/mcp-console-preview.png) | ![Skills console](docs/assets/skill-preview.png) |
+
+| Plugin Marketplace / Market | Benchmark dashboard / Bench |
+| --- | --- |
+| ![Plugin Marketplace](docs/assets/market-preview.png) | ![Benchmark dashboard](docs/assets/benchmark-dashboard-preview.png) |
 
 ## Architecture
 
