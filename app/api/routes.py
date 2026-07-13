@@ -40,6 +40,7 @@ from app.providers.llm_provider import llm_provider
 from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.skills.executor import ensure_builtin_skills_seeded, execute_skill
+from app.skills.sandbox import python_skill_sandbox_status
 from app.schemas.studio import (
     BenchmarkRunRequest,
     BenchmarkRunResponse,
@@ -312,6 +313,31 @@ def list_skill_execution_logs(limit: int = 100, skill_code: str | None = None) -
     return {"logs": task_store.list_skill_execution_logs(limit=limit, skill_code=skill_code)}
 
 
+@router.get("/skills/sandbox/status", tags=["Skills"])
+def get_skill_sandbox_status() -> dict[str, object]:
+    return python_skill_sandbox_status()
+
+
+@router.get("/skills/{skill_code}/versions", tags=["Skills"])
+def list_skill_versions(skill_code: str) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    if not task_store.get_skill(skill_code):
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"versions": task_store.list_skill_versions(skill_code)}
+
+
+@router.post("/skills/{skill_code}/rollback", tags=["Skills"])
+def rollback_skill_version(skill_code: str, payload: dict[str, object]) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    version = str(payload.get("version") or "").strip()
+    if not version:
+        raise HTTPException(status_code=400, detail="version is required")
+    skill = task_store.rollback_skill_version(skill_code, version)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill version not found")
+    return {"skill": skill}
+
+
 @router.post("/skills/{skill_code}/enabled", tags=["Skills"])
 def set_skill_enabled(skill_code: str, payload: dict[str, object]) -> dict[str, object]:
     ensure_builtin_skills_seeded()
@@ -352,6 +378,36 @@ def execute_skill_api(skill_code: str, payload: dict[str, object]) -> dict[str, 
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
+
+
+@router.post("/skills/{skill_code}/test", tags=["Skills"])
+def test_skill_api(skill_code: str, payload: dict[str, object]) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    skill = task_store.get_skill(skill_code)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    tests = skill.get("tests") if isinstance(skill.get("tests"), list) else []
+    if payload.get("test") and isinstance(payload.get("test"), dict):
+        tests = [payload["test"]]
+    if not tests:
+        tests = [{"name": "default", "input": skill.get("default_input") or {}}]
+    results = []
+    agent_code = str(payload.get("agent_code") or "skill_console")
+    for test in tests:
+        case_input = test.get("input") if isinstance(test, dict) and isinstance(test.get("input"), dict) else {}
+        name = str(test.get("name") or test.get("case_id") or "test") if isinstance(test, dict) else "test"
+        try:
+            run = execute_skill(skill_code, case_input, agent_code=agent_code)
+            results.append({"name": name, "status": "passed", "output": run.get("output"), "latency_ms": run.get("latency_ms")})
+        except Exception as exc:
+            results.append({"name": name, "status": "failed", "error_message": str(exc)})
+    return {
+        "skill_code": skill_code,
+        "total": len(results),
+        "passed": len([item for item in results if item["status"] == "passed"]),
+        "failed": len([item for item in results if item["status"] == "failed"]),
+        "results": results,
+    }
 
 
 @router.delete("/skills/plugins/{plugin_id}", tags=["Skills"])

@@ -25,6 +25,12 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
                 "output_schema": {"report_markdown": "string"},
                 "default_input": {"project_path": ".", "focus": "auth, secret, SQL and dependency risk"},
                 "prompt_template": "Review {{project_path}} with focus on {{focus}}.",
+                "tests": [
+                    {
+                        "name": "security checklist smoke",
+                        "input": {"project_path": ".", "focus": "secret and dependency risk"},
+                    }
+                ],
             },
             {
                 "code": "market.governance.review",
@@ -37,6 +43,12 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
                 "output_schema": {"report_markdown": "string"},
                 "default_input": {"goal": "Assess governance gaps and review gates."},
                 "prompt_template": "Create governance actions for: {{goal}}",
+                "tests": [
+                    {
+                        "name": "governance review smoke",
+                        "input": {"goal": "Check ownership, review gates and rollback plan."},
+                    }
+                ],
             },
         ],
     },

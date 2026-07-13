@@ -51,6 +51,7 @@ import {
   listSkillApprovals,
   listSkillExecutionLogs,
   listSkillPlugins,
+  listSkillVersions,
   listSkills,
   listProjectFiles,
   listKnowledgeDocuments,
@@ -63,12 +64,14 @@ import {
   runCollaborationTaskStream,
   runLlmPromptAbTest,
   runTaskStream,
+  rollbackSkillVersion,
   saveMcpServer,
   installMarketplacePackage,
   saveLlmPrompt,
   saveWorkflow,
   setSkillApproval,
   setSkillEnabled,
+  testSkill,
   uninstallMarketplacePackage,
   uninstallSkillPlugin,
   setMcpRegisteredToolEnabled,
@@ -109,6 +112,8 @@ import {
   SkillExecutionLog,
   SkillPlugin,
   SkillRecord,
+  SkillTestResult,
+  SkillVersionSnapshot,
   SuggestionRecord,
   TaskResultPayload,
   TaskSummary,
@@ -1609,6 +1614,11 @@ function EnabledState({ enabled, label = '状态' }: { enabled: boolean; label?:
   );
 }
 
+function RiskBadge({ level }: { level?: string }) {
+  const value = (level || 'low').toLowerCase();
+  return <span className={`risk-badge ${value}`}>risk: {value}</span>;
+}
+
 function ModeTabs({ executionMode, onChange }: { executionMode: ExecutionMode; onChange: (mode: ExecutionMode) => void }) {
   return (
     <div className="mode-tabs">
@@ -2288,6 +2298,21 @@ function NodeConfig({
             />
             <FieldHelp>传给 Skill 的额外输入，会和任务的 project_path、goal、max_files 合并。</FieldHelp>
           </label>
+          <label>
+            input_mappings JSON
+            <textarea
+              value={String(node.config.input_mappings_text ?? JSON.stringify(node.config.input_mappings ?? {}, null, 2))}
+              onChange={(event) => {
+                onConfigChange('input_mappings_text', event.target.value);
+                try {
+                  onConfigChange('input_mappings', JSON.parse(event.target.value));
+                } catch {
+                  // Keep raw text until the JSON becomes valid.
+                }
+              }}
+            />
+            <FieldHelp>把上游节点输出映射到 Skill 输入字段，例如 <code>{'{"context":{"source":"plan","path":"plan.0"}}'}</code>。source 可用 current、goal、input_text、上游节点 id 或 outputs.xxx。</FieldHelp>
+          </label>
         </>
       ) : null}
       <div className="config-divider">Production</div>
@@ -2957,6 +2982,8 @@ function SkillsPage({
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [versions, setVersions] = useState<SkillVersionSnapshot[]>([]);
+  const [testResult, setTestResult] = useState<SkillTestResult | null>(null);
   const categories = Array.from(new Set(skills.map((skill) => skill.category))).sort();
   const filteredSkills = categoryFilter === 'all' ? skills : skills.filter((skill) => skill.category === categoryFilter);
   const activeApproval = selectedSkill
@@ -2975,7 +3002,9 @@ function SkillsPage({
     }
     setInputText(JSON.stringify(nextInput, null, 2));
     setResult(null);
+    setTestResult(null);
     setMessage('');
+    listSkillVersions(selectedSkill.code).then(setVersions).catch(() => setVersions([]));
   }, [selectedSkill?.code, projectPath]);
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -2994,6 +3023,24 @@ function SkillsPage({
     await runAction('Skill execution', async () => {
       const response = await onExecuteSkill(selectedSkill.code, agentCode, parseJsonValue<Record<string, unknown>>(inputText, {}));
       setResult(response.output);
+    });
+  }
+
+  async function submitSkillTests() {
+    if (!selectedSkill) return;
+    await runAction('Skill tests', async () => {
+      const response = await testSkill({ skill_code: selectedSkill.code, agent_code: agentCode });
+      setTestResult(response);
+    });
+  }
+
+  async function submitRollback(version: string) {
+    if (!selectedSkill) return;
+    await runAction('Skill rollback', async () => {
+      await rollbackSkillVersion(selectedSkill.code, version);
+      await onRefresh();
+      const nextVersions = await listSkillVersions(selectedSkill.code);
+      setVersions(nextVersions);
     });
   }
 
@@ -3045,6 +3092,7 @@ function SkillsPage({
               <span>{skill.code} / {skill.category} / {skill.execution_type}</span>
               <span className="state-with-meta">
                 <EnabledState enabled={skill.enabled} label="Skill" />
+                <RiskBadge level={skill.risk_level} />
                 <span>{skill.plugin_id}</span>
               </span>
             </button>
@@ -3069,10 +3117,17 @@ function SkillsPage({
               <dd>{selectedSkill.plugin_id}</dd>
               <dt>执行类型</dt>
               <dd>{selectedSkill.execution_type}</dd>
+              <dt>版本</dt>
+              <dd>{selectedSkill.version}</dd>
+              <dt>风险</dt>
+              <dd><RiskBadge level={selectedSkill.risk_level} /></dd>
+              <dt>来源格式</dt>
+              <dd>{selectedSkill.source_format}</dd>
               <dt>状态</dt>
               <dd><EnabledState enabled={selectedSkill.enabled} label="Skill" /></dd>
             </dl>
             <div className="skill-tags">
+              {(selectedSkill.permission_levels ?? []).map((level) => <span key={`level-${level}`} className={`risk-tag ${level}`}>{level}</span>)}
               {selectedSkill.permissions.map((permission) => <span key={permission}>{permission}</span>)}
               {!selectedSkill.permissions.length ? <span>no permission</span> : null}
             </div>
@@ -3086,6 +3141,31 @@ function SkillsPage({
               <summary>输入 / 输出 Schema</summary>
               <pre>{JSON.stringify({ input_schema: selectedSkill.input_schema, output_schema: selectedSkill.output_schema }, null, 2)}</pre>
             </details>
+            <details className="skill-json" open>
+              <summary>契约 / 依赖 / 测试用例</summary>
+              <pre>{JSON.stringify({
+                contract: selectedSkill.contract,
+                dependencies: selectedSkill.dependencies,
+                tests: selectedSkill.tests,
+                entrypoint: selectedSkill.entrypoint,
+              }, null, 2)}</pre>
+            </details>
+            <div className="skill-version-box">
+              <div className="skill-section-title">
+                <strong>Skill 版本快照</strong>
+                <span>{versions.length} snapshot(s)</span>
+              </div>
+              {versions.slice(0, 5).map((version) => (
+                <article key={`${version.skill_code}-${version.version}-${version.created_at}`}>
+                  <div>
+                    <strong>{version.version}</strong>
+                    <span>{version.created_at}</span>
+                  </div>
+                  <button className="secondary" onClick={() => submitRollback(version.version)}>回滚</button>
+                </article>
+              ))}
+              {!versions.length ? <p className="empty-text">暂无版本快照。</p> : null}
+            </div>
           </div>
         ) : (
           <p className="empty-text">请选择一个 Skill。</p>
@@ -3194,9 +3274,18 @@ function SkillsPage({
             <Play size={16} />
             测试调用 Skill
           </button>
+          <button className="secondary" disabled={!selectedSkill || !selectedSkill.enabled} type="button" onClick={submitSkillTests}>
+            运行自带测试
+          </button>
         </form>
         <div className="skill-execute-output">
           {message ? <p className="skill-message">{message}</p> : null}
+          {testResult ? (
+            <div className="skill-test-summary">
+              <strong>测试结果：{testResult.passed}/{testResult.total} passed</strong>
+              <pre>{JSON.stringify(testResult.results, null, 2)}</pre>
+            </div>
+          ) : null}
           {result ? <pre className="skill-result">{JSON.stringify(result, null, 2)}</pre> : <p className="empty-text">暂无测试输出。</p>}
         </div>
       </div>

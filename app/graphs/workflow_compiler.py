@@ -507,6 +507,43 @@ def _path_value(value: Any, path: str) -> Any:
     return current
 
 
+def _mapped_skill_input(config: dict[str, Any], state: WorkflowState, outputs: dict[str, Any]) -> dict[str, Any]:
+    mappings = config.get("input_mappings")
+    if not isinstance(mappings, dict):
+        return {}
+    mapped: dict[str, Any] = {}
+    for target_key, source_spec in mappings.items():
+        key = str(target_key or "").strip()
+        if not key:
+            continue
+        if isinstance(source_spec, str):
+            source = source_spec
+            path = ""
+        elif isinstance(source_spec, dict):
+            source = str(source_spec.get("source") or "")
+            path = str(source_spec.get("path") or "")
+        else:
+            continue
+        value = _mapping_source_value(source, state, outputs)
+        if path:
+            value = _path_value(value, path)
+        if value is not None:
+            mapped[key] = value
+    return mapped
+
+
+def _mapping_source_value(source: str, state: WorkflowState, outputs: dict[str, Any]) -> Any:
+    if source in {"current", "$current"}:
+        return state.get("current")
+    if source in {"goal", "$goal"}:
+        return state.get("goal") or state.get("input_text")
+    if source in {"input", "$input", "input_text", "$input_text"}:
+        return state.get("input_text")
+    if source.startswith("outputs."):
+        return _path_value(outputs, source.removeprefix("outputs."))
+    return outputs.get(source)
+
+
 def _output_key(node: dict[str, Any]) -> str:
     config = node.get("config", {}) if isinstance(node.get("config"), dict) else {}
     return str(config.get("output_key") or node["id"])
@@ -619,6 +656,7 @@ def _execute_node(node: dict[str, Any], state: WorkflowState, outputs: dict[str,
             "max_files": max_files,
             "goal": goal,
             **(config.get("input") if isinstance(config.get("input"), dict) else {}),
+            **_mapped_skill_input(config, state, outputs),
         }
         result = execute_skill(
             skill_code,

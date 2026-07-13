@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import tempfile
 import urllib.parse
@@ -14,6 +15,7 @@ from app.marketplace.catalog import get_builtin_manifest
 from app.persistence.rag_store import rag_store
 from app.persistence.sqlite_store import task_store
 from app.providers.llm_provider import llm_provider
+from app.skills.contract import validate_skill_contract
 
 
 SUPPORTED_PACKAGE_TYPES = {
@@ -28,6 +30,7 @@ SUPPORTED_PACKAGE_TYPES = {
 
 def preview_marketplace_package(source_url: str) -> dict[str, Any]:
     manifest = _load_manifest(source_url)
+    _validate_manifest(manifest)
     return {"manifest": _public_manifest(manifest), "summary": _summarize_manifest(manifest)}
 
 
@@ -163,7 +166,18 @@ def _normalize_skill(plugin_id: str, skill: dict[str, Any]) -> dict[str, Any]:
     default_input = skill.get("default_input") if isinstance(skill.get("default_input"), dict) else {}
     if skill.get("prompt_template"):
         default_input = {**default_input, "_prompt_template": skill.get("prompt_template")}
-    return {
+    entrypoint = str(skill.get("entrypoint") or "").strip() or None
+    if entrypoint:
+        package_root = str(skill.get("_package_root") or "").strip()
+        if package_root:
+            default_input = {**default_input, "_entrypoint_path": str((Path(package_root) / entrypoint.split(":", 1)[0]).resolve())}
+            if ":" in entrypoint:
+                default_input["_entrypoint_function"] = entrypoint.split(":", 1)[1]
+        else:
+            default_input = {**default_input, "_entrypoint_path": entrypoint.split(":", 1)[0]}
+            if ":" in entrypoint:
+                default_input["_entrypoint_function"] = entrypoint.split(":", 1)[1]
+    normalized = {
         "code": code,
         "source_plugin": plugin_id,
         "name": str(skill.get("name") or code),
@@ -174,7 +188,19 @@ def _normalize_skill(plugin_id: str, skill: dict[str, Any]) -> dict[str, Any]:
         "input_schema": skill.get("input_schema") if isinstance(skill.get("input_schema"), dict) else {},
         "output_schema": skill.get("output_schema") if isinstance(skill.get("output_schema"), dict) else {},
         "default_input": default_input,
+        "dependencies": list(skill.get("dependencies") or []),
+        "tests": list(skill.get("tests") or []),
+        "version": str(skill.get("version") or "1.0.0"),
+        "entrypoint": entrypoint,
+        "source_format": str(skill.get("source_format") or "plugin_json"),
     }
+    contract = validate_skill_contract(normalized)
+    if not contract["valid"]:
+        raise ValueError(f"Invalid skill contract for {code}: {'; '.join(contract['errors'])}")
+    normalized["permission_levels"] = contract["permission_levels"]
+    normalized["risk_level"] = contract["risk_level"]
+    normalized["contract"] = contract
+    return normalized
 
 
 def _summarize_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -182,12 +208,26 @@ def _summarize_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "package_type": manifest.get("package_type"),
         "source_format": manifest.get("source_format") or "plugin_json",
         "permissions": manifest.get("permissions") or [],
+        "trust": _trust_summary(manifest),
         "skills": len(manifest.get("skills") or []),
         "rag_notes": len(manifest.get("rag_notes") or []),
         "mcp_servers": len(manifest.get("mcp_servers") or []),
         "benchmark_cases": len(manifest.get("benchmark_cases") or []),
         "workflows": len(manifest.get("workflows") or []),
         "prompts": len(manifest.get("prompts") or []),
+    }
+
+
+def _trust_summary(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_url": manifest.get("source_url"),
+        "author": manifest.get("author"),
+        "signature": manifest.get("signature"),
+        "signed": bool(manifest.get("signature")),
+        "signature_verified": bool(manifest.get("_signature_verified", False)),
+        "local_verified": bool(manifest.get("_contract_verified", False))
+        and (not manifest.get("signature") or bool(manifest.get("_signature_verified", False))),
+        "source_format": manifest.get("source_format") or "plugin_json",
     }
 
 
@@ -202,6 +242,9 @@ def _public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "source_format",
         "compatibility",
         "permissions",
+        "signature",
+        "trust",
+        "contract_summary",
         "skills",
         "rag_notes",
         "mcp_servers",
@@ -218,6 +261,57 @@ def _validate_manifest(manifest: dict[str, Any]) -> None:
     package_type = str(manifest.get("package_type") or "")
     if package_type not in SUPPORTED_PACKAGE_TYPES:
         raise ValueError(f"Unsupported package_type: {package_type}")
+    _verify_manifest_signature(manifest)
+    if package_type == "skill_pack":
+        skills = manifest.get("skills") or []
+        if not isinstance(skills, list) or not skills:
+            raise ValueError("skill_pack requires at least one skill")
+        checked = []
+        for skill in skills:
+            normalized = _normalize_skill(str(manifest.get("package_id") or manifest.get("name")), skill)
+            checked.append(normalized["contract"])
+        manifest["_contract_verified"] = True
+        manifest["contract_summary"] = {
+            "valid": True,
+            "skill_count": len(skills),
+            "risk_levels": [item["risk_level"] for item in checked],
+        }
+
+
+def _verify_manifest_signature(manifest: dict[str, Any]) -> None:
+    signature = manifest.get("signature")
+    if not signature:
+        manifest["_signature_verified"] = False
+        return
+    if isinstance(signature, dict):
+        algorithm = str(signature.get("algorithm") or "sha256").lower()
+        expected = str(signature.get("value") or signature.get("sha256") or "").strip().lower()
+    else:
+        algorithm = "sha256"
+        expected = str(signature).strip().lower()
+    if algorithm != "sha256":
+        raise ValueError(f"Unsupported manifest signature algorithm: {algorithm}")
+    if not expected:
+        raise ValueError("manifest signature value is required")
+    canonical = {
+        key: value
+        for key, value in manifest.items()
+        if key
+        not in {
+            "signature",
+            "source_url",
+            "_package_root",
+            "_contract_verified",
+            "_signature_verified",
+            "contract_summary",
+        }
+    }
+    actual = hashlib.sha256(
+        json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if actual != expected:
+        raise ValueError("manifest signature verification failed")
+    manifest["_signature_verified"] = True
 
 
 def _load_manifest(source_url: str) -> dict[str, Any]:
@@ -254,10 +348,14 @@ def _load_local_manifest(path: Path) -> dict[str, Any]:
                 archive.extractall(temp_dir)
             return _find_manifest(Path(temp_dir))
     if manifest_path.is_dir() or not manifest_path.exists():
-        return _find_manifest(path)
+        manifest = _find_manifest(path)
+        _attach_package_root(manifest, path)
+        return manifest
     if manifest_path.name.lower() == "skill.md":
         return _skill_md_manifest(manifest_path.parent, [manifest_path])
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _attach_package_root(manifest, manifest_path.parent)
+    return manifest
 
 
 def _load_remote_manifest(url: str) -> dict[str, Any]:
@@ -278,7 +376,16 @@ def _load_remote_manifest(url: str) -> dict[str, Any]:
         zip_path.write_bytes(data)
         with zipfile.ZipFile(zip_path) as archive:
             archive.extractall(target)
-        return _find_manifest(target)
+        manifest = _find_manifest(target)
+        _attach_package_root(manifest, target)
+        return manifest
+
+
+def _attach_package_root(manifest: dict[str, Any], package_root: Path) -> None:
+    manifest["_package_root"] = str(package_root.resolve())
+    for skill in manifest.get("skills") or []:
+        if isinstance(skill, dict):
+            skill["_package_root"] = manifest["_package_root"]
 
 
 def _download_bytes(url: str) -> bytes:
