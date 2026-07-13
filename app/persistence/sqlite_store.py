@@ -302,6 +302,23 @@ class SQLiteTaskStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS plugin_marketplace_install (
+                    install_id TEXT PRIMARY KEY,
+                    package_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    package_type TEXT NOT NULL,
+                    version TEXT,
+                    source_url TEXT,
+                    status TEXT NOT NULL,
+                    summary_json TEXT,
+                    manifest_json TEXT,
+                    error_message TEXT,
+                    installed_at TEXT NOT NULL
+                )
+                """
+            )
 
     def create_task(self, task_id: str, goal: str, project_path: str | None, status: str) -> None:
         now = utc_now_iso()
@@ -833,7 +850,7 @@ class SQLiteTaskStore:
                         INSERT INTO skill_approval(skill_code, agent_code, allowed, reason, created_at, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (skill["code"], "skill_console", 1, "Built-in skill approved for console testing.", now, now),
+                        (skill["code"], "skill_console", 1, "Installed skill approved for console testing.", now, now),
                     )
 
     def list_skill_plugins(self) -> list[dict[str, Any]]:
@@ -885,6 +902,37 @@ class SQLiteTaskStore:
                 (1 if enabled else 0, utc_now_iso(), skill_code),
             )
         return self.get_skill(skill_code)
+
+    def uninstall_skill_plugin(self, plugin_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            plugin = conn.execute(
+                """
+                SELECT plugin_id, name, version, source_type, source_url, author,
+                       description, enabled, installed_at, updated_at
+                FROM skill_plugin
+                WHERE plugin_id = ?
+                """,
+                (plugin_id,),
+            ).fetchone()
+            if not plugin:
+                return None
+            plugin_item = self._skill_plugin_row_to_dict(plugin)
+            if plugin_item["source_type"] == "builtin":
+                raise ValueError("Built-in skill plugins cannot be uninstalled.")
+            skill_rows = conn.execute(
+                "SELECT skill_code FROM skill_registry WHERE plugin_id = ?",
+                (plugin_id,),
+            ).fetchall()
+            skill_codes = [row["skill_code"] for row in skill_rows]
+            for skill_code in skill_codes:
+                conn.execute("DELETE FROM skill_approval WHERE skill_code = ?", (skill_code,))
+            conn.execute("DELETE FROM skill_registry WHERE plugin_id = ?", (plugin_id,))
+            conn.execute("DELETE FROM skill_plugin WHERE plugin_id = ?", (plugin_id,))
+        return {
+            "plugin": plugin_item,
+            "removed_skills": skill_codes,
+            "removed_skill_count": len(skill_codes),
+        }
 
     def set_skill_approval(self, skill_code: str, agent_code: str, allowed: bool, reason: str | None = None) -> dict[str, Any]:
         now = utc_now_iso()
@@ -979,6 +1027,66 @@ class SQLiteTaskStore:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [self._skill_log_row_to_dict(row) for row in rows]
 
+    def save_marketplace_install(self, record: dict[str, Any]) -> dict[str, Any]:
+        installed_at = record.get("installed_at") or utc_now_iso()
+        summary = record.get("summary") or {}
+        manifest = record.get("manifest") or {}
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO plugin_marketplace_install(
+                    install_id, package_id, name, package_type, version, source_url,
+                    status, summary_json, manifest_json, error_message, installed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["install_id"],
+                    record["package_id"],
+                    record["name"],
+                    record["package_type"],
+                    record.get("version"),
+                    record.get("source_url"),
+                    record.get("status") or "installed",
+                    json.dumps(summary, ensure_ascii=False),
+                    json.dumps(manifest, ensure_ascii=False),
+                    record.get("error_message"),
+                    installed_at,
+                ),
+            )
+        return {**record, "summary": summary, "manifest": manifest, "installed_at": installed_at}
+
+    def list_marketplace_installs(self, limit: int = 80, package_type: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT install_id, package_id, name, package_type, version, source_url,
+                   status, summary_json, manifest_json, error_message, installed_at
+            FROM plugin_marketplace_install
+        """
+        params: list[Any] = []
+        if package_type:
+            query += " WHERE package_type = ?"
+            params.append(package_type)
+        query += " ORDER BY installed_at DESC, rowid DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._marketplace_install_row_to_dict(row) for row in rows]
+
+    def get_latest_marketplace_install(self, package_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT install_id, package_id, name, package_type, version, source_url,
+                       status, summary_json, manifest_json, error_message, installed_at
+                FROM plugin_marketplace_install
+                WHERE package_id = ?
+                ORDER BY installed_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (package_id,),
+            ).fetchone()
+        return self._marketplace_install_row_to_dict(row) if row else None
+
     def _skill_plugin_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
         item["enabled"] = bool(item["enabled"])
@@ -1004,6 +1112,12 @@ class SQLiteTaskStore:
         item = dict(row)
         item["input"] = json.loads(item.pop("input_json") or "{}")
         item["output"] = json.loads(item.pop("output_json") or "{}")
+        return item
+
+    def _marketplace_install_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["summary"] = json.loads(item.pop("summary_json") or "{}")
+        item["manifest"] = json.loads(item.pop("manifest_json") or "{}")
         return item
 
     def _workflow_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:

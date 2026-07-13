@@ -463,3 +463,41 @@ export type SkillExecutionLog = {
   latency_ms: number;
   created_at: string;
 };
+
+export type MarketplacePackageType =
+  | 'skill_pack'
+  | 'rag_pack'
+  | 'mcp_pack'
+  | 'benchmark_pack'
+  | 'workflow_pack'
+  | 'prompt_pack';
+
+export type MarketplaceCatalogItem = {
+  package_id: string;
+  name: string;
+  version: string;
+  package_type: MarketplacePackageType | string;
+  author?: string | null;
+  description?: string | null;
+  permissions: string[];
+  source_url: string;
+};
+
+export type MarketplaceInstall = {
+  install_id: string;
+  package_id: string;
+  name: string;
+  package_type: MarketplacePackageType | string;
+  version?: string | null;
+  source_url?: string | null;
+  status: string;
+  summary: Record<string, unknown>;
+  manifest: Record<string, unknown>;
+  error_message?: string | null;
+  installed_at: string;
+};
+
+export type MarketplacePreview = {
+  manifest: Record<string, unknown>;
+  summary: Record<string, unknown>;
+};

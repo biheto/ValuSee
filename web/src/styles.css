@@ -55,12 +55,14 @@ button {
 }
 
 .side-nav {
+  min-height: 0;
   display: grid;
   grid-template-rows: 76px 1fr;
   justify-items: center;
   background: #ffffff;
   border-right: 1px solid #d9e1ea;
   padding: 12px 0;
+  overflow: hidden;
 }
 
 .brand-mark {
@@ -76,9 +78,16 @@ button {
 }
 
 .side-nav nav {
+  min-height: 0;
   display: grid;
   align-content: start;
   gap: 10px;
+  width: 100%;
+  justify-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 0 14px;
+  scrollbar-gutter: stable;
 }
 
 .side-nav button {
@@ -263,6 +272,10 @@ button {
   overflow: hidden;
 }
 
+.mcp-server-panel {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
 .mcp-call-panel {
   display: flex;
   flex-direction: column;
@@ -273,8 +286,11 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  min-height: 94px;
   padding: 14px;
   border-bottom: 1px solid #e4e9ee;
+  flex: 0 0 auto;
+  align-items: stretch;
 }
 
 .mcp-form {
@@ -400,9 +416,72 @@ button {
   background: #fff7df;
 }
 
+.state-with-meta {
+  min-width: 0;
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.state-with-meta > span:not(.mcp-approval-state) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mcp-approval-state.enabled-state {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.skill-list .mcp-approval-state,
+.skill-detail .mcp-approval-state,
+.mcp-server-list .mcp-approval-state {
+  color: #206b50;
+  font-size: 11px;
+  overflow-wrap: normal;
+}
+
+.skill-list .mcp-approval-state.revoked,
+.skill-detail .mcp-approval-state.revoked,
+.mcp-server-list .mcp-approval-state.revoked {
+  color: #9a3d37;
+}
+
 .mcp-approval-reason {
   color: #738093 !important;
   font-size: 11px !important;
+}
+
+.workflow-skill-approval {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #e0e8ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.workflow-skill-approval.approved {
+  border-color: #b8e3ce;
+  background: #f2fbf6;
+}
+
+.workflow-skill-approval.pending {
+  border-color: #f0dca8;
+  background: #fffaf0;
+}
+
+.workflow-skill-approval small {
+  min-width: 0;
+  color: #5f6b7a;
+  overflow-wrap: anywhere;
+}
+
+.workflow-skill-approval button {
+  width: fit-content;
 }
 
 .mcp-tool-card div {
@@ -624,6 +703,25 @@ button {
   overflow: hidden;
 }
 
+.skill-plugin-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.skill-list-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.skill-execute-panel {
+  grid-template-rows: auto auto minmax(260px, 1fr);
+}
+
+.skill-approval-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
 .skill-plugin-panel,
 .skill-list-panel,
 .skill-detail-panel {
@@ -635,6 +733,10 @@ button {
   min-height: 360px;
 }
 
+.skill-approval-panel {
+  min-height: 760px;
+}
+
 .skill-log-panel {
   min-height: 460px;
 }
@@ -643,8 +745,11 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  min-height: 94px;
   padding: 14px;
   border-bottom: 1px solid #e4e9ee;
+  flex: 0 0 auto;
+  align-items: stretch;
 }
 
 .skill-plugin-list,
@@ -710,12 +815,15 @@ button {
 }
 
 .skill-toolbar {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
   border-bottom: 1px solid #e4e9ee;
+  background: #ffffff;
 }
 
 .skill-detail,
@@ -726,6 +834,53 @@ button {
   gap: 12px;
   padding: 16px;
   overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.skill-execute-panel .skill-form {
+  overflow: visible;
+  border-bottom: 1px solid #e4e9ee;
+}
+
+.skill-approval-form {
+  flex: 0 0 auto;
+  overflow: visible;
+  border-bottom: 1px solid #e4e9ee;
+}
+
+.skill-approval-form .skill-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.skill-approval-form .skill-actions button {
+  min-height: 36px;
+}
+
+.skill-approval-guide {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #d6e4ee;
+  border-radius: 8px;
+  background: #f7fbfd;
+  color: #526176;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.skill-approval-guide strong {
+  color: #253349;
+  font-size: 13px;
+}
+
+.skill-execute-output {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow: auto;
+  padding: 14px 16px 16px;
   scrollbar-gutter: stable;
 }
 
@@ -759,6 +914,25 @@ button {
   overflow-wrap: anywhere;
 }
 
+.external-skill-note {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d6e4ee;
+  border-radius: 7px;
+  background: #f7fbfd;
+}
+
+.external-skill-note strong {
+  color: #245e88;
+  font-size: 13px;
+}
+
+.external-skill-note dl {
+  margin: 0;
+  background: #ffffff;
+}
+
 .skill-tags,
 .skill-actions {
   display: flex;
@@ -775,10 +949,28 @@ button {
   font-weight: 700;
 }
 
+.skill-tags span.installed {
+  background: #e8f7ef;
+  color: #227346;
+}
+
+.secondary.danger {
+  border-color: #edc5c2;
+  color: #a33d35;
+  background: #fff7f6;
+}
+
+.secondary.danger:disabled {
+  border-color: #dce5ed;
+  color: #9aa6b3;
+  background: #f5f7f9;
+}
+
 .skill-approval-state {
+  flex: 0 0 auto;
   display: grid;
   gap: 4px;
-  margin: 0 16px 14px;
+  margin: 14px 16px;
   padding: 10px 12px;
   border: 1px solid #ecd2a5;
   border-radius: 7px;
@@ -786,6 +978,56 @@ button {
   color: #7a5a1c;
   font-size: 12px;
   font-weight: 700;
+}
+
+.skill-approval-panel .skill-approval-list {
+  flex: 0 0 auto;
+  min-height: 320px;
+  max-height: none;
+  overflow: visible;
+  border-top: 1px solid #e4e9ee;
+}
+
+.skill-current-approval-list {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 10px;
+  margin: 0 16px 14px;
+  padding: 12px;
+  border: 1px solid #dde7ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.skill-current-approval-list > strong {
+  color: #253349;
+  font-size: 13px;
+}
+
+.skill-current-approval-list article {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e4e9ee;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.skill-current-approval-list article > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-current-approval-list code {
+  color: #245e88;
+  overflow-wrap: anywhere;
+}
+
+.skill-current-approval-list small {
+  color: #657286;
+  overflow-wrap: anywhere;
 }
 
 .skill-approval-state.approved {
@@ -823,11 +1065,12 @@ button {
 }
 
 .skill-result {
-  margin: 0 16px 16px;
+  max-height: none;
+  margin: 0;
 }
 
 .skill-message {
-  margin: 0 16px 10px;
+  margin: 0;
   color: #526176;
   font-size: 12px;
 }
@@ -859,6 +1102,249 @@ button {
 .skill-log-item.failed {
   border-color: #edc5c2;
   background: #fff6f5;
+}
+
+.marketplace-page {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(420px, 1.1fr) minmax(340px, 0.95fr);
+  grid-template-areas:
+    "source catalog preview"
+    "result result result"
+    "history history history";
+  gap: 18px;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 28px;
+  scrollbar-gutter: stable;
+}
+
+.marketplace-source-panel { grid-area: source; }
+.marketplace-result-panel { grid-area: result; }
+.marketplace-catalog-panel { grid-area: catalog; }
+.marketplace-preview-panel { grid-area: preview; }
+.marketplace-history-panel { grid-area: history; }
+
+.marketplace-source-panel,
+.marketplace-result-panel,
+.marketplace-catalog-panel,
+.marketplace-preview-panel,
+.marketplace-history-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.marketplace-source-panel {
+  grid-template-rows: auto auto auto auto auto;
+  min-height: 560px;
+  overflow: visible;
+}
+
+.marketplace-catalog-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.marketplace-preview-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.marketplace-source-panel,
+.marketplace-catalog-panel,
+.marketplace-preview-panel {
+  min-height: 540px;
+}
+
+.marketplace-history-panel {
+  min-height: 440px;
+}
+
+.marketplace-result-panel {
+  min-height: 640px;
+  display: block;
+  overflow: hidden;
+  padding-bottom: 24px;
+}
+
+.marketplace-kpis,
+.marketplace-type-row,
+.marketplace-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 10px;
+  min-height: 94px;
+  padding: 14px;
+  border-bottom: 1px solid #e4e9ee;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.marketplace-preview {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.marketplace-form {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+  overflow: visible;
+}
+
+.marketplace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.marketplace-message {
+  margin: 0 16px 12px;
+  color: #526176;
+  font-size: 12px;
+}
+
+.marketplace-install-result {
+  display: grid;
+  gap: 8px;
+  width: auto;
+  max-width: calc(100% - 32px);
+  margin: 0 16px 16px;
+  padding: 12px;
+  border: 1px solid #b9d8c8;
+  border-radius: 7px;
+  background: #f2fbf6;
+  min-height: 520px;
+  max-height: none;
+  overflow: visible;
+}
+
+.marketplace-install-result.uninstalled,
+.marketplace-install-result.failed {
+  border-color: #edc5c2;
+  background: #fff6f5;
+}
+
+.marketplace-install-result strong {
+  color: #253349;
+  font-size: 13px;
+}
+
+.marketplace-install-result > span,
+.marketplace-skill-actions p {
+  margin: 0;
+  color: #526176;
+  font-size: 12px;
+}
+
+.marketplace-skill-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.marketplace-skill-actions > p {
+  grid-column: 1 / -1;
+}
+
+.marketplace-skill-actions article {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #dce5ed;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.marketplace-skill-actions code {
+  color: #245e88;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.marketplace-tabs {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e4e9ee;
+  background: #ffffff;
+}
+
+.marketplace-tabs button {
+  min-height: 32px;
+  border: 1px solid #d8e0e8;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #405064;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.marketplace-tabs button.active {
+  border-color: #9fc8dc;
+  background: #e8f4fa;
+  color: #245e88;
+}
+
+.marketplace-card-list,
+.marketplace-install-list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding: 14px;
+  scrollbar-gutter: stable;
+}
+
+.marketplace-card,
+.marketplace-install {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #dce5ed;
+  border-radius: 7px;
+  background: #fbfcfd;
+}
+
+.marketplace-install.failed {
+  border-color: #edc5c2;
+  background: #fff6f5;
+}
+
+.marketplace-card strong,
+.marketplace-install strong {
+  color: #253349;
+}
+
+.marketplace-card span,
+.marketplace-install span {
+  min-width: 0;
+  color: #657386;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.marketplace-card p,
+.marketplace-install p {
+  margin: 0;
+  color: #526176;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .benchmark-page {
@@ -896,6 +1382,7 @@ button {
 .benchmark-summary {
   grid-area: metrics;
   min-height: 520px;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .benchmark-history {
@@ -950,8 +1437,11 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
+  min-height: 94px;
   padding: 14px;
   border-bottom: 1px solid #e4e9ee;
+  flex: 0 0 auto;
+  align-items: stretch;
 }
 
 .benchmark-focus {
@@ -1171,17 +1661,25 @@ button {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   min-width: 0;
+  min-height: 76px;
   box-sizing: border-box;
+  flex: 0 0 auto;
+  align-items: stretch;
 }
 
 .kpi-card {
   display: grid;
+  grid-template-rows: auto minmax(24px, 1fr);
+  align-content: center;
   gap: 5px;
   min-width: 0;
+  min-height: 66px;
+  height: 100%;
   padding: 12px;
   border: 1px solid #dce5ed;
   border-radius: 7px;
   background: #fbfcfd;
+  overflow: hidden;
 }
 
 .kpi-card span {
@@ -1194,6 +1692,7 @@ button {
   color: #253349;
   font-size: 18px;
   min-width: 0;
+  line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
@@ -3110,10 +3609,205 @@ textarea:focus {
   font-size: 13px;
 }
 
+/* Spacious workbench overrides: prefer page-level scrolling over cramped nested panes. */
+.page-grid,
+.reports-page {
+  gap: 20px;
+  padding: 18px;
+  padding-bottom: 42px;
+}
+
+.skills-page,
+.marketplace-page,
+.benchmark-page,
+.mcp-page,
+.llm-page {
+  gap: 22px;
+  padding-bottom: 44px;
+}
+
+.skill-plugin-panel,
+.skill-list-panel,
+.skill-detail-panel {
+  min-height: 620px;
+}
+
+.skill-approval-panel {
+  min-height: 760px;
+}
+
+.skill-execute-panel {
+  min-height: 480px;
+}
+
+.skill-execute-panel {
+  min-height: 620px;
+}
+
+.skill-log-panel {
+  min-height: 740px;
+}
+
+.skill-plugin-list,
+.skill-list {
+  min-height: 440px;
+}
+
+.skill-approval-list {
+  min-height: 260px;
+}
+
+.skill-log-list {
+  min-height: 600px;
+}
+
+.skill-form textarea {
+  min-height: 220px;
+}
+
+.skill-result,
+.skill-json pre {
+  max-height: 460px;
+}
+
+.marketplace-source-panel {
+  min-height: 560px;
+}
+
+.marketplace-catalog-panel,
+.marketplace-preview-panel {
+  min-height: 720px;
+}
+
+.marketplace-history-panel {
+  min-height: 720px;
+}
+
+.marketplace-result-panel {
+  min-height: 640px;
+  overflow: hidden;
+  height: auto;
+}
+
+.marketplace-card-list,
+.marketplace-install-list {
+  min-height: 560px;
+}
+
+.marketplace-preview .skill-json pre {
+  max-height: 560px;
+}
+
+.mcp-server-panel,
+.mcp-tool-panel {
+  min-height: 900px;
+}
+
+.mcp-call-panel {
+  min-height: 980px;
+}
+
+.mcp-server-list,
+.mcp-tool-list {
+  min-height: 650px;
+}
+
+.mcp-log-list {
+  min-height: 680px;
+  flex-basis: 680px;
+}
+
+.mcp-result {
+  max-height: 300px;
+}
+
+.mcp-log-item pre {
+  max-height: 420px;
+}
+
+.benchmark-page {
+  grid-template-rows: minmax(660px, auto) minmax(620px, auto);
+}
+
+.benchmark-control,
+.benchmark-summary {
+  min-height: 660px;
+}
+
+.benchmark-history,
+.benchmark-results {
+  min-height: 620px;
+}
+
+.benchmark-case-list,
+.benchmark-run-list,
+.benchmark-result-grid {
+  min-height: 500px;
+}
+
+.benchmark-form textarea {
+  min-height: 360px;
+}
+
+.llm-page {
+  grid-template-rows: auto minmax(620px, auto) minmax(760px, auto);
+}
+
+.llm-dashboard,
+.llm-trace-section {
+  min-height: 620px;
+}
+
+.llm-prompts {
+  grid-template-rows: auto auto minmax(620px, auto) minmax(820px, auto);
+  min-height: 1520px;
+}
+
+.usage-sections,
+.recent-trace-list,
+.trace-list,
+.prompt-list {
+  min-height: 520px;
+}
+
+.prompt-list {
+  min-height: 620px;
+}
+
+.prompt-lab {
+  min-height: 820px;
+}
+
+.prompt-card pre,
+.trace-body pre {
+  max-height: 360px;
+}
+
+.ab-result-card pre {
+  max-height: 420px;
+}
+
+.markdown-view,
+.governance-view,
+.interaction-panel,
+.suggestion-list {
+  min-height: 560px;
+}
+
+.interaction-panel .markdown-view {
+  max-height: 520px;
+}
+
+.timeline,
+.task-list,
+.saved-list {
+  min-height: 520px;
+}
+
 @media (max-width: 1440px) {
   .benchmark-page {
     grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
-    grid-template-rows: minmax(520px, auto) minmax(420px, auto);
+    grid-template-rows: minmax(660px, auto) minmax(620px, auto);
     grid-template-areas:
       "run metrics"
       "history results";
@@ -3127,6 +3821,15 @@ textarea:focus {
       "execute execute"
       "logs logs";
   }
+
+  .marketplace-page {
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+    grid-template-areas:
+      "source catalog"
+      "result result"
+      "preview preview"
+      "history history";
+  }
 }
 
 @media (max-width: 1360px) {
@@ -3136,11 +3839,11 @@ textarea:focus {
 
   .mcp-call-panel {
     grid-column: 1 / -1;
-    min-height: 680px;
+    min-height: 900px;
   }
 
   .mcp-log-list {
-    min-height: 360px;
+    min-height: 620px;
   }
 }
 
@@ -3161,6 +3864,11 @@ textarea:focus {
 
   .side-nav nav {
     grid-auto-flow: column;
+    width: auto;
+    max-width: calc(100vw - 76px);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 8px 0 0;
   }
 
   .run-page,
@@ -3169,6 +3877,7 @@ textarea:focus {
   .history-page,
   .mcp-page,
   .skills-page,
+  .marketplace-page,
   .benchmark-page,
   .llm-page,
   .reports-page {
@@ -3184,6 +3893,15 @@ textarea:focus {
       "approval"
       "execute"
       "logs";
+  }
+
+  .marketplace-page {
+    grid-template-areas:
+      "source"
+      "result"
+      "catalog"
+      "preview"
+      "history";
   }
 
   .benchmark-page {
@@ -3234,10 +3952,15 @@ textarea:focus {
   .skill-approval-panel,
   .skill-execute-panel,
   .skill-log-panel,
+  .marketplace-source-panel,
+  .marketplace-result-panel,
+  .marketplace-catalog-panel,
+  .marketplace-preview-panel,
+  .marketplace-history-panel,
   .mcp-call-panel {
     grid-column: auto;
     grid-row: auto;
-    min-height: 320px;
+    min-height: 560px;
   }
 }
 

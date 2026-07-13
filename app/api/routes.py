@@ -32,6 +32,8 @@ from app.graphs.workflow_compiler import (
 from app.harness.events import utc_now_iso
 from app.harness.policy import tool_policy
 from app.harness.runtime import harness_runtime
+from app.marketplace.catalog import marketplace_catalog
+from app.marketplace.installer import install_marketplace_package, preview_marketplace_package, uninstall_marketplace_package
 from app.persistence.rag_store import rag_store
 from app.persistence.sqlite_store import task_store
 from app.providers.llm_provider import llm_provider
@@ -350,6 +352,60 @@ def execute_skill_api(skill_code: str, payload: dict[str, object]) -> dict[str, 
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
+
+
+@router.delete("/skills/plugins/{plugin_id}", tags=["Skills"])
+def uninstall_skill_plugin_api(plugin_id: str) -> dict[str, object]:
+    ensure_builtin_skills_seeded()
+    try:
+        result = task_store.uninstall_skill_plugin(plugin_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not result:
+        raise HTTPException(status_code=404, detail="Skill plugin not found")
+    return {"uninstall": result}
+
+
+@router.get("/marketplace/catalog", tags=["Plugin Marketplace"])
+def get_marketplace_catalog() -> dict[str, object]:
+    return {"items": marketplace_catalog()}
+
+
+@router.get("/marketplace/installs", tags=["Plugin Marketplace"])
+def list_marketplace_installs(limit: int = 80, package_type: str | None = None) -> dict[str, object]:
+    return {"installs": task_store.list_marketplace_installs(limit=limit, package_type=package_type)}
+
+
+@router.post("/marketplace/preview", tags=["Plugin Marketplace"])
+def preview_marketplace(payload: dict[str, object]) -> dict[str, object]:
+    source_url = str(payload.get("source_url") or "").strip()
+    try:
+        return preview_marketplace_package(source_url)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/marketplace/install", tags=["Plugin Marketplace"])
+def install_marketplace(payload: dict[str, object]) -> dict[str, object]:
+    source_url = str(payload.get("source_url") or "").strip()
+    try:
+        install = install_marketplace_package(source_url)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ensure_builtin_skills_seeded()
+    return {"install": install}
+
+
+@router.delete("/marketplace/packages/{package_id}", tags=["Plugin Marketplace"])
+def uninstall_marketplace(package_id: str) -> dict[str, object]:
+    try:
+        uninstall = uninstall_marketplace_package(package_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ensure_builtin_skills_seeded()
+    return {"uninstall": uninstall}
 
 
 @router.get("/mcp/tools", tags=["MCP Tool Marketplace"])

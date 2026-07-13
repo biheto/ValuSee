@@ -30,6 +30,14 @@
 
 ![MCP Console](docs/assets/mcp-console-preview.png)
 
+### Skills Console / Skill 插件控制台
+
+![Skills Console](docs/assets/skill-preview.png)
+
+### Plugin Marketplace / 插件市场
+
+![Plugin Marketplace](docs/assets/market-preview.png)
+
 ### Benchmark Dashboard / Benchmark 评测面板
 
 ![Benchmark Dashboard](docs/assets/benchmark-dashboard-preview.png)
@@ -46,6 +54,8 @@
 - **LLM governance**: prompt versions, LLM call traces, token/cost dashboard, prompt A/B testing, and per-agent model config.
 - **RAG persistence**: SQLite keyword retrieval by default, optional PostgreSQL + pgvector semantic retrieval.
 - **Real MCP client**: stdio MCP server configuration, tool discovery, approval, enable/disable, call logs, and workflow tool nodes.
+- **Skill plugin system**: reusable Skills can be installed, enabled, approved, tested, logged, and inserted into visual workflows.
+- **Plugin Marketplace**: supports built-in packs, local paths, URLs, `plugin.json` packages, and external `SKILL.md` compatibility import.
 - **Benchmark suite**: MCP, LLM, RAG, Workflow, and multi-agent collaboration benchmark runners.
 - **Human-in-the-loop**: node-level review, approval/rejection, resume visualization, and governance suggestions.
 
@@ -72,6 +82,8 @@
 | Collaboration | Run planner, analyzer, reviewer, RAG, supervisor, reporter | `/api/v1/tasks/collaborate` |
 | LLM Console | Trace calls, manage prompts, compare prompt versions | UI: `LLM` |
 | MCP Console | Register MCP servers, discover tools, approve calls, view logs | UI: `MCP` |
+| Skills | Install, enable, approve, test, log, and reuse Skill capabilities | UI: `Skills` |
+| Plugin Marketplace | Install Skill/RAG/MCP/Prompt/Workflow/Benchmark packs from built-in sources, local paths, or URLs | UI: `Market` |
 | Benchmark | Evaluate MCP, LLM, RAG, Workflow, Collaboration quality | UI: `Bench` |
 
 ## Core Components / 核心组件
@@ -83,6 +95,7 @@ DevAgent Studio 按“可复用能力 + 可治理运行时 + 可编排图”的�
 | Component | Role | Implementation |
 | --- | --- | --- |
 | Skill | Encapsulates a reusable agent capability such as code review, RAG processing, learning coaching, or workflow execution. | `app/skills/base.py`, `app/skills/builtin.py`, `app/skills/registry.py` |
+| Plugin Marketplace | Installs resource packs, converts external `SKILL.md` files into prompt Skills, records install history, and exposes installed resources to the UI. | `app/marketplace/`, `web/src/App.tsx` |
 | Harness Runtime | Adds deterministic execution control around skills and agents, including task context, event emission, artifacts, policy checks, and human review state. | `app/harness/runtime.py`, `app/harness/context.py`, `app/harness/events.py`, `app/harness/policy.py` |
 | LangGraph Workflows | Composes skills, agents, tools, review nodes, and reporter nodes into executable graphs. | `app/graphs/studio_graphs.py`, `app/graphs/workflow_compiler.py` |
 | Providers | Connects external capabilities such as LLM, MCP tools, and RAG storage behind stable provider interfaces. | `app/providers/`, `app/persistence/` |
@@ -108,6 +121,84 @@ User task
   -> 持久化事件、产物、Trace 和人工审核状态
   -> Reporter 生成最终治理报告
 ```
+
+## Skill Plugins and Marketplace / Skill 插件与插件市场
+
+DevAgent Studio includes a governed Skill plugin system. A Skill is a reusable capability that can be called from the Skills console or inserted into a visual Workflow node.
+
+DevAgent Studio 内置可治理的 Skill 插件系统。Skill 是一个可复用能力，可以在 Skills 页面手动测试，也可以作为 Workflow 节点参与自动执行。
+
+Supported install sources:
+
+- Built-in packs, such as security governance Skill packs.
+- Local directories or local `plugin.json` files.
+- URL or GitHub-style package sources.
+- External `SKILL.md` files. If no `plugin.json` is found but `SKILL.md` exists, DevAgent Studio imports it as a safe Prompt Skill.
+
+支持的安装来源：
+
+- 内置资源包，例如安全治理 Skill 包。
+- 本地目录或本地 `plugin.json` 文件。
+- URL 或 GitHub 风格的资源包来源。
+- 外部 `SKILL.md` 文件。如果没有发现 `plugin.json`，但存在 `SKILL.md`，系统会自动转换为安全的 Prompt Skill。
+
+Prompt Skill vs code Skill:
+
+- Current external `SKILL.md` imports are Prompt Skills. The system reads the instruction text and sends it to the LLM; it does not execute third-party code.
+- Code Skills are a future extension direction. They would contain executable plugin code and therefore require sandboxing, timeouts, permission checks, and stricter audit logs.
+
+Prompt Skill 与代码型 Skill：
+
+- 当前外部 `SKILL.md` 导入的是 Prompt Skill。系统只读取说明文本并交给 LLM，不执行第三方代码，安全性更高。
+- 代码型 Skill 是后续扩展方向。它会携带可执行插件代码，因此需要沙箱、超时限制、权限校验和更严格的审计日志。
+
+### Skill Approval Model / Skill 权限审批模型
+
+Skill approval is strict and identity-scoped:
+
+```text
+approval key = skill_code + agent_code
+```
+
+That means approval for one identity does not approve every usage path.
+
+权限审批采用严格匹配：
+
+```text
+审批键 = skill_code + agent_code
+```
+
+这意味着某个身份审批通过，不代表所有调用方式都通过。
+
+Common agent codes:
+
+- `skill_console`: manual testing from the Skills page.
+- `workflow_runner`: automatic execution from a visual Workflow.
+
+常见执行身份：
+
+- `skill_console`：Skills 页面手动测试调用。
+- `workflow_runner`：Workflow 自动执行调用。
+
+Example:
+
+| Approval Record | Skills Test Call | Workflow Run |
+| --- | --- | --- |
+| `code.review + skill_console = allowed` | Allowed | Not allowed |
+| `code.review + workflow_runner = allowed` | Does not affect manual test | Allowed |
+| `code.review + workflow_runner = blocked` | Does not affect manual test | Blocked |
+
+Marketplace strict mode:
+
+- `Approve test only` only approves `skill_console`.
+- `Add to Workflow` only creates a Workflow Skill node.
+- Workflow execution remains pending until `workflow_runner` is manually approved from the Workflow node config or the Skills approval panel.
+
+插件市场严格模式：
+
+- “审批手动测试”只会审批 `skill_console`。
+- “添加到 Workflow”只创建 Workflow Skill 节点。
+- Workflow 运行前必须手动审批 `workflow_runner`，可以在 Workflow 节点配置区或 Skills 权限审批区完成。
 
 ## Quick Start / 快速启动
 
@@ -287,6 +378,7 @@ DevAgent Studio/
     api/                 # FastAPI routes
     graphs/              # LangGraph workflows and workflow compiler
     harness/             # Runtime context, events, policy, execution wrapper
+    marketplace/         # Plugin Marketplace catalog, installer, and SKILL.md compatibility
     persistence/         # SQLite task store and RAG stores
     providers/           # LLM and MCP providers
     schemas/             # Pydantic schemas
@@ -313,6 +405,8 @@ DevAgent Studio/
 - **History**: replay task records and artifacts.
 - **LLM**: traces, prompt versions, token/cost dashboard, A/B tests.
 - **MCP**: server config, tool discovery, approval, test call logs.
+- **Skills**: installed plugins, Skill list, approval, test execution, logs, and Workflow insertion.
+- **Market**: install built-in/local/URL resource packs, preview manifests, and import external `SKILL.md`.
 - **Bench**: MCP/LLM/RAG/Workflow/Collaboration benchmark dashboard.
 
 中文：
@@ -364,6 +458,7 @@ See:
 - Add benchmark dataset management and benchmark report export.
 - Improve workflow input/output mapping and conditional branch UI.
 - Add richer permission controls for high-risk MCP tools.
+- Add Skill contract validation, permission risk levels, version rollback, and sandboxed code Skill support.
 - Add screenshots/GIFs generated from real demo sessions.
 - Improve documentation for deployment and production hardening.
 

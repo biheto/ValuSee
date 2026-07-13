@@ -43,6 +43,8 @@ import {
   listLearningPlans,
   listLlmPrompts,
   listLlmTraces,
+  listMarketplaceCatalog,
+  listMarketplaceInstalls,
   listMcpRegisteredTools,
   listMcpServers,
   listMcpToolCallLogs,
@@ -54,6 +56,7 @@ import {
   listKnowledgeDocuments,
   listTasks,
   listWorkflows,
+  previewMarketplacePackage,
   queryKnowledge,
   reviewTask,
   runBenchmark,
@@ -61,10 +64,13 @@ import {
   runLlmPromptAbTest,
   runTaskStream,
   saveMcpServer,
+  installMarketplacePackage,
   saveLlmPrompt,
   saveWorkflow,
   setSkillApproval,
   setSkillEnabled,
+  uninstallMarketplacePackage,
+  uninstallSkillPlugin,
   setMcpRegisteredToolEnabled,
   setMcpServerEnabled,
   setMcpToolApproval,
@@ -88,6 +94,9 @@ import {
   LlmPromptVersion,
   LlmTrace,
   LlmUsageDashboard,
+  MarketplaceCatalogItem,
+  MarketplaceInstall,
+  MarketplacePreview,
   McpRegisteredTool,
   McpServerConfig,
   McpStatus,
@@ -110,7 +119,7 @@ import {
   WorkflowValidation,
 } from './types';
 
-type ViewKey = 'run' | 'workflow' | 'reports' | 'chat' | 'history' | 'llm' | 'mcp' | 'skills' | 'benchmark';
+type ViewKey = 'run' | 'workflow' | 'reports' | 'chat' | 'history' | 'llm' | 'mcp' | 'skills' | 'marketplace' | 'benchmark';
 type ChatMode = 'task' | 'knowledge' | 'coach';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; source?: string; day?: number | null; theme?: string | null };
 type FocusKind = 'module' | 'file';
@@ -169,6 +178,7 @@ const navItems: Array<{ view: ViewKey; label: string; icon: typeof LayoutDashboa
   { view: 'llm', label: 'LLM', icon: BarChart3 },
   { view: 'mcp', label: 'MCP', icon: Wrench },
   { view: 'skills', label: 'Skills', icon: Puzzle },
+  { view: 'marketplace', label: 'Market', icon: Puzzle },
   { view: 'benchmark', label: 'Bench', icon: Activity },
 ];
 
@@ -180,7 +190,7 @@ const palette = [
   { type: 'agent', name: 'RAG Processor', icon: BookOpen, config: { agent_type: 'rag_processor', max_files: 100, ingest: true, collection: 'project-memory' } },
   { type: 'rag', name: 'Knowledge Query', icon: Database, config: { collection: 'default', top_k: 5 } },
   { type: 'mcp_tool', name: 'MCP Tool', icon: Wrench, config: { tool_name: 'filesystem.list' } },
-  { type: 'skill', name: 'Skill', icon: Puzzle, config: { skill_code: 'code.review', agent_code: 'skill_console' } },
+  { type: 'skill', name: 'Skill', icon: Puzzle, config: { skill_code: 'code.review', agent_code: 'workflow_runner' } },
   { type: 'supervisor', name: 'Supervisor', icon: Activity, config: {} },
   { type: 'human_review', name: 'Human Review', icon: Check, config: { require_comment: false } },
   { type: 'reporter', name: 'Reporter', icon: FileSearch, config: {} },
@@ -264,6 +274,10 @@ export function App() {
   const [skillApprovals, setSkillApprovals] = useState<SkillApproval[]>([]);
   const [skillLogs, setSkillLogs] = useState<SkillExecutionLog[]>([]);
   const [selectedSkillCode, setSelectedSkillCode] = useState('code.review');
+  const [marketplaceCatalog, setMarketplaceCatalog] = useState<MarketplaceCatalogItem[]>([]);
+  const [marketplaceInstalls, setMarketplaceInstalls] = useState<MarketplaceInstall[]>([]);
+  const [marketplacePreview, setMarketplacePreview] = useState<MarketplacePreview | null>(null);
+  const [lastMarketplaceInstall, setLastMarketplaceInstall] = useState<MarketplaceInstall | null>(null);
   const [benchmarkRuns, setBenchmarkRuns] = useState<BenchmarkRun[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkRun | null>(null);
   const [benchmarkType, setBenchmarkType] = useState<BenchmarkType>('mcp');
@@ -320,6 +334,7 @@ export function App() {
     refreshLlmGovernance().catch(() => undefined);
     refreshMcp('real_filesystem').catch(() => undefined);
     refreshSkills().catch(() => undefined);
+    refreshMarketplace().catch(() => undefined);
     refreshBenchmarks('mcp').catch(() => undefined);
   }, []);
 
@@ -351,6 +366,25 @@ export function App() {
     setSkillApprovals(approvals);
     setSkillLogs(logs);
     if (!selectedSkillCode && nextSkills[0]) setSelectedSkillCode(nextSkills[0].code);
+  }
+
+  function handleNavigate(view: ViewKey) {
+    setActiveView(view);
+    if (view === 'workflow' || view === 'skills' || view === 'marketplace') {
+      refreshSkills(selectedSkillCode).catch(() => undefined);
+    }
+    if (view === 'marketplace') {
+      refreshMarketplace().catch(() => undefined);
+    }
+  }
+
+  async function refreshMarketplace(packageType = '') {
+    const [catalog, installs] = await Promise.all([
+      listMarketplaceCatalog(),
+      listMarketplaceInstalls(80, packageType),
+    ]);
+    setMarketplaceCatalog(catalog);
+    setMarketplaceInstalls(installs);
   }
 
   async function refreshLlmGovernance(agent = llmAgentFilter) {
@@ -415,6 +449,88 @@ export function App() {
     if (previous) setEdges((items) => [...items, { source: previous.id, target: id }]);
     setSelectedNodeId(id);
     setActiveView('workflow');
+  }
+
+  function handleOpenMarketplaceSkill(skillCode: string) {
+    setSelectedSkillCode(skillCode);
+    refreshSkills(skillCode).catch(() => undefined);
+    setActiveView('skills');
+  }
+
+  async function handleApproveAndTestMarketplaceSkill(skillCode: string) {
+    const skill = skills.find((item) => item.code === skillCode) ?? (await listSkills()).find((item) => item.code === skillCode);
+    if (!skill) throw new Error(`Skill not found: ${skillCode}`);
+    await setSkillApproval({
+      skill_code: skillCode,
+      agent_code: 'skill_console',
+      allowed: true,
+      reason: 'Approved from Marketplace install result.',
+    });
+    await executeSkill({
+      skill_code: skillCode,
+      agent_code: 'skill_console',
+      input: skill.default_input ?? {},
+      task_id: latestTaskId || undefined,
+    });
+    setSelectedSkillCode(skillCode);
+    await refreshSkills(skillCode);
+    setActiveView('skills');
+  }
+
+  async function handleCreateMarketplaceSkillWorkflow(skillCode: string) {
+    const skill = skills.find((item) => item.code === skillCode) ?? (await listSkills()).find((item) => item.code === skillCode);
+    if (!skill) throw new Error(`Skill not found: ${skillCode}`);
+    const id = `skill_${Date.now()}`;
+    setNodes([
+      {
+        id,
+        type: 'skill',
+        name: skill.name,
+        x: 120,
+        y: 140,
+        config: {
+          skill_code: skill.code,
+          agent_code: 'workflow_runner',
+          input: skill.default_input ?? {},
+        },
+      },
+    ]);
+    setEdges([]);
+    setSelectedNodeId(id);
+    setActiveView('workflow');
+    await refreshSkills(skillCode);
+  }
+
+  async function handlePreviewMarketplace(sourceUrl: string) {
+    const preview = await previewMarketplacePackage(sourceUrl);
+    setMarketplacePreview(preview);
+    return preview;
+  }
+
+  async function handleInstallMarketplace(sourceUrl: string) {
+    const install = await installMarketplacePackage(sourceUrl);
+    setLastMarketplaceInstall(install);
+    await refreshMarketplace();
+    await refreshSkills();
+    await refreshMcp();
+    await refreshWorkflows();
+    await refreshLlmGovernance();
+    return install;
+  }
+
+  async function handleUninstallMarketplace(packageId: string) {
+    const uninstall = await uninstallMarketplacePackage(packageId);
+    setLastMarketplaceInstall(uninstall);
+    await refreshMarketplace();
+    await refreshSkills();
+    return uninstall;
+  }
+
+  async function handleUninstallSkillPlugin(pluginId: string) {
+    const uninstall = await uninstallSkillPlugin(pluginId);
+    await refreshMarketplace();
+    await refreshSkills();
+    return uninstall;
   }
 
   async function handleRunBenchmark(payload: { name: string; agent_code: string; iterations: number; cases: BenchmarkCase[] }) {
@@ -617,6 +733,21 @@ export function App() {
 
   async function handleRunTask(event: FormEvent) {
     event.preventDefault();
+    if (executionMode === 'workflow') {
+      const approvalsForRun = await listSkillApprovals();
+      setSkillApprovals(approvalsForRun);
+      const blockedSkills = nodes.filter((node) => {
+        if (node.type !== 'skill') return false;
+        const skillCode = String(node.config.skill_code ?? '');
+        const agentCode = String(node.config.agent_code ?? 'workflow_runner');
+        return !approvalsForRun.some((approval) => approval.skill_code === skillCode && approval.agent_code === agentCode && approval.allowed);
+      });
+      if (blockedSkills.length) {
+        setError(`Workflow 存在未审批的 Skill 节点：${blockedSkills.map((node) => `${node.name}(${String(node.config.skill_code ?? '')}/${String(node.config.agent_code ?? 'workflow_runner')})`).join(', ')}。Workflow 只认 skill_code + workflow_runner 的审批记录。`);
+        setActiveView('workflow');
+        return;
+      }
+    }
     await runFollowUpTask({
       mode: executionMode,
       nextGoal: goal,
@@ -1138,7 +1269,7 @@ export function App() {
               <button
                 key={item.view}
                 className={activeView === item.view ? 'active' : ''}
-                onClick={() => setActiveView(item.view)}
+                onClick={() => handleNavigate(item.view)}
                 title={item.label}
               >
                 <Icon size={22} />
@@ -1236,7 +1367,16 @@ export function App() {
             </div>
 
             <div className="panel config-panel">
-              <NodeConfig node={selectedNode} onNodeChange={updateSelectedNode} onConfigChange={updateSelectedConfig} onDelete={deleteSelectedNode} />
+              <NodeConfig
+                node={selectedNode}
+                approvals={skillApprovals}
+                onNodeChange={updateSelectedNode}
+                onConfigChange={updateSelectedConfig}
+                onApproveSkill={async (skillCode, agentCode) => {
+                  await handleSkillApproval(skillCode, agentCode, true, 'Approved from Workflow node config.');
+                }}
+                onDelete={deleteSelectedNode}
+              />
               <EdgeConfig
                 edge={edges.find((edge) => edgeKeyFor(edge) === selectedEdgeKey)}
                 nodes={nodes}
@@ -1382,6 +1522,23 @@ export function App() {
             onSkillApproval={handleSkillApproval}
             onExecuteSkill={handleExecuteSkill}
             onAddToWorkflow={handleAddSkillToWorkflow}
+            onUninstallPlugin={handleUninstallSkillPlugin}
+          />
+        ) : null}
+
+        {activeView === 'marketplace' ? (
+          <PluginMarketplacePage
+            catalog={marketplaceCatalog}
+            installs={marketplaceInstalls}
+            preview={marketplacePreview}
+            lastInstall={lastMarketplaceInstall}
+            onRefresh={() => refreshMarketplace()}
+            onPreview={handlePreviewMarketplace}
+            onInstall={handleInstallMarketplace}
+            onUninstall={handleUninstallMarketplace}
+            onOpenSkill={handleOpenMarketplaceSkill}
+            onApproveAndTestSkill={handleApproveAndTestMarketplaceSkill}
+            onCreateSkillWorkflow={handleCreateMarketplaceSkillWorkflow}
           />
         ) : null}
 
@@ -1442,6 +1599,14 @@ function PanelTitle({ icon, title, action }: { icon?: ReactNode; title: string; 
 
 function FieldHelp({ children }: { children: ReactNode }) {
   return <small className="field-help">{children}</small>;
+}
+
+function EnabledState({ enabled, label = '状态' }: { enabled: boolean; label?: string }) {
+  return (
+    <span className={`mcp-approval-state enabled-state ${enabled ? 'approved' : 'revoked'}`}>
+      {label}: {enabled ? 'enabled' : 'disabled'}
+    </span>
+  );
 }
 
 function ModeTabs({ executionMode, onChange }: { executionMode: ExecutionMode; onChange: (mode: ExecutionMode) => void }) {
@@ -1915,13 +2080,17 @@ function SavedWorkflows({
 
 function NodeConfig({
   node,
+  approvals,
   onNodeChange,
   onConfigChange,
+  onApproveSkill,
   onDelete,
 }: {
   node?: WorkflowNode;
+  approvals: SkillApproval[];
   onNodeChange: (patch: Partial<WorkflowNode>) => void;
   onConfigChange: (key: string, value: unknown) => void;
+  onApproveSkill: (skillCode: string, agentCode: string) => Promise<void>;
   onDelete: () => void;
 }) {
   if (!node) {
@@ -1941,6 +2110,11 @@ function NodeConfig({
       // Keep the raw text while the user is still editing invalid JSON.
     }
   }
+  const skillCode = String(node.config.skill_code ?? 'code.review');
+  const skillAgentCode = String(node.config.agent_code ?? 'workflow_runner');
+  const skillApproval = node.type === 'skill'
+    ? approvals.find((approval) => approval.skill_code === skillCode && approval.agent_code === skillAgentCode)
+    : undefined;
   return (
     <div className="config-form">
       <PanelTitle title="节点配置" />
@@ -2076,6 +2250,19 @@ function NodeConfig({
       ) : null}
       {node.type === 'skill' ? (
         <>
+          <div className={`workflow-skill-approval ${skillApproval?.allowed ? 'approved' : 'pending'}`}>
+            <span className={`mcp-approval-state ${skillApproval?.allowed ? 'approved' : 'pending'}`}>
+              {skillApproval?.allowed ? '已审批' : '待审批'}
+            </span>
+            <small>{skillCode} / {skillAgentCode}</small>
+            <small>权限按 skill_code + agent_code 精确匹配。Workflow 运行 Skill 时使用 workflow_runner；只有当前 Skill 的 workflow_runner 审批通过，Workflow 才能执行。</small>
+            {skillApproval?.reason ? <small>{skillApproval.reason}</small> : null}
+            {!skillApproval?.allowed ? (
+              <button type="button" className="secondary" onClick={() => onApproveSkill(skillCode, skillAgentCode)}>
+                审批当前 Workflow 节点
+              </button>
+            ) : null}
+          </div>
           <label>
             skill_code
             <input value={String(node.config.skill_code ?? 'code.review')} onChange={(event) => onConfigChange('skill_code', event.target.value)} />
@@ -2083,8 +2270,8 @@ function NodeConfig({
           </label>
           <label>
             agent_code
-            <input value={String(node.config.agent_code ?? 'skill_console')} onChange={(event) => onConfigChange('agent_code', event.target.value)} />
-            <FieldHelp>用于 Skill 权限审批的执行身份，需要在 Skills 页面审批通过。</FieldHelp>
+            <input value={String(node.config.agent_code ?? 'workflow_runner')} onChange={(event) => onConfigChange('agent_code', event.target.value)} />
+            <FieldHelp>这里是 Skill 的调用身份。skill_console 只表示 Skills 页面手动测试；workflow_runner 表示 Workflow 自动执行。Workflow 运行时必须审批 skill_code + workflow_runner。</FieldHelp>
           </label>
           <label>
             input JSON
@@ -2503,6 +2690,237 @@ function summarizeMcpLogOutput(log: McpToolCallLog) {
   return summarizeValue(log.output) || '无输出';
 }
 
+function PluginMarketplacePage({
+  catalog,
+  installs,
+  preview,
+  lastInstall,
+  onRefresh,
+  onPreview,
+  onInstall,
+  onUninstall,
+  onOpenSkill,
+  onApproveAndTestSkill,
+  onCreateSkillWorkflow,
+}: {
+  catalog: MarketplaceCatalogItem[];
+  installs: MarketplaceInstall[];
+  preview: MarketplacePreview | null;
+  lastInstall: MarketplaceInstall | null;
+  onRefresh: () => Promise<void>;
+  onPreview: (sourceUrl: string) => Promise<MarketplacePreview>;
+  onInstall: (sourceUrl: string) => Promise<MarketplaceInstall>;
+  onUninstall: (packageId: string) => Promise<MarketplaceInstall>;
+  onOpenSkill: (skillCode: string) => void;
+  onApproveAndTestSkill: (skillCode: string) => Promise<void>;
+  onCreateSkillWorkflow: (skillCode: string) => Promise<void>;
+}) {
+  const [sourceUrl, setSourceUrl] = useState('builtin://security-governance-skill-pack');
+  const [packageType, setPackageType] = useState('all');
+  const [message, setMessage] = useState('');
+  const filteredCatalog = packageType === 'all' ? catalog : catalog.filter((item) => item.package_type === packageType);
+  const packageTypes = ['all', 'skill_pack', 'rag_pack', 'mcp_pack', 'benchmark_pack', 'workflow_pack', 'prompt_pack'];
+  const latestInstallByPackage = new Map<string, MarketplaceInstall>();
+  for (const install of installs) {
+    if (!latestInstallByPackage.has(install.package_id)) latestInstallByPackage.set(install.package_id, install);
+  }
+  const installedPackages = Array.from(latestInstallByPackage.values());
+  const isInstalled = (packageId: string) => latestInstallByPackage.get(packageId)?.status === 'installed';
+  const installResultSkills = lastInstall ? marketplaceInstalledSkillCodes(lastInstall) : [];
+  const installCounts = packageTypes.slice(1).map((type) => ({
+    type,
+    count: installedPackages.filter((item) => item.package_type === type && item.status === 'installed').length,
+  }));
+
+  async function runAction(label: string, action: () => Promise<unknown>) {
+    setMessage('');
+    try {
+      await action();
+      setMessage(`${label} completed.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `${label} failed`);
+    }
+  }
+
+  return (
+    <section className="page-grid marketplace-page">
+      <div className="panel marketplace-source-panel">
+        <PanelTitle icon={<Puzzle size={17} />} title="Plugin Marketplace" action={<button className="icon-button" onClick={onRefresh}><RefreshCw size={15} /></button>} />
+        <div className="marketplace-kpis">
+          <KpiCard label="catalog" value={String(catalog.length)} />
+          <KpiCard label="installed" value={String(Array.from(latestInstallByPackage.values()).filter((item) => item.status === 'installed').length)} />
+          <KpiCard label="failed" value={String(Array.from(latestInstallByPackage.values()).filter((item) => item.status === 'failed').length)} />
+        </div>
+        <form className="marketplace-form">
+          <label>
+            GitHub / URL / local path
+            <input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} />
+            <FieldHelp>支持 builtin://package-id、GitHub 仓库 URL、zip/json/SKILL.md URL、本地目录、本地 plugin.json。没有 plugin.json 但包含 SKILL.md 时，会自动转换成声明式 Skill 插件。</FieldHelp>
+          </label>
+          <div className="marketplace-actions">
+            <button type="button" className="secondary" onClick={() => runAction('Preview', () => onPreview(sourceUrl))}>预览插件</button>
+            <button type="button" className="primary" onClick={() => runAction('Install', () => onInstall(sourceUrl))}>安装插件包</button>
+          </div>
+        </form>
+        {message ? <p className="marketplace-message">{message}</p> : null}
+        <div className="marketplace-type-row">
+          {installCounts.map((item) => <KpiCard key={item.type} label={marketplaceTypeLabel(item.type)} value={String(item.count)} />)}
+        </div>
+      </div>
+
+        {lastInstall ? (
+          <div className="panel marketplace-result-panel">
+            <PanelTitle icon={<Check size={17} />} title="最近安装结果" />
+            <div className={`marketplace-install-result ${lastInstall.status}`}>
+              <strong>{lastInstall.name}</strong>
+              <span>{lastInstall.package_type} / {lastInstall.status} / {marketplaceResourceCount(lastInstall)} resources</span>
+              {lastInstall.status === 'installed' && installResultSkills.length ? (
+                <div className="marketplace-skill-actions">
+                  <p>已安装 {installResultSkills.length} 个 Skill</p>
+                  {installResultSkills.map((skillCode) => (
+                    <article key={skillCode}>
+                      <span>{marketplaceSkillName(lastInstall, skillCode)}</span>
+                      <code>{skillCode}</code>
+                      <div className="marketplace-actions">
+                        <button type="button" className="secondary" onClick={() => onOpenSkill(skillCode)}>去 Skills 查看</button>
+                        <button type="button" className="secondary" onClick={() => runAction('Approve and test', () => onApproveAndTestSkill(skillCode))}>审批手动测试</button>
+                        <button type="button" className="primary" onClick={() => runAction('Create Workflow', () => onCreateSkillWorkflow(skillCode))}>添加到 Workflow</button>
+                      </div>
+                      <small>严格模式：审批手动测试只会放行 skill_console；添加到 Workflow 只创建节点，不会自动放行。Workflow 运行前必须手动审批 workflow_runner。</small>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+      <div className="panel marketplace-catalog-panel">
+        <PanelTitle icon={<Puzzle size={17} />} title="资源包目录" />
+        <div className="marketplace-tabs">
+          {packageTypes.map((type) => (
+            <button key={type} className={packageType === type ? 'active' : ''} onClick={() => setPackageType(type)}>
+              {marketplaceTypeLabel(type)}
+            </button>
+          ))}
+        </div>
+        <div className="marketplace-card-list">
+          {filteredCatalog.map((item) => (
+            <article key={item.package_id} className="marketplace-card">
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.package_id} / {item.version}</span>
+              </div>
+              <p>{item.description}</p>
+              <div className="skill-tags">
+                <span>{marketplaceTypeLabel(item.package_type)}</span>
+                {isInstalled(item.package_id) ? <span className="installed">installed</span> : <span>not installed</span>}
+                {item.permissions.map((permission) => <span key={permission}>{permission}</span>)}
+              </div>
+              <div className="marketplace-actions">
+                <button className="secondary" onClick={() => setSourceUrl(item.source_url)}>填入 URL</button>
+                <button className="secondary" onClick={() => runAction('Preview', () => onPreview(item.source_url))}>预览</button>
+                <button className="primary" onClick={() => runAction('Install', () => onInstall(item.source_url))}>
+                  {isInstalled(item.package_id) ? '重新安装' : '安装'}
+                </button>
+                <button className="secondary danger" disabled={!isInstalled(item.package_id)} onClick={() => runAction('Uninstall', () => onUninstall(item.package_id))}>
+                  卸载
+                </button>
+              </div>
+            </article>
+          ))}
+          {!filteredCatalog.length ? <p className="empty-text">暂无该类型资源包。</p> : null}
+        </div>
+      </div>
+
+      <div className="panel marketplace-preview-panel">
+        <PanelTitle icon={<FileText size={17} />} title="预览 / 权限" />
+        {preview ? (
+          <div className="marketplace-preview">
+            <div className="marketplace-summary-grid">
+              {Object.entries(preview.summary).map(([key, value]) => (
+                <KpiCard key={key} label={key} value={Array.isArray(value) ? String(value.length) : String(value)} />
+              ))}
+            </div>
+            <details className="skill-json" open>
+              <summary>manifest / plugin.json / SKILL.md</summary>
+              <pre>{JSON.stringify(preview.manifest, null, 2)}</pre>
+            </details>
+          </div>
+        ) : (
+          <p className="empty-text">先选择资源包或输入 URL 进行预览。</p>
+        )}
+      </div>
+
+      <div className="panel marketplace-history-panel">
+        <PanelTitle icon={<History size={17} />} title="安装历史" />
+        <div className="marketplace-install-list">
+          {installs.map((install) => (
+            <article key={install.install_id} className={`marketplace-install ${install.status}`}>
+              <div>
+                <strong>{install.name}</strong>
+                <span>{install.package_type} / {install.version || '-'} / {install.installed_at}</span>
+              </div>
+              <p>{install.source_url}</p>
+              {install.error_message ? <p className="error-text">{install.error_message}</p> : null}
+              <details className="skill-json">
+                <summary>安装摘要</summary>
+                <pre>{JSON.stringify({ summary: install.summary, manifest: install.manifest }, null, 2)}</pre>
+              </details>
+            </article>
+          ))}
+          {!installs.length ? <p className="empty-text">暂无安装历史。</p> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function marketplaceTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    all: 'All',
+    skill_pack: 'Skill',
+    rag_pack: 'RAG',
+    mcp_pack: 'MCP',
+    benchmark_pack: 'Benchmark',
+    workflow_pack: 'Workflow',
+    prompt_pack: 'Prompt',
+  };
+  return labels[type] ?? type;
+}
+
+function marketplaceInstalledSkillCodes(install: MarketplaceInstall) {
+  const summarySkills = install.summary?.installed_skills;
+  if (Array.isArray(summarySkills)) return summarySkills.map(String);
+  const manifestSkills = install.manifest?.skills;
+  if (Array.isArray(manifestSkills)) {
+    return manifestSkills
+      .map((skill) => (skill && typeof skill === 'object' ? String((skill as Record<string, unknown>).code ?? '') : ''))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function marketplaceSkillName(install: MarketplaceInstall, skillCode: string) {
+  const manifestSkills = install.manifest?.skills;
+  if (Array.isArray(manifestSkills)) {
+    const match = manifestSkills.find((skill) => skill && typeof skill === 'object' && String((skill as Record<string, unknown>).code ?? '') === skillCode);
+    if (match && typeof match === 'object') return String((match as Record<string, unknown>).name ?? skillCode);
+  }
+  return skillCode;
+}
+
+function marketplaceResourceCount(install: MarketplaceInstall) {
+  const keys = ['installed_skills', 'saved_notes', 'registered_servers', 'installed_workflows', 'installed_prompts', 'benchmark_cases'];
+  let total = 0;
+  for (const key of keys) {
+    const value = install.summary?.[key];
+    if (Array.isArray(value)) total += value.length;
+  }
+  if (total) return total;
+  return marketplaceInstalledSkillCodes(install).length;
+}
+
 function SkillsPage({
   plugins,
   skills,
@@ -2516,6 +2934,7 @@ function SkillsPage({
   onSkillApproval,
   onExecuteSkill,
   onAddToWorkflow,
+  onUninstallPlugin,
 }: {
   plugins: SkillPlugin[];
   skills: SkillRecord[];
@@ -2529,6 +2948,7 @@ function SkillsPage({
   onSkillApproval: (skillCode: string, agentCode: string, allowed: boolean, reason: string) => Promise<void>;
   onExecuteSkill: (skillCode: string, agentCode: string, input: Record<string, unknown>) => Promise<{ output: Record<string, unknown>; log_id: string; status: string; latency_ms: number }>;
   onAddToWorkflow: (skill: SkillRecord) => void;
+  onUninstallPlugin: (pluginId: string) => Promise<Record<string, unknown>>;
 }) {
   const selectedSkill = skills.find((item) => item.code === selectedSkillCode) ?? skills[0] ?? null;
   const [agentCode, setAgentCode] = useState('skill_console');
@@ -2543,6 +2963,9 @@ function SkillsPage({
     ? approvals.find((item) => item.skill_code === selectedSkill.code && item.agent_code === agentCode)
     : undefined;
   const activePlugin = selectedSkill ? plugins.find((plugin) => plugin.plugin_id === selectedSkill.plugin_id) : null;
+  const selectedSkillApprovals = selectedSkill
+    ? approvals.filter((approval) => approval.skill_code === selectedSkill.code)
+    : [];
 
   useEffect(() => {
     if (!selectedSkill) return;
@@ -2589,6 +3012,15 @@ function SkillsPage({
               <strong>{plugin.name}</strong>
               <span>{plugin.plugin_id} / {plugin.version} / {plugin.source_type}</span>
               <p>{plugin.description || 'No description.'}</p>
+              <div className="skill-actions">
+                <button
+                  className="secondary danger"
+                  disabled={plugin.source_type === 'builtin'}
+                  onClick={() => runAction('Plugin uninstall', () => onUninstallPlugin(plugin.plugin_id))}
+                >
+                  卸载插件
+                </button>
+              </div>
             </article>
           ))}
           {!plugins.length ? <p className="empty-text">暂无已安装插件。</p> : null}
@@ -2611,7 +3043,10 @@ function SkillsPage({
             <button key={skill.code} className={selectedSkill?.code === skill.code ? 'active' : ''} onClick={() => onSelectSkill(skill.code)}>
               <strong>{skill.name}</strong>
               <span>{skill.code} / {skill.category} / {skill.execution_type}</span>
-              <span>{skill.enabled ? 'enabled' : 'disabled'} / {skill.plugin_id}</span>
+              <span className="state-with-meta">
+                <EnabledState enabled={skill.enabled} label="Skill" />
+                <span>{skill.plugin_id}</span>
+              </span>
             </button>
           ))}
           {!filteredSkills.length ? <p className="empty-text">暂无 Skill。</p> : null}
@@ -2635,7 +3070,7 @@ function SkillsPage({
               <dt>执行类型</dt>
               <dd>{selectedSkill.execution_type}</dd>
               <dt>状态</dt>
-              <dd>{selectedSkill.enabled ? 'enabled' : 'disabled'}</dd>
+              <dd><EnabledState enabled={selectedSkill.enabled} label="Skill" /></dd>
             </dl>
             <div className="skill-tags">
               {selectedSkill.permissions.map((permission) => <span key={permission}>{permission}</span>)}
@@ -2659,7 +3094,13 @@ function SkillsPage({
 
       <div className="panel skill-approval-panel">
         <PanelTitle icon={<ShieldCheck size={17} />} title="权限审批" />
-        <div className="skill-form">
+        <div className="skill-form skill-approval-form">
+          <div className="skill-approval-guide">
+            <strong>权限怎么判断</strong>
+            <span>审批按 skill_code + agent_code 精确匹配，不是只要有一个通过就全部通过。</span>
+            <span>skill_console：只用于 Skills 页面手动测试调用。</span>
+            <span>workflow_runner：只用于 Workflow 自动执行。Workflow 运行 Skill 时必须审批这个身份。</span>
+          </div>
           <label>
             agent_code
             <input value={agentCode} onChange={(event) => setAgentCode(event.target.value)} />
@@ -2682,6 +3123,55 @@ function SkillsPage({
           {activeApproval?.allowed ? '当前 Agent 已审批' : '当前 Agent 未审批'}
           {activeApproval?.reason ? <span>{activeApproval.reason}</span> : null}
         </div>
+        {selectedSkill ? (
+          <div className="skill-current-approval-list">
+            <strong>当前 Skill 的审批身份</strong>
+            {(selectedSkillApprovals.length ? selectedSkillApprovals : [{ skill_code: selectedSkill.code, agent_code: 'workflow_runner', allowed: false, reason: null, created_at: '', updated_at: '' }]).map((approval) => (
+              <article key={`${approval.skill_code}-${approval.agent_code}`}>
+                <div>
+                  <span className={`mcp-approval-state ${approval.allowed ? 'approved' : 'pending'}`}>
+                    {approval.allowed ? '已审批' : '待审批'}
+                  </span>
+                  <code>{approval.agent_code}</code>
+                </div>
+                {approval.reason ? <small>{approval.reason}</small> : null}
+                <div className="skill-actions">
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setAgentCode(approval.agent_code);
+                      runAction('Skill approval revoke', () => onSkillApproval(selectedSkill.code, approval.agent_code, false, `Revoked ${approval.agent_code} from Skills console.`));
+                    }}
+                  >
+                    撤销这个身份
+                  </button>
+                  {!approval.allowed ? (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setAgentCode(approval.agent_code);
+                        runAction('Skill approval', () => onSkillApproval(selectedSkill.code, approval.agent_code, true, `Approved ${approval.agent_code} from Skills console.`));
+                      }}
+                    >
+                      审批这个身份
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+            {!selectedSkillApprovals.some((approval) => approval.agent_code === 'workflow_runner') ? (
+              <button
+                className="secondary"
+                onClick={() => {
+                  setAgentCode('workflow_runner');
+                  runAction('Skill approval', () => onSkillApproval(selectedSkill.code, 'workflow_runner', true, 'Approved workflow_runner from Skills console.'));
+                }}
+              >
+                审批 workflow_runner
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="skill-approval-list">
           {approvals.slice(0, 8).map((approval) => (
             <article key={`${approval.skill_code}-${approval.agent_code}`}>
@@ -2705,8 +3195,10 @@ function SkillsPage({
             测试调用 Skill
           </button>
         </form>
-        {message ? <p className="skill-message">{message}</p> : null}
-        {result ? <pre className="skill-result">{JSON.stringify(result, null, 2)}</pre> : null}
+        <div className="skill-execute-output">
+          {message ? <p className="skill-message">{message}</p> : null}
+          {result ? <pre className="skill-result">{JSON.stringify(result, null, 2)}</pre> : <p className="empty-text">暂无测试输出。</p>}
+        </div>
       </div>
 
       <div className="panel skill-log-panel">
@@ -2897,7 +3389,10 @@ function McpManagementPage({
           {servers.map((server) => (
             <button key={server.server_id} className={activeServerId === server.server_id ? 'active' : ''} onClick={() => loadServer(server)}>
               <strong>{server.name}</strong>
-              <span>{server.server_id} / {server.status} / {server.enabled ? 'enabled' : 'disabled'}</span>
+              <span className="state-with-meta">
+                <span>{server.server_id} / {server.status}</span>
+                <EnabledState enabled={server.enabled} label="Server" />
+              </span>
             </button>
           ))}
           {!servers.length ? <p className="empty-text">暂无 MCP server 配置。</p> : null}
@@ -2932,7 +3427,10 @@ function McpManagementPage({
                   setCallArgsText(defaultMcpCallArguments(tool.name, tool.server_id));
                 }}>
                   <strong>{tool.name}</strong>
-                  <span>{tool.server_id} / {tool.status} / {tool.enabled ? 'enabled' : 'disabled'}</span>
+                  <span className="state-with-meta">
+                    <span>{tool.server_id} / {tool.status}</span>
+                    <EnabledState enabled={tool.enabled} label="Tool" />
+                  </span>
                   <span className={`mcp-approval-state ${approvalClass}`}>
                     {approvalText}
                     {tool.approval_agent_code ? ` · ${tool.approval_agent_code}` : ''}
