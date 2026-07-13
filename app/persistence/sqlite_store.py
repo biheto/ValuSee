@@ -262,9 +262,17 @@ class SQLiteTaskStore:
                     category TEXT NOT NULL,
                     execution_type TEXT NOT NULL,
                     permissions_json TEXT,
+                    permission_levels_json TEXT,
+                    risk_level TEXT NOT NULL DEFAULT 'low',
                     input_schema_json TEXT,
                     output_schema_json TEXT,
                     default_input_json TEXT,
+                    dependencies_json TEXT,
+                    tests_json TEXT,
+                    version TEXT NOT NULL DEFAULT '1.0.0',
+                    entrypoint TEXT,
+                    source_format TEXT NOT NULL DEFAULT 'plugin_json',
+                    contract_json TEXT,
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -272,6 +280,14 @@ class SQLiteTaskStore:
                 """
             )
             self._ensure_column(conn, "skill_registry", "default_input_json", "TEXT")
+            self._ensure_column(conn, "skill_registry", "permission_levels_json", "TEXT")
+            self._ensure_column(conn, "skill_registry", "risk_level", "TEXT NOT NULL DEFAULT 'low'")
+            self._ensure_column(conn, "skill_registry", "dependencies_json", "TEXT")
+            self._ensure_column(conn, "skill_registry", "tests_json", "TEXT")
+            self._ensure_column(conn, "skill_registry", "version", "TEXT NOT NULL DEFAULT '1.0.0'")
+            self._ensure_column(conn, "skill_registry", "entrypoint", "TEXT")
+            self._ensure_column(conn, "skill_registry", "source_format", "TEXT NOT NULL DEFAULT 'plugin_json'")
+            self._ensure_column(conn, "skill_registry", "contract_json", "TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS skill_approval (
@@ -299,6 +315,19 @@ class SQLiteTaskStore:
                     error_message TEXT,
                     latency_ms INTEGER NOT NULL,
                     created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS skill_version_snapshot (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    skill_code TEXT NOT NULL,
+                    plugin_id TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(skill_code, version)
                 )
                 """
             )
@@ -781,6 +810,8 @@ class SQLiteTaskStore:
         }
 
     def seed_builtin_skills(self, plugin: dict[str, Any], skills: list[dict[str, Any]]) -> None:
+        from app.skills.contract import validate_skill_contract
+
         now = utc_now_iso()
         with self._connect() as conn:
             existing_plugin = conn.execute(
@@ -810,6 +841,13 @@ class SQLiteTaskStore:
                 ),
             )
             for skill in skills:
+                contract = skill.get("contract") if isinstance(skill.get("contract"), dict) else validate_skill_contract(skill)
+                skill = {
+                    **skill,
+                    "permission_levels": skill.get("permission_levels") or contract.get("permission_levels") or [],
+                    "risk_level": skill.get("risk_level") or contract.get("risk_level") or "low",
+                    "contract": contract,
+                }
                 existing_skill = conn.execute(
                     "SELECT created_at, enabled FROM skill_registry WHERE skill_code = ?",
                     (skill["code"],),
@@ -820,10 +858,11 @@ class SQLiteTaskStore:
                     """
                     INSERT OR REPLACE INTO skill_registry(
                         skill_code, plugin_id, name, description, category, execution_type,
-                        permissions_json, input_schema_json, output_schema_json, default_input_json,
-                        enabled, created_at, updated_at
+                        permissions_json, permission_levels_json, risk_level, input_schema_json,
+                        output_schema_json, default_input_json, dependencies_json, tests_json,
+                        version, entrypoint, source_format, contract_json, enabled, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         skill["code"],
@@ -833,9 +872,17 @@ class SQLiteTaskStore:
                         skill.get("category") or "general",
                         skill.get("execution_type") or "agent",
                         json.dumps(skill.get("permissions") or [], ensure_ascii=False),
+                        json.dumps(skill.get("permission_levels") or [], ensure_ascii=False),
+                        skill.get("risk_level") or "low",
                         json.dumps(skill.get("input_schema") or {}, ensure_ascii=False),
                         json.dumps(skill.get("output_schema") or {}, ensure_ascii=False),
                         json.dumps(skill.get("default_input") or {}, ensure_ascii=False),
+                        json.dumps(skill.get("dependencies") or [], ensure_ascii=False),
+                        json.dumps(skill.get("tests") or [], ensure_ascii=False),
+                        skill.get("version") or plugin.get("version") or "1.0.0",
+                        skill.get("entrypoint"),
+                        skill.get("source_format") or "plugin_json",
+                        json.dumps(skill.get("contract") or {}, ensure_ascii=False),
                         enabled,
                         created_at,
                         now,
@@ -852,6 +899,26 @@ class SQLiteTaskStore:
                         """,
                         (skill["code"], "skill_console", 1, "Installed skill approved for console testing.", now, now),
                     )
+                snapshot = {
+                    **skill,
+                    "source_plugin": skill.get("source_plugin") or plugin["plugin_id"],
+                    "version": skill.get("version") or plugin.get("version") or "1.0.0",
+                }
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO skill_version_snapshot(
+                        skill_code, plugin_id, version, snapshot_json, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        skill["code"],
+                        snapshot["source_plugin"],
+                        snapshot["version"],
+                        json.dumps(snapshot, ensure_ascii=False),
+                        now,
+                    ),
+                )
 
     def list_skill_plugins(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -868,8 +935,9 @@ class SQLiteTaskStore:
     def list_skills(self, category: str | None = None) -> list[dict[str, Any]]:
         query = """
             SELECT skill_code, plugin_id, name, description, category, execution_type,
-                   permissions_json, input_schema_json, output_schema_json, default_input_json,
-                   enabled, created_at, updated_at
+                   permissions_json, permission_levels_json, risk_level, input_schema_json,
+                   output_schema_json, default_input_json, dependencies_json, tests_json,
+                   version, entrypoint, source_format, contract_json, enabled, created_at, updated_at
             FROM skill_registry
         """
         params: list[Any] = []
@@ -886,8 +954,9 @@ class SQLiteTaskStore:
             row = conn.execute(
                 """
                 SELECT skill_code, plugin_id, name, description, category, execution_type,
-                       permissions_json, input_schema_json, output_schema_json, default_input_json,
-                       enabled, created_at, updated_at
+                       permissions_json, permission_levels_json, risk_level, input_schema_json,
+                       output_schema_json, default_input_json, dependencies_json, tests_json,
+                       version, entrypoint, source_format, contract_json, enabled, created_at, updated_at
                 FROM skill_registry
                 WHERE skill_code = ?
                 """,
@@ -1027,6 +1096,47 @@ class SQLiteTaskStore:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [self._skill_log_row_to_dict(row) for row in rows]
 
+    def list_skill_versions(self, skill_code: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT skill_code, plugin_id, version, snapshot_json, created_at
+                FROM skill_version_snapshot
+                WHERE skill_code = ?
+                ORDER BY id DESC
+                """,
+                (skill_code,),
+            ).fetchall()
+        versions = []
+        for row in rows:
+            item = dict(row)
+            item["snapshot"] = json.loads(item.pop("snapshot_json") or "{}")
+            versions.append(item)
+        return versions
+
+    def rollback_skill_version(self, skill_code: str, version: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT snapshot_json
+                FROM skill_version_snapshot
+                WHERE skill_code = ? AND version = ?
+                """,
+                (skill_code, version),
+            ).fetchone()
+        if not row:
+            return None
+        snapshot = json.loads(row["snapshot_json"] or "{}")
+        plugin = {
+            "plugin_id": snapshot.get("source_plugin") or snapshot.get("plugin_id") or "rollback",
+            "name": snapshot.get("source_plugin") or snapshot.get("plugin_id") or "Rollback Plugin",
+            "version": version,
+            "source_type": "rollback",
+            "enabled": True,
+        }
+        self.seed_builtin_skills(plugin, [{**snapshot, "version": version}])
+        return self.get_skill(skill_code)
+
     def save_marketplace_install(self, record: dict[str, Any]) -> dict[str, Any]:
         installed_at = record.get("installed_at") or utc_now_iso()
         summary = record.get("summary") or {}
@@ -1097,9 +1207,13 @@ class SQLiteTaskStore:
         item["code"] = item.pop("skill_code")
         item["source_plugin"] = item["plugin_id"]
         item["permissions"] = json.loads(item.pop("permissions_json") or "[]")
+        item["permission_levels"] = json.loads(item.pop("permission_levels_json") or "[]")
         item["input_schema"] = json.loads(item.pop("input_schema_json") or "{}")
         item["output_schema"] = json.loads(item.pop("output_schema_json") or "{}")
         item["default_input"] = json.loads(item.pop("default_input_json") or "{}")
+        item["dependencies"] = json.loads(item.pop("dependencies_json") or "[]")
+        item["tests"] = json.loads(item.pop("tests_json") or "[]")
+        item["contract"] = json.loads(item.pop("contract_json") or "{}")
         item["enabled"] = bool(item["enabled"])
         return item
 

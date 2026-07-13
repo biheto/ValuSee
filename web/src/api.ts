@@ -25,6 +25,8 @@ import {
   SkillExecutionLog,
   SkillPlugin,
   SkillRecord,
+  SkillTestResult,
+  SkillVersionSnapshot,
   TaskDetail,
   TaskSummary,
   WorkflowEdge,
@@ -493,6 +495,24 @@ export async function listSkillExecutionLogs(limit = 100, skillCode = ''): Promi
   return data.logs ?? [];
 }
 
+export async function listSkillVersions(skillCode: string): Promise<SkillVersionSnapshot[]> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(skillCode)}/versions`);
+  if (!response.ok) throw await apiError(response, 'Skill versions failed');
+  const data = await response.json();
+  return data.versions ?? [];
+}
+
+export async function rollbackSkillVersion(skillCode: string, version: string): Promise<SkillRecord> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(skillCode)}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version }),
+  });
+  if (!response.ok) throw await apiError(response, 'Skill rollback failed');
+  const data = await response.json();
+  return data.skill;
+}
+
 export async function setSkillEnabled(skillCode: string, enabled: boolean): Promise<SkillRecord> {
   const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(skillCode)}/enabled`, {
     method: 'POST',
@@ -502,6 +522,20 @@ export async function setSkillEnabled(skillCode: string, enabled: boolean): Prom
   if (!response.ok) throw await apiError(response, 'Toggle skill failed');
   const data = await response.json();
   return data.skill;
+}
+
+export async function testSkill(payload: {
+  skill_code: string;
+  agent_code: string;
+  test?: Record<string, unknown>;
+}): Promise<SkillTestResult> {
+  const response = await fetch(`${API_BASE}/api/v1/skills/${encodeURIComponent(payload.skill_code)}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'Skill test failed');
+  return response.json();
 }
 
 export async function uninstallSkillPlugin(pluginId: string): Promise<Record<string, unknown>> {

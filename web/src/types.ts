@@ -434,12 +434,36 @@ export type SkillRecord = {
   category: string;
   execution_type: string;
   permissions: string[];
+  permission_levels: string[];
+  risk_level: string;
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
   default_input: Record<string, unknown>;
+  dependencies: Array<Record<string, unknown>>;
+  tests: Array<Record<string, unknown>>;
+  version: string;
+  entrypoint?: string | null;
+  source_format: string;
+  contract: Record<string, unknown>;
   enabled: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type SkillVersionSnapshot = {
+  skill_code: string;
+  plugin_id: string;
+  version: string;
+  snapshot: SkillRecord | Record<string, unknown>;
+  created_at: string;
+};
+
+export type SkillTestResult = {
+  skill_code: string;
+  total: number;
+  passed: number;
+  failed: number;
+  results: Array<Record<string, unknown>>;
 };
 
 export type SkillApproval = {

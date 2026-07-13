@@ -954,6 +954,121 @@ button {
   color: #227346;
 }
 
+.risk-badge,
+.skill-tags span.risk-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #d8e0e8;
+  background: #f7fafc;
+  color: #526176;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.risk-badge.low,
+.skill-tags span.risk-tag.safe {
+  border-color: #b9d8c8;
+  background: #f2fbf6;
+  color: #206b50;
+}
+
+.risk-badge.medium,
+.skill-tags span.risk-tag.llm,
+.skill-tags span.risk-tag.project-read {
+  border-color: #c5d9ea;
+  background: #f1f8fd;
+  color: #255f85;
+}
+
+.risk-badge.high,
+.skill-tags span.risk-tag.network,
+.skill-tags span.risk-tag.workflow-write {
+  border-color: #e7cd97;
+  background: #fff8e8;
+  color: #7a5a1c;
+}
+
+.risk-badge.critical,
+.skill-tags span.risk-tag.filesystem {
+  border-color: #edc5c2;
+  background: #fff7f6;
+  color: #a33d35;
+}
+
+.skill-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skill-section-title strong {
+  color: #253349;
+  font-size: 13px;
+}
+
+.skill-section-title span {
+  color: #657386;
+  font-size: 12px;
+}
+
+.skill-version-box,
+.skill-test-summary {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dde7ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.skill-version-box article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e4e9ee;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.skill-version-box article div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.skill-version-box article strong,
+.skill-test-summary strong {
+  color: #253349;
+  font-size: 13px;
+}
+
+.skill-version-box article span {
+  color: #657386;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.skill-test-summary pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #e4e9ee;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #34445a;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .secondary.danger {
   border-color: #edc5c2;
   color: #a33d35;
@@ -1184,9 +1299,7 @@ button {
 
 .marketplace-preview {
   min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 12px;
+  display: block;
   padding: 16px;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -3695,7 +3808,59 @@ textarea:focus {
 }
 
 .marketplace-preview .skill-json pre {
-  max-height: 560px;
+  max-height: 620px;
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre;
+  overflow: auto;
+  overflow-wrap: normal;
+}
+
+.marketplace-preview .skill-json {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid #e4e9ee;
+}
+
+.marketplace-preview .skill-json summary {
+  width: fit-content;
+  margin-bottom: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.marketplace-preview .marketplace-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-auto-rows: minmax(124px, auto);
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.marketplace-preview .kpi-card {
+  height: auto;
+  min-height: 124px;
+  padding: 10px;
+  align-content: start;
+  overflow: visible;
+}
+
+.marketplace-preview .kpi-card span,
+.marketplace-preview .kpi-card strong {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.marketplace-preview .kpi-card strong {
+  font-size: 15px;
 }
 
 .mcp-server-panel,
