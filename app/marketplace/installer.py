@@ -356,7 +356,15 @@ def _skill_md_manifest(package_root: Path, skill_paths: list[Path]) -> dict[str,
                 "permissions": ["llm.call"],
                 "input_schema": {"goal": "string", "context": "string", "project_path": "string"},
                 "output_schema": {"report_markdown": "string"},
-                "default_input": {"goal": "Use this imported SKILL.md capability.", "context": "", "project_path": "."},
+                "default_input": {
+                    "goal": "Use this imported SKILL.md capability.",
+                    "context": "",
+                    "project_path": ".",
+                    "_source_format": "External SKILL.md",
+                    "_source_path": relative_path,
+                    "_conversion_mode": "Prompt Skill",
+                    "_safety_note": "Third-party code is not executed. The SKILL.md content is used only as prompt instructions.",
+                },
                 "prompt_template": _external_skill_prompt(title, relative_path, content),
             }
         )

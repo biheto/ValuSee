@@ -190,7 +190,7 @@ const palette = [
   { type: 'agent', name: 'RAG Processor', icon: BookOpen, config: { agent_type: 'rag_processor', max_files: 100, ingest: true, collection: 'project-memory' } },
   { type: 'rag', name: 'Knowledge Query', icon: Database, config: { collection: 'default', top_k: 5 } },
   { type: 'mcp_tool', name: 'MCP Tool', icon: Wrench, config: { tool_name: 'filesystem.list' } },
-  { type: 'skill', name: 'Skill', icon: Puzzle, config: { skill_code: 'code.review', agent_code: 'skill_console' } },
+  { type: 'skill', name: 'Skill', icon: Puzzle, config: { skill_code: 'code.review', agent_code: 'workflow_runner' } },
   { type: 'supervisor', name: 'Supervisor', icon: Activity, config: {} },
   { type: 'human_review', name: 'Human Review', icon: Check, config: { require_comment: false } },
   { type: 'reporter', name: 'Reporter', icon: FileSearch, config: {} },
@@ -277,6 +277,7 @@ export function App() {
   const [marketplaceCatalog, setMarketplaceCatalog] = useState<MarketplaceCatalogItem[]>([]);
   const [marketplaceInstalls, setMarketplaceInstalls] = useState<MarketplaceInstall[]>([]);
   const [marketplacePreview, setMarketplacePreview] = useState<MarketplacePreview | null>(null);
+  const [lastMarketplaceInstall, setLastMarketplaceInstall] = useState<MarketplaceInstall | null>(null);
   const [benchmarkRuns, setBenchmarkRuns] = useState<BenchmarkRun[]>([]);
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkRun | null>(null);
   const [benchmarkType, setBenchmarkType] = useState<BenchmarkType>('mcp');
@@ -367,6 +368,16 @@ export function App() {
     if (!selectedSkillCode && nextSkills[0]) setSelectedSkillCode(nextSkills[0].code);
   }
 
+  function handleNavigate(view: ViewKey) {
+    setActiveView(view);
+    if (view === 'workflow' || view === 'skills' || view === 'marketplace') {
+      refreshSkills(selectedSkillCode).catch(() => undefined);
+    }
+    if (view === 'marketplace') {
+      refreshMarketplace().catch(() => undefined);
+    }
+  }
+
   async function refreshMarketplace(packageType = '') {
     const [catalog, installs] = await Promise.all([
       listMarketplaceCatalog(),
@@ -440,6 +451,56 @@ export function App() {
     setActiveView('workflow');
   }
 
+  function handleOpenMarketplaceSkill(skillCode: string) {
+    setSelectedSkillCode(skillCode);
+    refreshSkills(skillCode).catch(() => undefined);
+    setActiveView('skills');
+  }
+
+  async function handleApproveAndTestMarketplaceSkill(skillCode: string) {
+    const skill = skills.find((item) => item.code === skillCode) ?? (await listSkills()).find((item) => item.code === skillCode);
+    if (!skill) throw new Error(`Skill not found: ${skillCode}`);
+    await setSkillApproval({
+      skill_code: skillCode,
+      agent_code: 'skill_console',
+      allowed: true,
+      reason: 'Approved from Marketplace install result.',
+    });
+    await executeSkill({
+      skill_code: skillCode,
+      agent_code: 'skill_console',
+      input: skill.default_input ?? {},
+      task_id: latestTaskId || undefined,
+    });
+    setSelectedSkillCode(skillCode);
+    await refreshSkills(skillCode);
+    setActiveView('skills');
+  }
+
+  async function handleCreateMarketplaceSkillWorkflow(skillCode: string) {
+    const skill = skills.find((item) => item.code === skillCode) ?? (await listSkills()).find((item) => item.code === skillCode);
+    if (!skill) throw new Error(`Skill not found: ${skillCode}`);
+    const id = `skill_${Date.now()}`;
+    setNodes([
+      {
+        id,
+        type: 'skill',
+        name: skill.name,
+        x: 120,
+        y: 140,
+        config: {
+          skill_code: skill.code,
+          agent_code: 'workflow_runner',
+          input: skill.default_input ?? {},
+        },
+      },
+    ]);
+    setEdges([]);
+    setSelectedNodeId(id);
+    setActiveView('workflow');
+    await refreshSkills(skillCode);
+  }
+
   async function handlePreviewMarketplace(sourceUrl: string) {
     const preview = await previewMarketplacePackage(sourceUrl);
     setMarketplacePreview(preview);
@@ -448,6 +509,7 @@ export function App() {
 
   async function handleInstallMarketplace(sourceUrl: string) {
     const install = await installMarketplacePackage(sourceUrl);
+    setLastMarketplaceInstall(install);
     await refreshMarketplace();
     await refreshSkills();
     await refreshMcp();
@@ -458,6 +520,7 @@ export function App() {
 
   async function handleUninstallMarketplace(packageId: string) {
     const uninstall = await uninstallMarketplacePackage(packageId);
+    setLastMarketplaceInstall(uninstall);
     await refreshMarketplace();
     await refreshSkills();
     return uninstall;
@@ -670,6 +733,21 @@ export function App() {
 
   async function handleRunTask(event: FormEvent) {
     event.preventDefault();
+    if (executionMode === 'workflow') {
+      const approvalsForRun = await listSkillApprovals();
+      setSkillApprovals(approvalsForRun);
+      const blockedSkills = nodes.filter((node) => {
+        if (node.type !== 'skill') return false;
+        const skillCode = String(node.config.skill_code ?? '');
+        const agentCode = String(node.config.agent_code ?? 'workflow_runner');
+        return !approvalsForRun.some((approval) => approval.skill_code === skillCode && approval.agent_code === agentCode && approval.allowed);
+      });
+      if (blockedSkills.length) {
+        setError(`Workflow 存在未审批的 Skill 节点：${blockedSkills.map((node) => `${node.name}(${String(node.config.skill_code ?? '')}/${String(node.config.agent_code ?? 'workflow_runner')})`).join(', ')}。Workflow 只认 skill_code + workflow_runner 的审批记录。`);
+        setActiveView('workflow');
+        return;
+      }
+    }
     await runFollowUpTask({
       mode: executionMode,
       nextGoal: goal,
@@ -1191,7 +1269,7 @@ export function App() {
               <button
                 key={item.view}
                 className={activeView === item.view ? 'active' : ''}
-                onClick={() => setActiveView(item.view)}
+                onClick={() => handleNavigate(item.view)}
                 title={item.label}
               >
                 <Icon size={22} />
@@ -1289,7 +1367,16 @@ export function App() {
             </div>
 
             <div className="panel config-panel">
-              <NodeConfig node={selectedNode} onNodeChange={updateSelectedNode} onConfigChange={updateSelectedConfig} onDelete={deleteSelectedNode} />
+              <NodeConfig
+                node={selectedNode}
+                approvals={skillApprovals}
+                onNodeChange={updateSelectedNode}
+                onConfigChange={updateSelectedConfig}
+                onApproveSkill={async (skillCode, agentCode) => {
+                  await handleSkillApproval(skillCode, agentCode, true, 'Approved from Workflow node config.');
+                }}
+                onDelete={deleteSelectedNode}
+              />
               <EdgeConfig
                 edge={edges.find((edge) => edgeKeyFor(edge) === selectedEdgeKey)}
                 nodes={nodes}
@@ -1444,10 +1531,14 @@ export function App() {
             catalog={marketplaceCatalog}
             installs={marketplaceInstalls}
             preview={marketplacePreview}
+            lastInstall={lastMarketplaceInstall}
             onRefresh={() => refreshMarketplace()}
             onPreview={handlePreviewMarketplace}
             onInstall={handleInstallMarketplace}
             onUninstall={handleUninstallMarketplace}
+            onOpenSkill={handleOpenMarketplaceSkill}
+            onApproveAndTestSkill={handleApproveAndTestMarketplaceSkill}
+            onCreateSkillWorkflow={handleCreateMarketplaceSkillWorkflow}
           />
         ) : null}
 
@@ -1989,13 +2080,17 @@ function SavedWorkflows({
 
 function NodeConfig({
   node,
+  approvals,
   onNodeChange,
   onConfigChange,
+  onApproveSkill,
   onDelete,
 }: {
   node?: WorkflowNode;
+  approvals: SkillApproval[];
   onNodeChange: (patch: Partial<WorkflowNode>) => void;
   onConfigChange: (key: string, value: unknown) => void;
+  onApproveSkill: (skillCode: string, agentCode: string) => Promise<void>;
   onDelete: () => void;
 }) {
   if (!node) {
@@ -2015,6 +2110,11 @@ function NodeConfig({
       // Keep the raw text while the user is still editing invalid JSON.
     }
   }
+  const skillCode = String(node.config.skill_code ?? 'code.review');
+  const skillAgentCode = String(node.config.agent_code ?? 'workflow_runner');
+  const skillApproval = node.type === 'skill'
+    ? approvals.find((approval) => approval.skill_code === skillCode && approval.agent_code === skillAgentCode)
+    : undefined;
   return (
     <div className="config-form">
       <PanelTitle title="节点配置" />
@@ -2150,6 +2250,19 @@ function NodeConfig({
       ) : null}
       {node.type === 'skill' ? (
         <>
+          <div className={`workflow-skill-approval ${skillApproval?.allowed ? 'approved' : 'pending'}`}>
+            <span className={`mcp-approval-state ${skillApproval?.allowed ? 'approved' : 'pending'}`}>
+              {skillApproval?.allowed ? '已审批' : '待审批'}
+            </span>
+            <small>{skillCode} / {skillAgentCode}</small>
+            <small>权限按 skill_code + agent_code 精确匹配。Workflow 运行 Skill 时使用 workflow_runner；只有当前 Skill 的 workflow_runner 审批通过，Workflow 才能执行。</small>
+            {skillApproval?.reason ? <small>{skillApproval.reason}</small> : null}
+            {!skillApproval?.allowed ? (
+              <button type="button" className="secondary" onClick={() => onApproveSkill(skillCode, skillAgentCode)}>
+                审批当前 Workflow 节点
+              </button>
+            ) : null}
+          </div>
           <label>
             skill_code
             <input value={String(node.config.skill_code ?? 'code.review')} onChange={(event) => onConfigChange('skill_code', event.target.value)} />
@@ -2157,8 +2270,8 @@ function NodeConfig({
           </label>
           <label>
             agent_code
-            <input value={String(node.config.agent_code ?? 'skill_console')} onChange={(event) => onConfigChange('agent_code', event.target.value)} />
-            <FieldHelp>用于 Skill 权限审批的执行身份，需要在 Skills 页面审批通过。</FieldHelp>
+            <input value={String(node.config.agent_code ?? 'workflow_runner')} onChange={(event) => onConfigChange('agent_code', event.target.value)} />
+            <FieldHelp>这里是 Skill 的调用身份。skill_console 只表示 Skills 页面手动测试；workflow_runner 表示 Workflow 自动执行。Workflow 运行时必须审批 skill_code + workflow_runner。</FieldHelp>
           </label>
           <label>
             input JSON
@@ -2581,18 +2694,26 @@ function PluginMarketplacePage({
   catalog,
   installs,
   preview,
+  lastInstall,
   onRefresh,
   onPreview,
   onInstall,
   onUninstall,
+  onOpenSkill,
+  onApproveAndTestSkill,
+  onCreateSkillWorkflow,
 }: {
   catalog: MarketplaceCatalogItem[];
   installs: MarketplaceInstall[];
   preview: MarketplacePreview | null;
+  lastInstall: MarketplaceInstall | null;
   onRefresh: () => Promise<void>;
   onPreview: (sourceUrl: string) => Promise<MarketplacePreview>;
   onInstall: (sourceUrl: string) => Promise<MarketplaceInstall>;
   onUninstall: (packageId: string) => Promise<MarketplaceInstall>;
+  onOpenSkill: (skillCode: string) => void;
+  onApproveAndTestSkill: (skillCode: string) => Promise<void>;
+  onCreateSkillWorkflow: (skillCode: string) => Promise<void>;
 }) {
   const [sourceUrl, setSourceUrl] = useState('builtin://security-governance-skill-pack');
   const [packageType, setPackageType] = useState('all');
@@ -2603,10 +2724,12 @@ function PluginMarketplacePage({
   for (const install of installs) {
     if (!latestInstallByPackage.has(install.package_id)) latestInstallByPackage.set(install.package_id, install);
   }
+  const installedPackages = Array.from(latestInstallByPackage.values());
   const isInstalled = (packageId: string) => latestInstallByPackage.get(packageId)?.status === 'installed';
+  const installResultSkills = lastInstall ? marketplaceInstalledSkillCodes(lastInstall) : [];
   const installCounts = packageTypes.slice(1).map((type) => ({
     type,
-    count: Array.from(latestInstallByPackage.values()).filter((item) => item.package_type === type && item.status === 'installed').length,
+    count: installedPackages.filter((item) => item.package_type === type && item.status === 'installed').length,
   }));
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -2644,6 +2767,33 @@ function PluginMarketplacePage({
           {installCounts.map((item) => <KpiCard key={item.type} label={marketplaceTypeLabel(item.type)} value={String(item.count)} />)}
         </div>
       </div>
+
+        {lastInstall ? (
+          <div className="panel marketplace-result-panel">
+            <PanelTitle icon={<Check size={17} />} title="最近安装结果" />
+            <div className={`marketplace-install-result ${lastInstall.status}`}>
+              <strong>{lastInstall.name}</strong>
+              <span>{lastInstall.package_type} / {lastInstall.status} / {marketplaceResourceCount(lastInstall)} resources</span>
+              {lastInstall.status === 'installed' && installResultSkills.length ? (
+                <div className="marketplace-skill-actions">
+                  <p>已安装 {installResultSkills.length} 个 Skill</p>
+                  {installResultSkills.map((skillCode) => (
+                    <article key={skillCode}>
+                      <span>{marketplaceSkillName(lastInstall, skillCode)}</span>
+                      <code>{skillCode}</code>
+                      <div className="marketplace-actions">
+                        <button type="button" className="secondary" onClick={() => onOpenSkill(skillCode)}>去 Skills 查看</button>
+                        <button type="button" className="secondary" onClick={() => runAction('Approve and test', () => onApproveAndTestSkill(skillCode))}>审批手动测试</button>
+                        <button type="button" className="primary" onClick={() => runAction('Create Workflow', () => onCreateSkillWorkflow(skillCode))}>添加到 Workflow</button>
+                      </div>
+                      <small>严格模式：审批手动测试只会放行 skill_console；添加到 Workflow 只创建节点，不会自动放行。Workflow 运行前必须手动审批 workflow_runner。</small>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
       <div className="panel marketplace-catalog-panel">
         <PanelTitle icon={<Puzzle size={17} />} title="资源包目录" />
@@ -2739,6 +2889,38 @@ function marketplaceTypeLabel(type: string) {
   return labels[type] ?? type;
 }
 
+function marketplaceInstalledSkillCodes(install: MarketplaceInstall) {
+  const summarySkills = install.summary?.installed_skills;
+  if (Array.isArray(summarySkills)) return summarySkills.map(String);
+  const manifestSkills = install.manifest?.skills;
+  if (Array.isArray(manifestSkills)) {
+    return manifestSkills
+      .map((skill) => (skill && typeof skill === 'object' ? String((skill as Record<string, unknown>).code ?? '') : ''))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function marketplaceSkillName(install: MarketplaceInstall, skillCode: string) {
+  const manifestSkills = install.manifest?.skills;
+  if (Array.isArray(manifestSkills)) {
+    const match = manifestSkills.find((skill) => skill && typeof skill === 'object' && String((skill as Record<string, unknown>).code ?? '') === skillCode);
+    if (match && typeof match === 'object') return String((match as Record<string, unknown>).name ?? skillCode);
+  }
+  return skillCode;
+}
+
+function marketplaceResourceCount(install: MarketplaceInstall) {
+  const keys = ['installed_skills', 'saved_notes', 'registered_servers', 'installed_workflows', 'installed_prompts', 'benchmark_cases'];
+  let total = 0;
+  for (const key of keys) {
+    const value = install.summary?.[key];
+    if (Array.isArray(value)) total += value.length;
+  }
+  if (total) return total;
+  return marketplaceInstalledSkillCodes(install).length;
+}
+
 function SkillsPage({
   plugins,
   skills,
@@ -2781,6 +2963,9 @@ function SkillsPage({
     ? approvals.find((item) => item.skill_code === selectedSkill.code && item.agent_code === agentCode)
     : undefined;
   const activePlugin = selectedSkill ? plugins.find((plugin) => plugin.plugin_id === selectedSkill.plugin_id) : null;
+  const selectedSkillApprovals = selectedSkill
+    ? approvals.filter((approval) => approval.skill_code === selectedSkill.code)
+    : [];
 
   useEffect(() => {
     if (!selectedSkill) return;
@@ -2909,7 +3094,13 @@ function SkillsPage({
 
       <div className="panel skill-approval-panel">
         <PanelTitle icon={<ShieldCheck size={17} />} title="权限审批" />
-        <div className="skill-form">
+        <div className="skill-form skill-approval-form">
+          <div className="skill-approval-guide">
+            <strong>权限怎么判断</strong>
+            <span>审批按 skill_code + agent_code 精确匹配，不是只要有一个通过就全部通过。</span>
+            <span>skill_console：只用于 Skills 页面手动测试调用。</span>
+            <span>workflow_runner：只用于 Workflow 自动执行。Workflow 运行 Skill 时必须审批这个身份。</span>
+          </div>
           <label>
             agent_code
             <input value={agentCode} onChange={(event) => setAgentCode(event.target.value)} />
@@ -2932,6 +3123,55 @@ function SkillsPage({
           {activeApproval?.allowed ? '当前 Agent 已审批' : '当前 Agent 未审批'}
           {activeApproval?.reason ? <span>{activeApproval.reason}</span> : null}
         </div>
+        {selectedSkill ? (
+          <div className="skill-current-approval-list">
+            <strong>当前 Skill 的审批身份</strong>
+            {(selectedSkillApprovals.length ? selectedSkillApprovals : [{ skill_code: selectedSkill.code, agent_code: 'workflow_runner', allowed: false, reason: null, created_at: '', updated_at: '' }]).map((approval) => (
+              <article key={`${approval.skill_code}-${approval.agent_code}`}>
+                <div>
+                  <span className={`mcp-approval-state ${approval.allowed ? 'approved' : 'pending'}`}>
+                    {approval.allowed ? '已审批' : '待审批'}
+                  </span>
+                  <code>{approval.agent_code}</code>
+                </div>
+                {approval.reason ? <small>{approval.reason}</small> : null}
+                <div className="skill-actions">
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setAgentCode(approval.agent_code);
+                      runAction('Skill approval revoke', () => onSkillApproval(selectedSkill.code, approval.agent_code, false, `Revoked ${approval.agent_code} from Skills console.`));
+                    }}
+                  >
+                    撤销这个身份
+                  </button>
+                  {!approval.allowed ? (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setAgentCode(approval.agent_code);
+                        runAction('Skill approval', () => onSkillApproval(selectedSkill.code, approval.agent_code, true, `Approved ${approval.agent_code} from Skills console.`));
+                      }}
+                    >
+                      审批这个身份
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+            {!selectedSkillApprovals.some((approval) => approval.agent_code === 'workflow_runner') ? (
+              <button
+                className="secondary"
+                onClick={() => {
+                  setAgentCode('workflow_runner');
+                  runAction('Skill approval', () => onSkillApproval(selectedSkill.code, 'workflow_runner', true, 'Approved workflow_runner from Skills console.'));
+                }}
+              >
+                审批 workflow_runner
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="skill-approval-list">
           {approvals.slice(0, 8).map((approval) => (
             <article key={`${approval.skill_code}-${approval.agent_code}`}>
