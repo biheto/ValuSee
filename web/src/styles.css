@@ -4969,6 +4969,135 @@ button:not(:disabled):active {
   font-size: 15px;
 }
 
+/* Shared light-glass treatment for workbench surfaces. */
+.app-main {
+  background-color: #e7f0f4;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0, transparent 31px, rgba(72, 112, 143, 0.06) 32px),
+    repeating-linear-gradient(90deg, transparent 0, transparent 31px, rgba(72, 112, 143, 0.05) 32px);
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.68);
+  border-color: rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 12px 28px rgba(31, 57, 79, 0.11);
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.panel-title {
+  background: rgba(250, 253, 255, 0.58);
+  border-bottom-color: rgba(196, 213, 225, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+input,
+select,
+textarea,
+.kpi-card,
+.task-list button,
+.saved-list button,
+.chat-bubble,
+.chat-current,
+.context-box,
+.knowledge-save-box,
+.source-item,
+.finding-suggestion-card,
+.mcp-server-list button,
+.mcp-tool-card,
+.mcp-log-item,
+.skill-plugin-list article,
+.skill-approval-list article,
+.skill-log-item,
+.skill-list button,
+.skill-detail dl,
+.skill-version-box,
+.skill-test-summary,
+.marketplace-card,
+.marketplace-install-card,
+.benchmark-case,
+.benchmark-run-item,
+.trace-item,
+.prompt-card {
+  background: rgba(255, 255, 255, 0.56);
+  border-color: rgba(198, 215, 227, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 4px 12px rgba(30, 59, 82, 0.055);
+}
+
+.workflow-canvas,
+.chat-messages,
+.markdown-view,
+.mermaid-visual {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+
+.secondary,
+.icon-button {
+  background-color: rgba(250, 253, 255, 0.64);
+  border-color: rgba(191, 211, 224, 0.76);
+}
+
+/* Stronger glass contrast: the blueprint surface remains readable through panels. */
+.app-main {
+  background-color: #bdd8d8;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0, transparent 31px, rgba(37, 106, 102, 0.14) 32px),
+    repeating-linear-gradient(90deg, transparent 0, transparent 31px, rgba(37, 106, 102, 0.12) 32px),
+    repeating-linear-gradient(135deg, transparent 0, transparent 94px, rgba(212, 247, 239, 0.34) 95px, transparent 97px);
+}
+
+.panel {
+  background-color: rgba(220, 241, 239, 0.44);
+  background-image:
+    linear-gradient(135deg, rgba(244, 255, 252, 0.62) 0%, rgba(216, 244, 240, 0.2) 30%, transparent 56%),
+    repeating-linear-gradient(0deg, transparent 0, transparent 27px, rgba(36, 117, 112, 0.065) 28px),
+    repeating-linear-gradient(90deg, transparent 0, transparent 27px, rgba(36, 117, 112, 0.05) 28px);
+  border-color: rgba(232, 255, 249, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -1px 0 rgba(31, 111, 141, 0.1),
+    0 18px 34px rgba(21, 66, 91, 0.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+}
+
+.panel-title {
+  background: linear-gradient(90deg, rgba(240, 255, 252, 0.64), rgba(214, 241, 238, 0.36));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 2px 8px rgba(38, 92, 118, 0.08);
+}
+
+input,
+select,
+textarea,
+.kpi-card,
+.task-list button,
+.saved-list button,
+.chat-bubble,
+.chat-current,
+.context-box,
+.knowledge-save-box,
+.source-item,
+.finding-suggestion-card,
+.mcp-server-list button,
+.mcp-tool-card,
+.mcp-log-item,
+.skill-plugin-list article,
+.skill-approval-list article,
+.skill-log-item,
+.skill-list button,
+.skill-detail dl,
+.skill-version-box,
+.skill-test-summary,
+.marketplace-card,
+.marketplace-install-card,
+.benchmark-case,
+.benchmark-run-item,
+.trace-item,
+.prompt-card {
+  background-color: rgba(229, 246, 243, 0.42);
+  background-image: linear-gradient(135deg, rgba(246, 255, 252, 0.58), transparent 62%);
+}
+
 @media (min-width: 1181px) {
   .side-nav nav {
     position: relative;
@@ -5023,4 +5152,257 @@ button:not(:disabled):active {
 .secondary,
 .icon-button {
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(232, 246, 246, 0.94));
+}
+
+/* White water-glass surface: light, translucent, and free of a colored canvas. */
+.app-main {
+  position: relative;
+  isolation: isolate;
+  background-color: #f4f6f8;
+  background-image:
+    radial-gradient(circle at 12% 9%, rgba(255, 255, 255, 0.98) 0 2px, transparent 2.8px),
+    radial-gradient(circle at 84% 17%, rgba(181, 190, 202, 0.28) 0 1px, transparent 2.5px),
+    radial-gradient(circle at 67% 72%, rgba(255, 255, 255, 0.9) 0 1.5px, transparent 3px),
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(106, 119, 135, 0.055) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 38px, rgba(106, 119, 135, 0.04) 39px 40px),
+    linear-gradient(145deg, #ffffff 0%, #edf1f4 54%, #fafbfc 100%);
+}
+
+.app-main::before,
+.app-main::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  width: 230px;
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 34% 27%, rgba(255, 255, 255, 0.94) 0 4%, transparent 19%),
+    radial-gradient(circle at 55% 58%, rgba(161, 171, 184, 0.12), transparent 64%);
+  box-shadow: inset 14px 14px 24px rgba(255, 255, 255, 0.78), inset -12px -16px 24px rgba(126, 139, 153, 0.1), 0 18px 34px rgba(112, 126, 143, 0.08);
+  opacity: 0.52;
+}
+
+.app-main::before {
+  top: 112px;
+  right: 9%;
+}
+
+.app-main::after {
+  bottom: 5%;
+  left: 11%;
+  width: 154px;
+  opacity: 0.38;
+}
+
+.panel {
+  background-color: rgba(255, 255, 255, 0.38);
+  background-image:
+    radial-gradient(ellipse at 14% 0%, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.22) 23%, transparent 52%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(226, 233, 240, 0.08));
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(142, 156, 171, 0.2),
+    0 16px 34px rgba(77, 92, 110, 0.13),
+    0 2px 6px rgba(98, 112, 128, 0.08);
+  backdrop-filter: blur(10px) saturate(1.02);
+  -webkit-backdrop-filter: blur(10px) saturate(1.02);
+}
+
+.panel-title {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(248, 251, 254, 0.2));
+  border-bottom-color: rgba(170, 183, 197, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 1px 0 rgba(191, 205, 219, 0.18);
+}
+
+input,
+select,
+textarea,
+.kpi-card,
+.task-list button,
+.saved-list button,
+.chat-bubble,
+.chat-current,
+.context-box,
+.knowledge-save-box,
+.source-item,
+.finding-suggestion-card,
+.mcp-server-list button,
+.mcp-tool-card,
+.mcp-log-item,
+.skill-plugin-list article,
+.skill-approval-list article,
+.skill-log-item,
+.skill-list button,
+.skill-detail dl,
+.skill-version-box,
+.skill-test-summary,
+.marketplace-card,
+.marketplace-install-card,
+.benchmark-case,
+.benchmark-run-item,
+.trace-item,
+.prompt-card {
+  background-color: rgba(255, 255, 255, 0.34);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(226, 234, 242, 0.1));
+  border-color: rgba(196, 211, 225, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 5px 13px rgba(68, 93, 119, 0.06);
+}
+
+.workflow-canvas,
+.chat-messages,
+.markdown-view,
+.mermaid-visual {
+  background-color: rgba(255, 255, 255, 0.38);
+}
+
+.secondary,
+.icon-button {
+  background-color: rgba(255, 255, 255, 0.7);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(231, 240, 248, 0.62));
+  border-color: rgba(184, 202, 219, 0.78);
+}
+
+/* Final glass system: neutral white glass over restrained, colorful environmental light. */
+.app-main {
+  background-color: #f1f3f7;
+  background-image:
+    linear-gradient(118deg, transparent 0 13%, rgba(117, 194, 255, 0.16) 13% 18%, transparent 18% 57%, rgba(255, 201, 106, 0.15) 57% 62%, transparent 62%),
+    linear-gradient(28deg, transparent 0 24%, rgba(242, 135, 180, 0.13) 24% 29%, transparent 29% 71%, rgba(143, 207, 112, 0.14) 71% 76%, transparent 76%),
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(95, 110, 131, 0.055) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 38px, rgba(95, 110, 131, 0.04) 39px 40px),
+    linear-gradient(145deg, #ffffff 0%, #edf1f5 52%, #fafbfd 100%);
+}
+
+/* Decorative circles read as UI clutter in an operational workbench. */
+.app-main::before,
+.app-main::after {
+  display: none;
+}
+
+.panel {
+  background-color: rgba(255, 255, 255, 0.28);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08));
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(145, 157, 174, 0.16),
+    0 16px 32px rgba(66, 80, 99, 0.12),
+    0 2px 7px rgba(71, 83, 100, 0.06);
+  backdrop-filter: blur(14px) saturate(1.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.12);
+}
+
+.panel:hover {
+  border-color: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(145, 157, 174, 0.13),
+    0 20px 38px rgba(66, 80, 99, 0.15),
+    0 3px 9px rgba(71, 83, 100, 0.08);
+}
+
+.panel-title {
+  background: rgba(255, 255, 255, 0.2);
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
+input,
+select,
+textarea,
+.kpi-card,
+.task-list button,
+.saved-list button,
+.chat-bubble,
+.chat-current,
+.context-box,
+.knowledge-save-box,
+.source-item,
+.finding-suggestion-card,
+.mcp-server-list button,
+.mcp-tool-card,
+.mcp-log-item,
+.skill-plugin-list article,
+.skill-approval-list article,
+.skill-log-item,
+.skill-list button,
+.skill-detail dl,
+.skill-version-box,
+.skill-test-summary,
+.marketplace-card,
+.marketplace-install-card,
+.benchmark-case,
+.benchmark-run-item,
+.trace-item,
+.prompt-card {
+  background-color: rgba(255, 255, 255, 0.2);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.04));
+  border-color: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 5px 13px rgba(63, 75, 94, 0.07);
+}
+
+.secondary,
+.icon-button {
+  background-color: rgba(255, 255, 255, 0.33);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.16));
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 4px 10px rgba(58, 71, 90, 0.08);
+}
+
+/* Each workbench gets its own environmental light, visible through its glass panels. */
+.workflow-page,
+.reports-page,
+.history-page,
+.chat-page,
+.mcp-page,
+.skills-page,
+.marketplace-page,
+.benchmark-page,
+.llm-page,
+.run-page {
+  background-color: rgba(255, 255, 255, 0.08);
+  background-blend-mode: screen;
+}
+
+.workflow-page {
+  background-image:
+    linear-gradient(123deg, rgba(92, 182, 255, 0.34) 0 14%, transparent 14% 56%, rgba(255, 208, 92, 0.3) 56% 68%, transparent 68%),
+    linear-gradient(25deg, transparent 0 28%, rgba(244, 145, 188, 0.25) 28% 39%, transparent 39%);
+}
+
+.run-page {
+  background-image:
+    linear-gradient(122deg, rgba(103, 190, 255, 0.38) 0 16%, transparent 16% 42%, rgba(255, 210, 93, 0.34) 42% 58%, transparent 58% 76%, rgba(243, 142, 186, 0.3) 76% 90%, transparent 90%),
+    linear-gradient(30deg, transparent 0 25%, rgba(138, 209, 114, 0.28) 25% 37%, transparent 37%);
+}
+
+.reports-page {
+  background-image:
+    linear-gradient(135deg, rgba(246, 180, 211, 0.34) 0 18%, transparent 18% 65%, rgba(117, 195, 255, 0.26) 65% 78%, transparent 78%),
+    linear-gradient(40deg, transparent 0 42%, rgba(244, 207, 100, 0.25) 42% 53%, transparent 53%);
+}
+
+.history-page,
+.benchmark-page {
+  background-image:
+    linear-gradient(120deg, rgba(255, 208, 98, 0.34) 0 15%, transparent 15% 59%, rgba(133, 210, 117, 0.29) 59% 72%, transparent 72%),
+    linear-gradient(30deg, transparent 0 31%, rgba(112, 184, 250, 0.24) 31% 42%, transparent 42%);
+}
+
+.chat-page,
+.llm-page {
+  background-image:
+    linear-gradient(118deg, rgba(244, 141, 186, 0.32) 0 16%, transparent 16% 54%, rgba(125, 192, 255, 0.32) 54% 68%, transparent 68%),
+    linear-gradient(32deg, transparent 0 27%, rgba(143, 207, 112, 0.24) 27% 39%, transparent 39%);
+}
+
+.mcp-page,
+.skills-page,
+.marketplace-page {
+  background-image:
+    linear-gradient(126deg, rgba(128, 206, 120, 0.31) 0 16%, transparent 16% 57%, rgba(255, 204, 101, 0.3) 57% 69%, transparent 69%),
+    linear-gradient(28deg, transparent 0 32%, rgba(105, 187, 255, 0.28) 32% 44%, transparent 44%);
 }
