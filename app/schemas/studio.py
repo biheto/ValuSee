@@ -300,6 +300,42 @@ class KnowledgeNoteResponse(BaseModel):
     path: str
 
 
+class MemoryExtractRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=600)
+    scope: str = "user"
+    scope_id: str = "local-user"
+    source_type: str = "conversation"
+    source_ref: Optional[str] = None
+
+
+class MemoryRecordResponse(BaseModel):
+    memory_id: str
+    scope: str
+    scope_id: str
+    memory_type: str
+    memory_key: str
+    content: str
+    confidence: float
+    status: str
+    source_type: str
+    source_ref: Optional[str] = None
+    extraction_source: str = "rule_fallback"
+    quality_score: float = 0
+    quality_reasons: str = "[]"
+    retention_policy: str = "review_90d"
+    expires_at: Optional[str] = None
+    conflict_with: Optional[str] = None
+    rag_path: Optional[str] = None
+    created_at: str
+    updated_at: str
+    confirmed_at: Optional[str] = None
+    duplicate: bool = False
+
+
+class MemoryConfirmRequest(BaseModel):
+    collection: Optional[str] = None
+
+
 class LearningChatRequest(BaseModel):
     topic: str = "DevAgent Studio"
     level: str = "beginner"

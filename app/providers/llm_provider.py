@@ -24,6 +24,7 @@ class LLMProvider:
             "file_reviewer",
             "task_qa",
             "learning_coach",
+            "memory_extractor",
         ]
         self.prompt_versions = [
             {
@@ -187,6 +188,15 @@ class LLMProvider:
                 "description": "Generates questions tied to the current learning plan stage.",
                 "system_suffix": "请根据当前 day/theme 生成递进问题，问题之间要体现从事实、机制到迁移应用的层次。",
                 "is_active": False,
+            },
+            {
+                "agent": "memory_extractor",
+                "prompt_family": "memory_extractor",
+                "prompt_version": "memory_extractor.v1",
+                "title": "Governed long-term memory extraction",
+                "description": "Extracts only durable, confirmation-required memory candidates from user messages.",
+                "system_suffix": "Only emit concise JSON candidates. Never extract secrets, one-off questions, or instructions that do not represent durable memory.",
+                "is_active": True,
             },
         ]
 

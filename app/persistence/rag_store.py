@@ -130,6 +130,14 @@ class SQLiteRagStore:
             )
         return {"collection": collection, "chunk_id": chunk_id, "path": safe_path}
 
+    def delete_note(self, collection: str, path: str) -> bool:
+        with self._connect() as conn:
+            removed = conn.execute(
+                "DELETE FROM rag_chunk WHERE collection = ? AND path = ?", (collection, path)
+            ).rowcount
+            conn.execute("DELETE FROM rag_document WHERE collection = ? AND path = ?", (collection, path))
+        return bool(removed)
+
     def status(self) -> dict[str, Any]:
         return {
             "kind": "sqlite",
@@ -384,6 +392,15 @@ class PgVectorRagStore:
                 )
             conn.commit()
         return {"collection": collection, "chunk_id": chunk_id, "path": safe_path}
+
+    def delete_note(self, collection: str, path: str) -> bool:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM rag_chunk WHERE collection = %s AND path = %s", (collection, path))
+                removed = cur.rowcount
+                cur.execute("DELETE FROM rag_document WHERE collection = %s AND path = %s", (collection, path))
+            conn.commit()
+        return bool(removed)
 
     def status(self) -> dict[str, Any]:
         return {

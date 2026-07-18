@@ -3035,16 +3035,20 @@ textarea:focus {
 }
 
 .chat-main {
-  min-height: 0;
+  height: calc(100vh - 110px);
+  min-height: 760px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .chat-messages {
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
   padding: 18px;
   background: #fbfcfd;
+  scrollbar-gutter: stable;
 }
 
 .chat-empty {
@@ -5405,4 +5409,118 @@ textarea,
   background-image:
     linear-gradient(126deg, rgba(128, 206, 120, 0.31) 0 16%, transparent 16% 57%, rgba(255, 204, 101, 0.3) 57% 69%, transparent 69%),
     linear-gradient(28deg, transparent 0 32%, rgba(105, 187, 255, 0.28) 32% 44%, transparent 44%);
+}
+
+.memory-panel {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin: 12px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 5px 12px rgba(64, 79, 99, 0.07);
+}
+
+.memory-panel > p,
+.memory-panel > small,
+.memory-candidate p,
+.memory-candidate small {
+  margin: 0;
+  color: #526176;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.memory-candidate,
+.memory-confirmed {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.memory-candidate > span {
+  color: #2b6da9;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.memory-candidate p {
+  line-height: 1.3;
+}
+
+.memory-candidate > div,
+.memory-confirmed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.memory-candidate .secondary {
+  min-height: 28px;
+  font-size: 11px;
+}
+
+.memory-confirmed span {
+  min-width: 0;
+  overflow: hidden;
+  color: #306a4a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-confirmed > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.memory-conflict {
+  color: #9a6a13;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+/* The chat sidebar now owns five explicit rows: title, modes, task, memory, history. */
+.chat-sidebar {
+  align-self: start;
+  min-height: 780px;
+  grid-template-rows: auto auto auto auto minmax(430px, 1fr);
+}
+
+.chat-sidebar .memory-panel {
+  min-height: 0;
+  max-height: none;
+  margin-bottom: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.chat-sidebar .task-list {
+  min-height: 430px;
+  margin: 0 12px 12px;
+  padding-right: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.chat-bubble.user {
+  display: table;
+  width: auto;
+  max-width: 70%;
+}
+
+.chat-bubble.user .markdown-view {
+  padding: 8px 11px;
+  line-height: 1.45;
+}
+
+.chat-bubble.user .markdown-view p {
+  margin: 0;
 }

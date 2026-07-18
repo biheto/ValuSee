@@ -31,8 +31,10 @@ import {
   askTask,
   callMcpTool,
   chatLearningCoach,
+  confirmMemory,
   createTaskLearningPlan,
   discoverMcpServer,
+  extractMemoryCandidates,
   executeSkill,
   getBenchmark,
   getLlmUsage,
@@ -45,6 +47,7 @@ import {
   listLlmTraces,
   listMarketplaceCatalog,
   listMarketplaceInstalls,
+  listMemories,
   listMcpRegisteredTools,
   listMcpServers,
   listMcpToolCallLogs,
@@ -59,6 +62,7 @@ import {
   listWorkflows,
   previewMarketplacePackage,
   queryKnowledge,
+  rejectMemory,
   reviewTask,
   runBenchmark,
   runCollaborationTaskStream,
@@ -74,6 +78,7 @@ import {
   testSkill,
   uninstallMarketplacePackage,
   uninstallSkillPlugin,
+  deleteMemory,
   setMcpRegisteredToolEnabled,
   setMcpServerEnabled,
   setMcpToolApproval,
@@ -104,6 +109,7 @@ import {
   McpServerConfig,
   McpStatus,
   McpToolCallLog,
+  MemoryRecord,
   NodeStatus,
   RagDocument,
   RagResult,
@@ -257,6 +263,7 @@ export function App() {
   const [knowledgeResults, setKnowledgeResults] = useState<RagResult[]>([]);
   const [knowledgeDocs, setKnowledgeDocs] = useState<RagDocument[]>([]);
   const [knowledgeNote, setKnowledgeNote] = useState('');
+  const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [coachAnswer, setCoachAnswer] = useState('');
   const [coachReply, setCoachReply] = useState<LearningChatResponse | null>(null);
   const [coachTurn, setCoachTurn] = useState(0);
@@ -341,6 +348,7 @@ export function App() {
     refreshSkills().catch(() => undefined);
     refreshMarketplace().catch(() => undefined);
     refreshBenchmarks('mcp').catch(() => undefined);
+    refreshMemories().catch(() => undefined);
   }, []);
 
   async function refreshTasks() {
@@ -353,6 +361,25 @@ export function App() {
 
   async function refreshLearningPlans(taskId?: string) {
     setLearningPlans(await listLearningPlans(taskId));
+  }
+
+  async function refreshMemories() {
+    setMemories(await listMemories());
+  }
+
+  async function handleMemoryConfirm(memoryId: string) {
+    await confirmMemory(memoryId);
+    await refreshMemories();
+  }
+
+  async function handleMemoryReject(memoryId: string) {
+    await rejectMemory(memoryId);
+    await refreshMemories();
+  }
+
+  async function handleMemoryDelete(memoryId: string) {
+    await deleteMemory(memoryId);
+    await refreshMemories();
   }
 
   async function refreshLlmTraces(agent = llmTraceAgent) {
@@ -1050,6 +1077,8 @@ export function App() {
     setChatMessages((prev) => [...prev, { role: 'user', content: question }]);
     setChatInput('');
     try {
+      await extractMemoryCandidates({ text: question, source_ref: `chat/${chatMode}` });
+      await refreshMemories();
       if (chatMode === 'task') {
         if (!latestTaskId) {
           setChatMessages((prev) => [...prev, { role: 'assistant', content: '请先运行或选择一个历史任务，再进行任务追问。' }]);
@@ -1087,6 +1116,7 @@ export function App() {
           },
         ]);
       }
+      await refreshMemories();
     } catch (exc) {
       setChatMessages((prev) => [...prev, { role: 'assistant', content: exc instanceof Error ? exc.message : String(exc) }]);
     }
@@ -1471,6 +1501,7 @@ export function App() {
             chatSources={chatSources}
             knowledgeDocs={knowledgeDocs}
             knowledgeNote={knowledgeNote}
+            memories={memories}
             learningPlans={learningPlans}
             latestTaskId={latestTaskId}
             tasks={tasks}
@@ -1478,6 +1509,9 @@ export function App() {
             onChatInputChange={setChatInput}
             onChatModeChange={handleChatModeChange}
             onKnowledgeNoteChange={setKnowledgeNote}
+            onMemoryConfirm={handleMemoryConfirm}
+            onMemoryDelete={handleMemoryDelete}
+            onMemoryReject={handleMemoryReject}
             onLearningPlanStatus={handleLearningPlanStatus}
             onOpenTask={loadTaskContext}
             onRefreshTasks={refreshTasks}
@@ -4294,6 +4328,7 @@ function ChatPage({
   chatSources,
   knowledgeDocs,
   knowledgeNote,
+  memories,
   learningPlans,
   latestTaskId,
   tasks,
@@ -4301,6 +4336,9 @@ function ChatPage({
   onChatInputChange,
   onChatModeChange,
   onKnowledgeNoteChange,
+  onMemoryConfirm,
+  onMemoryDelete,
+  onMemoryReject,
   onLearningPlanStatus,
   onOpenTask,
   onRefreshTasks,
@@ -4313,6 +4351,7 @@ function ChatPage({
   chatSources: RagResult[];
   knowledgeDocs: RagDocument[];
   knowledgeNote: string;
+  memories: MemoryRecord[];
   learningPlans: LearningPlanRecord[];
   latestTaskId: string;
   tasks: TaskSummary[];
@@ -4320,6 +4359,9 @@ function ChatPage({
   onChatInputChange: (value: string) => void;
   onChatModeChange: (mode: ChatMode) => void;
   onKnowledgeNoteChange: (value: string) => void;
+  onMemoryConfirm: (memoryId: string) => void;
+  onMemoryDelete: (memoryId: string) => void;
+  onMemoryReject: (memoryId: string) => void;
   onLearningPlanStatus: (planId: string, status: LearningPlanRecord['status']) => void;
   onOpenTask: (taskId: string) => void;
   onRefreshTasks: () => void;
@@ -4346,6 +4388,7 @@ function ChatPage({
           <strong>当前任务</strong>
           <p>{latestTaskId || '未选择任务'}</p>
         </div>
+        <MemoryPanel memories={memories} onConfirm={onMemoryConfirm} onReject={onMemoryReject} onDelete={onMemoryDelete} />
         <TaskList tasks={tasks.slice(0, 10)} selectedTaskId={selectedTaskId} onOpen={onOpenTask} />
       </div>
 
@@ -4417,6 +4460,50 @@ function ChatPage({
         </div>
       </div>
     </section>
+  );
+}
+
+function MemoryPanel({
+  memories,
+  onConfirm,
+  onReject,
+  onDelete,
+}: {
+  memories: MemoryRecord[];
+  onConfirm: (memoryId: string) => void;
+  onReject: (memoryId: string) => void;
+  onDelete: (memoryId: string) => void;
+}) {
+  const candidates = memories.filter((item) => item.status === 'candidate').slice(0, 4);
+  const confirmed = memories.filter((item) => item.status === 'confirmed').slice(0, 3);
+  const conflictContent = (memory: MemoryRecord) => memories.find((item) => item.memory_id === memory.conflict_with)?.content;
+  return (
+    <div className="memory-panel">
+      <strong>Long-term memory</strong>
+      <p>{candidates.length} candidates / {confirmed.length} confirmed</p>
+      {candidates.map((memory) => (
+        <article className="memory-candidate" key={memory.memory_id}>
+          <span>{memory.memory_type} · quality {Math.round(memory.quality_score ?? 0)} · {memory.extraction_source === 'llm' ? 'LLM' : 'rule'}</span>
+          <p>{memory.content}</p>
+          <small>{memory.retention_policy === 'stable' ? 'Stable memory' : `Review by ${memory.expires_at ?? 'later'}`}</small>
+          {memory.conflict_with ? <small className="memory-conflict">Will replace: {conflictContent(memory) ?? 'an existing preference'}</small> : null}
+          <div>
+            <button className="secondary" onClick={() => onConfirm(memory.memory_id)}>Confirm</button>
+            <button className="icon-button" title="Reject memory" onClick={() => onReject(memory.memory_id)}><X size={14} /></button>
+          </div>
+        </article>
+      ))}
+      {confirmed.map((memory) => (
+        <div className="memory-confirmed" key={memory.memory_id}>
+          <div>
+            <span>{memory.content}</span>
+            {memory.conflict_with ? <small className="memory-conflict">Replaced: {conflictContent(memory) ?? 'an existing preference'}</small> : null}
+          </div>
+          <button className="icon-button" title="Delete memory" onClick={() => onDelete(memory.memory_id)}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      {!candidates.length && !confirmed.length ? <small>Explicit preferences from conversation appear here for confirmation.</small> : null}
+    </div>
   );
 }
 

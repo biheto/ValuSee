@@ -150,6 +150,30 @@ export type RagResult = {
   content?: string;
 };
 
+export type MemoryRecord = {
+  memory_id: string;
+  scope: 'user' | 'project' | 'team' | string;
+  scope_id: string;
+  memory_type: string;
+  memory_key: string;
+  content: string;
+  confidence: number;
+  status: 'candidate' | 'confirmed' | 'rejected' | 'superseded' | string;
+  source_type: string;
+  source_ref?: string | null;
+  extraction_source?: 'llm' | 'rule_fallback' | string;
+  quality_score?: number;
+  quality_reasons?: string;
+  retention_policy?: 'stable' | 'review_90d' | string;
+  expires_at?: string | null;
+  conflict_with?: string | null;
+  rag_path?: string | null;
+  created_at: string;
+  updated_at: string;
+  confirmed_at?: string | null;
+  duplicate?: boolean;
+};
+
 export type AskResponse = {
   task_id: string;
   question: string;
