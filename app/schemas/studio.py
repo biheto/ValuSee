@@ -46,6 +46,8 @@ class RagIngestResponse(BaseModel):
     collection: str
     document_count: int
     chunk_count: int
+    changed_document_count: int = 0
+    changed_chunk_count: int = 0
     keywords: list[str]
 
 
@@ -53,12 +55,30 @@ class RagQueryRequest(BaseModel):
     collection: str = "default"
     question: str
     limit: int = Field(default=5, ge=1, le=20)
+    actor_id: str = "local-user"
 
 
 class RagQueryResponse(BaseModel):
     collection: str
     question: str
     results: list[dict[str, Any]]
+
+
+class RagDocumentAclRequest(BaseModel):
+    collection: str
+    path: str
+    principals: list[str] = Field(default_factory=lambda: ["*"])
+
+
+class RagGoldCaseRequest(BaseModel):
+    case_id: str = ""
+    collection: str = "default"
+    question: str
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    expected_paths: list[str] = Field(default_factory=list)
+    expected_keywords: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class LearningCoachRequest(BaseModel):

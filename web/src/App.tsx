@@ -58,6 +58,7 @@ import {
   listSkills,
   listProjectFiles,
   listKnowledgeDocuments,
+  listRagGoldCases,
   listTasks,
   listWorkflows,
   previewMarketplacePackage,
@@ -72,12 +73,14 @@ import {
   saveMcpServer,
   installMarketplacePackage,
   saveLlmPrompt,
+  saveRagGoldCase,
   saveWorkflow,
   setSkillApproval,
   setSkillEnabled,
   testSkill,
   uninstallMarketplacePackage,
   uninstallSkillPlugin,
+  deleteRagGoldCase,
   deleteMemory,
   setMcpRegisteredToolEnabled,
   setMcpServerEnabled,
@@ -112,6 +115,7 @@ import {
   MemoryRecord,
   NodeStatus,
   RagDocument,
+  RagGoldCase,
   RagResult,
   ResumeSnapshot,
   SkillApproval,
@@ -2506,6 +2510,13 @@ function parseJsonValue<T>(text: string, fallback: T): T {
   }
 }
 
+function splitLines(text: string): string[] {
+  return text
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function defaultMcpToolName(serverId: string) {
   return serverId === 'real_memory' ? 'search_nodes' : 'read_text_file';
 }
@@ -3676,6 +3687,16 @@ function BenchmarkPage({
   const [iterations, setIterations] = useState(3);
   const [casesText, setCasesText] = useState(JSON.stringify(defaultBenchmarkCases(benchmarkType), null, 2));
   const [message, setMessage] = useState('');
+  const [goldCases, setGoldCases] = useState<RagGoldCase[]>([]);
+  const [goldForm, setGoldForm] = useState({
+    case_id: '',
+    collection: 'default',
+    question: '',
+    expected_chunk_ids: '',
+    expected_paths: '',
+    expected_keywords: '',
+    enabled: true,
+  });
   const summary = selectedRun?.summary ?? {};
   const results = selectedRun?.results ?? [];
   const failedResults = results.filter((item) => item.status !== 'completed');
@@ -3685,7 +3706,55 @@ function BenchmarkPage({
     setName(benchmarkName(benchmarkType));
     setCasesText(JSON.stringify(defaultBenchmarkCases(benchmarkType), null, 2));
     setMessage('');
+    if (benchmarkType === 'rag') {
+      refreshGoldCases();
+    }
   }, [benchmarkType]);
+
+  async function refreshGoldCases() {
+    setGoldCases(await listRagGoldCases('', true));
+  }
+
+  async function submitGoldCase(event: FormEvent) {
+    event.preventDefault();
+    const saved = await saveRagGoldCase({
+      case_id: goldForm.case_id,
+      collection: goldForm.collection || 'default',
+      question: goldForm.question,
+      expected_chunk_ids: splitLines(goldForm.expected_chunk_ids),
+      expected_paths: splitLines(goldForm.expected_paths),
+      expected_keywords: splitLines(goldForm.expected_keywords),
+      enabled: goldForm.enabled,
+      metadata: { limit: 5, source: 'ui_gold_set' },
+    });
+    setMessage(`Gold Set saved: ${saved.case_id}`);
+    setGoldForm({ case_id: '', collection: 'default', question: '', expected_chunk_ids: '', expected_paths: '', expected_keywords: '', enabled: true });
+    await refreshGoldCases();
+  }
+
+  async function removeGoldCase(caseId: string) {
+    await deleteRagGoldCase(caseId);
+    await refreshGoldCases();
+  }
+
+  function useGoldCasesInEditor() {
+    const cases = goldCases
+      .filter((item) => item.enabled)
+      .map((item) => ({
+        case_id: item.case_id,
+        tool_name: 'rag.query',
+        arguments: {
+          collection: item.collection,
+          question: item.question,
+          expected_chunk_ids: item.expected_chunk_ids,
+          expected_paths: item.expected_paths,
+          expected_keywords: item.expected_keywords,
+          limit: Number(item.metadata?.limit ?? 5),
+        },
+        enabled: item.enabled,
+      }));
+    setCasesText(JSON.stringify(cases, null, 2));
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -3806,6 +3875,63 @@ function BenchmarkPage({
         </div>
         {failedResults.length ? <p className="benchmark-message">失败 {failedResults.length} 条：优先检查 MCP server 是否启用、工具是否 discover、agent_code 是否审批。</p> : null}
       </div>
+
+      {benchmarkType === 'rag' ? (
+        <div className="panel benchmark-gold">
+          <PanelTitle
+            icon={<Database size={17} />}
+            title="RAG Gold Set"
+            action={<button className="icon-button" onClick={refreshGoldCases}><RefreshCw size={15} /></button>}
+          />
+          <div className="rag-gold-layout">
+            <form className="rag-gold-form" onSubmit={submitGoldCase}>
+              <label>
+                case_id
+                <input value={goldForm.case_id} onChange={(event) => setGoldForm({ ...goldForm, case_id: event.target.value })} placeholder="auto when empty" />
+              </label>
+              <label>
+                collection
+                <input value={goldForm.collection} onChange={(event) => setGoldForm({ ...goldForm, collection: event.target.value })} />
+              </label>
+              <label>
+                question
+                <textarea value={goldForm.question} onChange={(event) => setGoldForm({ ...goldForm, question: event.target.value })} />
+              </label>
+              <label>
+                expected_chunk_ids
+                <textarea value={goldForm.expected_chunk_ids} onChange={(event) => setGoldForm({ ...goldForm, expected_chunk_ids: event.target.value })} placeholder="one chunk_id per line" />
+              </label>
+              <label>
+                expected_paths / expected_keywords
+                <div className="rag-gold-two">
+                  <textarea value={goldForm.expected_paths} onChange={(event) => setGoldForm({ ...goldForm, expected_paths: event.target.value })} placeholder="paths" />
+                  <textarea value={goldForm.expected_keywords} onChange={(event) => setGoldForm({ ...goldForm, expected_keywords: event.target.value })} placeholder="keywords" />
+                </div>
+              </label>
+              <label className="inline-check">
+                <input type="checkbox" checked={goldForm.enabled} onChange={(event) => setGoldForm({ ...goldForm, enabled: event.target.checked })} />
+                enabled
+              </label>
+              <button className="primary" type="submit"><Save size={16} /> Save Gold Case</button>
+              <button type="button" onClick={useGoldCasesInEditor}>Use Gold Set in cases JSON</button>
+            </form>
+            <div className="rag-gold-list">
+              {goldCases.map((item) => (
+                <article key={item.case_id} className="rag-gold-card">
+                  <div>
+                    <strong>{item.case_id}</strong>
+                    <span>{item.collection} / {item.enabled ? 'enabled' : 'disabled'}</span>
+                  </div>
+                  <p>{item.question}</p>
+                  <small>chunks {item.expected_chunk_ids.length} / paths {item.expected_paths.length} / keywords {item.expected_keywords.length}</small>
+                  <button className="danger" onClick={() => removeGoldCase(item.case_id)}><Trash2 size={15} /> Delete</button>
+                </article>
+              ))}
+              {!goldCases.length ? <p className="empty-text">No saved RAG Gold Set cases yet.</p> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

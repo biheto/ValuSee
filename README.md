@@ -19,8 +19,12 @@ It is deliberately not a code-writing IDE. Its focus is making software delivery
 - **Extensible Skills with guardrails**: Skills are versioned, permission-scoped, testable, dependency-aware, and usable from both the console and a workflow.
 - **Plugin Marketplace**: install resource packs from built-in catalogs, local paths, URLs, GitHub-style sources, or an external `SKILL.md` file.
 - **Safe third-party code execution**: Code Skills can run in a constrained Docker sandbox with no network, read-only mounts, resource limits, and audit logs.
+- **Governed RAG that can be evaluated**: project knowledge now supports incremental indexing, document versions, ACL filtering, hybrid retrieval, optional LLM rerank, and editable chunk-level Gold Sets.
+- **Glassmorphism workbench UI**: the React workbench uses translucent water-glass panels, specular highlights, colorful environmental light, and clearer visual layering.
 
 ## Product Preview / 页面预览
+
+The latest UI uses a brighter glassmorphism style: translucent white panels, thin reflective borders, layered shadows, and soft yellow/green/blue/pink environmental light.
 
 | Run workbench / 运行 | Visual workflow / 编排 |
 | --- | --- |
@@ -84,14 +88,59 @@ Task request
 | --- | --- |
 | Project analysis | Structure scanning, technology identification, module summary, risks, and governance suggestions. |
 | Code review | Hybrid rule, call-chain, and LLM semantic review with findings and test recommendations. |
-| RAG knowledge | Document chunking, ingestion, retrieval, project notes, SQLite default storage, and optional pgvector retrieval. |
+| RAG knowledge | Governed project knowledge base with incremental indexing, document versions, document ACL, hybrid BM25/vector retrieval, optional LLM rerank, SQLite default storage, and pgvector extension. |
+| Long-term memory | LLM/rule candidate extraction, explicit confirmation, conflict replacement, quality scoring, retention review, and scoped access boundaries. |
 | Learning coach | Project-oriented learning plans and interactive follow-up questions. |
 | Collaboration | Planner, analyzer, reviewer, RAG, supervisor, and reporter run as a traceable collaboration graph. |
 | Workflow | Drag, connect, configure, validate, save, and execute workflow JSON compiled to LangGraph. |
 | Human review | Node-level approval/rejection, checkpoint/resume, retry, and recovery visualization. |
 | LLM governance | Per-agent model configuration, call trace, prompt versions, token/cost data, fallback display, and A/B tests. |
 | MCP management | Server registration, stdio tool discovery, enable/disable, approval, test invocation, and call logs. |
-| Benchmark | LLM, RAG, Workflow, MCP, and multi-agent evaluation with success rate, P95 latency, recall, completeness, token, and cost metrics. |
+| Benchmark | LLM, RAG, Workflow, MCP, and multi-agent evaluation with success rate, P95 latency, chunk Gold Set Recall@K, Precision@K, MRR, completeness, token, and cost metrics. |
+
+## RAG Governance and Evaluation
+
+The RAG layer is designed as a governed project knowledge base rather than a simple chunk search demo.
+
+| Capability | What changed |
+| --- | --- |
+| Incremental indexing | Documents are hashed by content. Unchanged files are skipped; changed files create a new version. |
+| Versioned documents | Current retrieval only uses the active version, while old versions remain auditable with `valid_to`. |
+| Hybrid retrieval | SQLite uses BM25 plus token semantic overlap. pgvector uses vector candidates plus BM25 and RRF fusion. |
+| Optional rerank | `DEV_AGENT_RAG_RERANKER=llm` enables an LLM reranker with JSON-only ordering and fallback to RRF. |
+| Document ACL | Documents can be restricted by principal, and queries/listing filter by actor identity. |
+| Chunk Gold Set | Benchmark cases can store expected chunk IDs and calculate Chunk Hit, Recall@K, Precision@K, and MRR. |
+| Gold Set UI | The Benchmark page can create, edit, delete, and load RAG Gold Set cases into benchmark runs. |
+
+This turns RAG from "can retrieve something" into "can be versioned, permissioned, measured, and improved."
+
+## Governed Long-term Memory
+
+Conversation history is not written directly into the knowledge base. Durable memory follows a governed pipeline:
+
+```text
+User message
+  -> LLM Memory Extractor (or deterministic rule fallback)
+  -> candidate memory + sensitive-content filter
+  -> quality score + conflict detection + retention policy
+  -> explicit user approval
+  -> scoped RAG ingestion
+  -> retrieval, review, expiry, or deletion audit trail
+```
+
+- **LLM-first extraction with fallback**: `memory_extractor` emits structured candidates for durable preferences, project facts, and team policies. Without an LLM, explicit-preference rules keep the feature usable offline.
+- **Confirmation before ingestion**: candidates never enter RAG until the user confirms them. Rejection and deletion prevent unwanted persistence.
+- **Conflict-aware updates**: confirming a conflicting value marks the prior record as `superseded`, while preserving history.
+- **Quality and retention**: each record has a quality score and reasons. Stable project/team rules and language/security preferences persist; general preferences use `review_90d` and become `expired` instead of being silently deleted.
+- **Memory decay, not blind accumulation**: stale or low-durability memories leave the retrieval path after their review window. They remain auditable as `expired` until explicitly refreshed or deleted, preventing old preferences and obsolete decisions from continuously biasing agents.
+- **Scoped access boundaries**: user, project, and team memories are separated. The local API accepts `X-DevAgent-Actor` and `X-DevAgent-Role`; project writes require `editor/admin`, while team confirmation and deletion require `admin`.
+
+```env
+DEV_AGENT_MEMORY_EXTRACTOR=llm
+DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-4o-mini
+```
+
+Set `DEV_AGENT_MEMORY_EXTRACTOR=rule` to disable LLM extraction. Its traces appear in the LLM Console under `memory_extractor`.
 
 ## Governed Skill Plugin System
 
@@ -254,6 +303,12 @@ cd web
 npm run build
 cd ..
 
+# Governed long-term memory tests
+.\.venv\Scripts\python.exe -m unittest tests.test_memory_store -v
+
+# RAG governance tests
+.\.venv\Scripts\python.exe -m unittest tests.test_rag_governance -v
+
 # Verify the Skill sandbox configuration
 .\.venv\Scripts\python.exe -c "from app.skills.sandbox import python_skill_sandbox_status; print(python_skill_sandbox_status())"
 ```
@@ -288,7 +343,7 @@ DevAgent Studio/
 
 - Add a richer UI for Docker sandbox health and test invocation.
 - Add signed external plugin publishing examples and contributor tooling.
-- Expand API, workflow compiler, runtime-state, MCP contract, RAG retrieval, LLM fallback, and benchmark test coverage.
+- Expand API, workflow compiler, runtime-state, MCP contract, LLM fallback, and benchmark integration test coverage.
 - Add conditional branch, parallel node, and richer input/output mapping UX for workflows.
 
 ## License and Attribution
@@ -321,6 +376,10 @@ DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多
 - **安全可治理的 Skill 插件体系**：Skill 有契约校验、权限分级、严格审批、版本快照、依赖检测、测试用例和执行日志。
 - **插件市场与外部兼容**：支持内置包、本地路径、URL、GitHub 风格来源，以及外部 `SKILL.md` 自动转换。
 - **Docker 代码型 Skill 沙箱**：第三方代码可以在禁网、只读、限时限资源的临时容器中运行。
+- **受控长期记忆**：对话先经 LLM/规则提取为候选记忆，再通过质量评分、冲突检测、人工确认、生命周期策略和 scope 权限边界沉淀到 RAG。
+- **遗忘衰减而非无限累积**：稳定规则长期保留；普通偏好进入 90 天复核，到期后标记为 `expired` 并退出检索，但保留审计记录，可由用户刷新、更新或删除，避免陈旧偏好和过时决策持续干扰 Agent。
+- **RAG 治理与可评测**：知识库支持增量索引、文档版本化、ACL 权限过滤、BM25/向量混合检索、可选 LLM Rerank 和 Chunk Gold Set。
+- **水玻璃风格 UI**：前端白色面板升级为透明玻璃质感，加入反光边缘、层级阴影和黄绿蓝粉环境光，界面更轻盈。
 
 ## 核心能力
 
@@ -328,13 +387,30 @@ DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多
 | --- | --- |
 | 项目分析 | 扫描目录、识别技术栈、归纳模块职责、风险和治理建议。 |
 | 代码审查 | 结合规则、调用链与 LLM 语义审查，输出问题和测试建议。 |
-| RAG 知识加工 | 文档切片、入库、检索、项目笔记；默认 SQLite，可选 pgvector。 |
+| RAG 知识加工 | 受治理的项目知识库，支持增量索引、文档版本化、文档级 ACL、BM25/向量混合检索、可选 LLM Rerank；默认 SQLite，可扩展 pgvector。 |
+| 长期记忆 | LLM/规则候选提取、确认入库、冲突替换、质量评分、90 天复核、过期审计与用户/项目/团队隔离。 |
 | 学习陪练 | 基于项目上下文生成学习计划和追问。 |
 | 多 Agent 协作 | Planner、Analyzer、Reviewer、RAG、Supervisor、Reporter 组成协作图。 |
 | Workflow | 拖拽、连线、配置、校验、保存并执行 Workflow JSON。 |
 | 人工审核 | 支持节点级通过/拒绝、checkpoint/resume、重试与恢复事件展示。 |
 | MCP | 支持 Server 配置、工具发现、启停、审批、测试调用和日志追踪。 |
-| Benchmark | 覆盖 LLM、RAG、Workflow、MCP、多 Agent 协作的指标评估。 |
+| Benchmark | 覆盖 LLM、RAG、Workflow、MCP、多 Agent 协作的指标评估，RAG 支持 Chunk Gold Set、Recall@K、Precision@K 和 MRR。 |
+
+## RAG 治理与评测
+
+RAG 不再只是“切片后能检索”，而是按项目知识库治理的方式设计：
+
+| 能力 | 说明 |
+| --- | --- |
+| 增量索引 | 基于文档内容 hash 判断变化，未变化文件跳过，变化文件生成新版本。 |
+| 文档版本化 | 默认只检索当前版本，旧版本保留 `valid_to`，便于追溯。 |
+| 混合检索 | SQLite 使用 BM25 + token 语义相似度；pgvector 使用向量候选 + BM25 + RRF 融合排序。 |
+| 可选 Rerank | 设置 `DEV_AGENT_RAG_RERANKER=llm` 后启用 LLM Reranker，并在失败时回退到 RRF。 |
+| 文档级 ACL | 支持按 principal 限制文档可见性，查询和文档列表都会按 actor 过滤。 |
+| Chunk Gold Set | Benchmark 可维护期望 chunk，计算 Chunk Hit、Recall@K、Precision@K 和 MRR。 |
+| Gold Set UI | Benchmark 页面支持新增、删除、加载 Gold Set，并直接用于 RAG Benchmark。 |
+
+这让知识库从“能查”升级为“可版本化、可授权、可评测、可持续优化”。
 
 ## Skill 插件体系
 
@@ -418,9 +494,15 @@ copy .env.example .env
 OPENAI_API_KEY=your_api_key
 DEV_AGENT_LLM_MODEL=gpt-4o-mini
 
+# 长期记忆：llm 为 LLM 提取，rule 为仅规则提取
+DEV_AGENT_MEMORY_EXTRACTOR=llm
+DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-4o-mini
+
 # pgvector RAG
 DEV_AGENT_RAG_STORE=pgvector
 PGVECTOR_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dev_agent_studio
+DEV_AGENT_RAG_RERANKER=off
+# DEV_AGENT_RAG_RERANKER=llm
 
 # Docker 代码型 Skill 沙箱
 DEV_AGENT_SKILL_SANDBOX=docker
@@ -443,6 +525,8 @@ docker compose -f docker-compose.pgvector.yml up -d
 
 ```powershell
 .\.venv\Scripts\python.exe -m compileall -q app
+
+.\.venv\Scripts\python.exe -m unittest tests.test_memory_store tests.test_rag_governance -v
 
 cd web
 npm run build
@@ -473,7 +557,7 @@ DevAgent Studio/
 
 - 增加 Docker 沙箱状态和测试调用的前端可视化。
 - 增加外部签名插件发布示例和贡献工具。
-- 补齐 API、Workflow 编译、Harness 状态、MCP 契约、RAG 命中、LLM fallback 和 Benchmark 的自动化测试。
+- 补齐 API、Workflow 编译、Harness 状态、MCP 契约、LLM fallback 和 Benchmark 集成自动化测试。
 - 增强 Workflow 条件分支、并行节点和输入输出映射交互。
 
 ## License / 引用

@@ -147,7 +147,24 @@ export type RagResult = {
   chunk_id?: string;
   path?: string;
   score?: number;
+  keyword_score?: number;
+  semantic_score?: number;
+  rerank_score?: number | null;
+  retrieval_mode?: string;
   content?: string;
+};
+
+export type RagGoldCase = {
+  case_id: string;
+  collection: string;
+  question: string;
+  expected_chunk_ids: string[];
+  expected_paths: string[];
+  expected_keywords: string[];
+  metadata: Record<string, unknown>;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type MemoryRecord = {

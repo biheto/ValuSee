@@ -21,6 +21,7 @@ import {
   McpToolCallLog,
   MemoryRecord,
   RagDocument,
+  RagGoldCase,
   RagResult,
   SkillApproval,
   SkillExecutionLog,
@@ -288,6 +289,31 @@ export async function addKnowledgeNote(collection: string, path: string, content
   });
   if (!response.ok) throw new Error(`Knowledge note failed: ${response.status}`);
   return response.json();
+}
+
+export async function listRagGoldCases(collection = '', includeDisabled = true): Promise<RagGoldCase[]> {
+  const params = new URLSearchParams({ include_disabled: String(includeDisabled) });
+  if (collection) params.set('collection', collection);
+  const response = await fetch(`${API_BASE}/api/v1/rag/gold-cases?${params.toString()}`);
+  if (!response.ok) throw await apiError(response, 'RAG Gold Set list failed');
+  const data = await response.json();
+  return data.cases ?? [];
+}
+
+export async function saveRagGoldCase(payload: Partial<RagGoldCase> & { question: string; collection: string }): Promise<RagGoldCase> {
+  const response = await fetch(`${API_BASE}/api/v1/rag/gold-cases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'RAG Gold Set save failed');
+  const data = await response.json();
+  return data.case;
+}
+
+export async function deleteRagGoldCase(caseId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/v1/rag/gold-cases/${encodeURIComponent(caseId)}`, { method: 'DELETE' });
+  if (!response.ok) throw await apiError(response, 'RAG Gold Set delete failed');
 }
 
 export async function extractMemoryCandidates(payload: {

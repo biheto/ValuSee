@@ -73,6 +73,8 @@ from app.schemas.studio import (
     McpToolToggleRequest,
     RagIngestRequest,
     RagIngestResponse,
+    RagDocumentAclRequest,
+    RagGoldCaseRequest,
     RagProcessRequest,
     RagProcessResponse,
     RagQueryRequest,
@@ -185,19 +187,49 @@ def ingest_rag(request: RagIngestRequest) -> RagIngestResponse:
         collection=request.collection,
         document_count=saved["document_count"],
         chunk_count=saved["chunk_count"],
+        changed_document_count=saved.get("changed_document_count", saved["document_count"]),
+        changed_chunk_count=saved.get("changed_chunk_count", saved["chunk_count"]),
         keywords=result["keywords"],
     )
 
 
 @router.post("/rag/query", response_model=RagQueryResponse, tags=["RAG Knowledge Agent"])
-def query_rag(request: RagQueryRequest) -> RagQueryResponse:
-    results = rag_store.query(request.collection, request.question, request.limit)
+def query_rag(request: RagQueryRequest, x_devagent_actor: str = Header("local-user")) -> RagQueryResponse:
+    actor_id = request.actor_id or x_devagent_actor
+    results = rag_store.query(request.collection, request.question, request.limit, actor_id=actor_id)
     return RagQueryResponse(collection=request.collection, question=request.question, results=results)
 
 
 @router.get("/rag/documents", tags=["RAG Knowledge Agent"])
-def list_rag_documents(collection: str | None = None) -> dict[str, object]:
-    return {"documents": rag_store.list_documents(collection)}
+def list_rag_documents(collection: str | None = None, x_devagent_actor: str = Header("local-user")) -> dict[str, object]:
+    return {"documents": rag_store.list_documents(collection, actor_id=x_devagent_actor)}
+
+
+@router.post("/rag/documents/acl", tags=["RAG Knowledge Agent"])
+def set_rag_document_acl(request: RagDocumentAclRequest) -> dict[str, object]:
+    if not hasattr(rag_store, "set_document_acl"):
+        raise HTTPException(status_code=501, detail="Document ACL is not supported by the active RAG store")
+    if not rag_store.set_document_acl(request.collection, request.path, request.principals):
+        raise HTTPException(status_code=404, detail="Current document version not found")
+    return {"collection": request.collection, "path": request.path, "principals": request.principals}
+
+
+@router.get("/rag/gold-cases", tags=["RAG Knowledge Agent"])
+def list_rag_gold_cases(collection: str | None = None, include_disabled: bool = True) -> dict[str, object]:
+    return {"cases": rag_store.list_gold_cases(collection, include_disabled=include_disabled)}
+
+
+@router.post("/rag/gold-cases", tags=["RAG Knowledge Agent"])
+def save_rag_gold_case(request: RagGoldCaseRequest) -> dict[str, object]:
+    case = rag_store.save_gold_case(request.model_dump())
+    return {"case": case}
+
+
+@router.delete("/rag/gold-cases/{case_id}", tags=["RAG Knowledge Agent"])
+def delete_rag_gold_case(case_id: str) -> dict[str, object]:
+    if not rag_store.delete_gold_case(case_id):
+        raise HTTPException(status_code=404, detail="Gold case not found")
+    return {"case_id": case_id, "deleted": True}
 
 
 @router.get("/rag/status", tags=["RAG Knowledge Agent"])
