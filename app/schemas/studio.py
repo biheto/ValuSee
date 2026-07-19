@@ -46,6 +46,8 @@ class RagIngestResponse(BaseModel):
     collection: str
     document_count: int
     chunk_count: int
+    changed_document_count: int = 0
+    changed_chunk_count: int = 0
     keywords: list[str]
 
 
@@ -53,12 +55,30 @@ class RagQueryRequest(BaseModel):
     collection: str = "default"
     question: str
     limit: int = Field(default=5, ge=1, le=20)
+    actor_id: str = "local-user"
 
 
 class RagQueryResponse(BaseModel):
     collection: str
     question: str
     results: list[dict[str, Any]]
+
+
+class RagDocumentAclRequest(BaseModel):
+    collection: str
+    path: str
+    principals: list[str] = Field(default_factory=lambda: ["*"])
+
+
+class RagGoldCaseRequest(BaseModel):
+    case_id: str = ""
+    collection: str = "default"
+    question: str
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    expected_paths: list[str] = Field(default_factory=list)
+    expected_keywords: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class LearningCoachRequest(BaseModel):
@@ -298,6 +318,42 @@ class KnowledgeNoteResponse(BaseModel):
     collection: str
     chunk_id: str
     path: str
+
+
+class MemoryExtractRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=600)
+    scope: str = "user"
+    scope_id: str = "local-user"
+    source_type: str = "conversation"
+    source_ref: Optional[str] = None
+
+
+class MemoryRecordResponse(BaseModel):
+    memory_id: str
+    scope: str
+    scope_id: str
+    memory_type: str
+    memory_key: str
+    content: str
+    confidence: float
+    status: str
+    source_type: str
+    source_ref: Optional[str] = None
+    extraction_source: str = "rule_fallback"
+    quality_score: float = 0
+    quality_reasons: str = "[]"
+    retention_policy: str = "review_90d"
+    expires_at: Optional[str] = None
+    conflict_with: Optional[str] = None
+    rag_path: Optional[str] = None
+    created_at: str
+    updated_at: str
+    confirmed_at: Optional[str] = None
+    duplicate: bool = False
+
+
+class MemoryConfirmRequest(BaseModel):
+    collection: Optional[str] = None
 
 
 class LearningChatRequest(BaseModel):

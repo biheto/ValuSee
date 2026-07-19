@@ -149,7 +149,8 @@ def default_rag_benchmark_cases() -> list[dict[str, Any]]:
 
 
 def run_rag_benchmark(payload: dict[str, Any]) -> dict[str, Any]:
-    cases = [case for case in (payload.get("cases") or default_rag_benchmark_cases()) if case.get("enabled", True)]
+    raw_cases = payload.get("cases") or _rag_gold_cases_for_benchmark(payload) or default_rag_benchmark_cases()
+    cases = [case for case in raw_cases if case.get("enabled", True)]
     return _run_generic_benchmark(payload, "rag", cases, _run_single_rag_case, _summarize_rag_benchmark)
 
 
@@ -332,8 +333,9 @@ def _run_single_rag_case(run_id: str, case: dict[str, Any], iteration: int, agen
         collection = str(args.get("collection") or "default")
         question = str(args.get("question") or "")
         limit = max(1, min(20, int(args.get("limit") or 5)))
-        results = rag_store.query(collection, question, limit)
+        results = rag_store.query(collection, question, limit, actor_id=str(args.get("actor_id") or agent_code or "benchmark_runner"))
         expected_paths = [str(item).lower() for item in args.get("expected_paths", [])]
+        expected_chunk_ids = [str(item) for item in args.get("expected_chunk_ids", [])]
         expected_keywords = [str(item).lower() for item in args.get("expected_keywords", [])]
         path_hit = bool(expected_paths) and any(expected in str(item.get("path") or "").lower() for expected in expected_paths for item in results)
         keyword_hits = sum(
@@ -343,6 +345,14 @@ def _run_single_rag_case(run_id: str, case: dict[str, Any], iteration: int, agen
         )
         hit = path_hit or (bool(expected_keywords) and keyword_hits > 0) or (not expected_paths and not expected_keywords and bool(results))
         source_quality = _rag_source_quality(results, keyword_hits, len(expected_keywords))
+        retrieved_chunk_ids = [str(item.get("chunk_id") or "") for item in results]
+        relevant_hits = [chunk_id for chunk_id in expected_chunk_ids if chunk_id in retrieved_chunk_ids]
+        recall_at_k = len(relevant_hits) / len(expected_chunk_ids) if expected_chunk_ids else None
+        precision_at_k = len(relevant_hits) / len(retrieved_chunk_ids) if expected_chunk_ids and retrieved_chunk_ids else None
+        first_rank = next((index + 1 for index, chunk_id in enumerate(retrieved_chunk_ids) if chunk_id in expected_chunk_ids), None)
+        mrr = 1 / first_rank if first_rank else 0.0
+        chunk_hit = bool(relevant_hits) if expected_chunk_ids else False
+        hit = hit or chunk_hit
         output = {
             "collection": collection,
             "question": question,
@@ -352,6 +362,12 @@ def _run_single_rag_case(run_id: str, case: dict[str, Any], iteration: int, agen
             "keyword_hits": keyword_hits,
             "expected_keyword_count": len(expected_keywords),
             "source_quality": source_quality,
+            "expected_chunk_ids": expected_chunk_ids,
+            "retrieved_chunk_ids": retrieved_chunk_ids,
+            "chunk_hit": chunk_hit,
+            "recall_at_k": recall_at_k,
+            "precision_at_k": precision_at_k,
+            "mrr": mrr,
             "results": results,
         }
         if not hit:
@@ -546,13 +562,23 @@ def _summarize_rag_benchmark(results: list[dict[str, Any]], cases: list[dict[str
     hits = sum(1 for output in outputs if output.get("hit"))
     source_scores = [int(output.get("source_quality") or 0) for output in outputs]
     result_counts = [int(output.get("result_count") or 0) for output in outputs]
+    chunk_outputs = [output for output in outputs if output.get("expected_chunk_ids")]
+    chunk_hits = sum(1 for output in chunk_outputs if output.get("chunk_hit"))
+    recalls = [float(output["recall_at_k"]) for output in chunk_outputs if output.get("recall_at_k") is not None]
+    precisions = [float(output["precision_at_k"]) for output in chunk_outputs if output.get("precision_at_k") is not None]
+    mrrs = [float(output.get("mrr") or 0) for output in chunk_outputs]
     summary.update(
         {
             "hit_count": hits,
             "hit_rate": _rate(hits, len(results)),
             "avg_source_quality": _avg(source_scores),
             "avg_result_count": _avg(result_counts),
-            "benchmark_focus": "retrieval hit rate, source quality, result coverage",
+            "chunk_gold_case_count": len(chunk_outputs),
+            "chunk_hit_rate": _rate(chunk_hits, len(chunk_outputs)),
+            "recall_at_k": round(sum(recalls) / len(recalls), 4) if recalls else None,
+            "precision_at_k": round(sum(precisions) / len(precisions), 4) if precisions else None,
+            "mrr": round(sum(mrrs) / len(mrrs), 4) if mrrs else None,
+            "benchmark_focus": "retrieval hit rate, source quality, chunk Gold Set recall/precision/MRR",
         }
     )
     return summary
@@ -669,6 +695,29 @@ def _rag_source_quality(results: list[dict[str, Any]], keyword_hits: int, expect
     if isinstance(top_score, (int, float)) and top_score > 0:
         score += 10
     return max(0, min(100, score))
+
+
+def _rag_gold_cases_for_benchmark(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if not hasattr(rag_store, "list_gold_cases"):
+        return []
+    collection = str(payload.get("collection") or "").strip() or None
+    gold_cases = rag_store.list_gold_cases(collection, include_disabled=False)
+    return [
+        {
+            "case_id": case["case_id"],
+            "tool_name": "rag.query",
+            "arguments": {
+                "collection": case["collection"],
+                "question": case["question"],
+                "expected_chunk_ids": case.get("expected_chunk_ids", []),
+                "expected_paths": case.get("expected_paths", []),
+                "expected_keywords": case.get("expected_keywords", []),
+                "limit": int(case.get("metadata", {}).get("limit") or 5) if isinstance(case.get("metadata"), dict) else 5,
+            },
+            "enabled": bool(case.get("enabled", True)),
+        }
+        for case in gold_cases
+    ]
 
 
 def _failed_nodes(events: list[dict[str, Any]]) -> list[str]:

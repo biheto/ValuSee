@@ -19,7 +19,9 @@ import {
   McpServerConfig,
   McpStatus,
   McpToolCallLog,
+  MemoryRecord,
   RagDocument,
+  RagGoldCase,
   RagResult,
   SkillApproval,
   SkillExecutionLog,
@@ -287,6 +289,75 @@ export async function addKnowledgeNote(collection: string, path: string, content
   });
   if (!response.ok) throw new Error(`Knowledge note failed: ${response.status}`);
   return response.json();
+}
+
+export async function listRagGoldCases(collection = '', includeDisabled = true): Promise<RagGoldCase[]> {
+  const params = new URLSearchParams({ include_disabled: String(includeDisabled) });
+  if (collection) params.set('collection', collection);
+  const response = await fetch(`${API_BASE}/api/v1/rag/gold-cases?${params.toString()}`);
+  if (!response.ok) throw await apiError(response, 'RAG Gold Set list failed');
+  const data = await response.json();
+  return data.cases ?? [];
+}
+
+export async function saveRagGoldCase(payload: Partial<RagGoldCase> & { question: string; collection: string }): Promise<RagGoldCase> {
+  const response = await fetch(`${API_BASE}/api/v1/rag/gold-cases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'RAG Gold Set save failed');
+  const data = await response.json();
+  return data.case;
+}
+
+export async function deleteRagGoldCase(caseId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/v1/rag/gold-cases/${encodeURIComponent(caseId)}`, { method: 'DELETE' });
+  if (!response.ok) throw await apiError(response, 'RAG Gold Set delete failed');
+}
+
+export async function extractMemoryCandidates(payload: {
+  text: string;
+  scope?: string;
+  scope_id?: string;
+  source_type?: string;
+  source_ref?: string;
+}): Promise<MemoryRecord[]> {
+  const response = await fetch(`${API_BASE}/api/v1/memories/extract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'Memory extraction failed');
+  return response.json();
+}
+
+export async function listMemories(status = ''): Promise<MemoryRecord[]> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+  const response = await fetch(`${API_BASE}/api/v1/memories${suffix}`);
+  if (!response.ok) throw await apiError(response, 'Memory list failed');
+  return response.json();
+}
+
+export async function confirmMemory(memoryId: string): Promise<MemoryRecord> {
+  const response = await fetch(`${API_BASE}/api/v1/memories/${memoryId}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) throw await apiError(response, 'Memory confirmation failed');
+  return response.json();
+}
+
+export async function rejectMemory(memoryId: string): Promise<MemoryRecord> {
+  const response = await fetch(`${API_BASE}/api/v1/memories/${memoryId}/reject`, { method: 'POST' });
+  if (!response.ok) throw await apiError(response, 'Memory rejection failed');
+  return response.json();
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/v1/memories/${memoryId}`, { method: 'DELETE' });
+  if (!response.ok) throw await apiError(response, 'Memory deletion failed');
 }
 
 export async function listProjectFiles(rootPath: string, maxFiles = 800): Promise<{ root: string; files: string[] }> {

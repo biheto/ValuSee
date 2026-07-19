@@ -1465,10 +1465,11 @@ button {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
-  grid-template-rows: minmax(520px, auto) minmax(420px, auto);
+  grid-template-rows: minmax(520px, auto) minmax(420px, auto) auto;
   grid-template-areas:
     "run metrics"
-    "history results";
+    "history results"
+    "gold gold";
   column-gap: 16px;
   row-gap: 22px;
   align-content: start;
@@ -1506,6 +1507,67 @@ button {
 .benchmark-results {
   grid-area: results;
   min-height: 420px;
+}
+
+.benchmark-gold {
+  grid-area: gold;
+  min-height: 520px;
+  overflow: visible;
+}
+
+.rag-gold-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.rag-gold-form {
+  display: grid;
+  gap: 12px;
+}
+
+.rag-gold-form textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.rag-gold-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.rag-gold-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.rag-gold-card {
+  border: 1px solid rgba(180, 196, 216, 0.68);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.rag-gold-card div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rag-gold-card p {
+  margin: 0;
+  color: #435064;
+  line-height: 1.45;
+}
+
+.rag-gold-card small {
+  color: #6d7786;
 }
 
 .benchmark-form {
@@ -3035,16 +3097,20 @@ textarea:focus {
 }
 
 .chat-main {
-  min-height: 0;
+  height: calc(100vh - 110px);
+  min-height: 760px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .chat-messages {
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
   padding: 18px;
   background: #fbfcfd;
+  scrollbar-gutter: stable;
 }
 
 .chat-empty {
@@ -3972,10 +4038,11 @@ textarea:focus {
 @media (max-width: 1440px) {
   .benchmark-page {
     grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
-    grid-template-rows: minmax(660px, auto) minmax(620px, auto);
+    grid-template-rows: minmax(660px, auto) minmax(620px, auto) auto;
     grid-template-areas:
       "run metrics"
-      "history results";
+      "history results"
+      "gold gold";
   }
 
   .skills-page {
@@ -4074,8 +4141,14 @@ textarea:focus {
       "run"
       "metrics"
       "history"
-      "results";
+      "results"
+      "gold";
     row-gap: 16px;
+  }
+
+  .rag-gold-layout,
+  .rag-gold-two {
+    grid-template-columns: 1fr;
   }
 
   .llm-recent,
@@ -5405,4 +5478,302 @@ textarea,
   background-image:
     linear-gradient(126deg, rgba(128, 206, 120, 0.31) 0 16%, transparent 16% 57%, rgba(255, 204, 101, 0.3) 57% 69%, transparent 69%),
     linear-gradient(28deg, transparent 0 32%, rgba(105, 187, 255, 0.28) 32% 44%, transparent 44%);
+}
+
+.memory-panel {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin: 12px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 5px 12px rgba(64, 79, 99, 0.07);
+}
+
+.memory-panel > p,
+.memory-panel > small,
+.memory-candidate p,
+.memory-candidate small {
+  margin: 0;
+  color: #526176;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.memory-candidate,
+.memory-confirmed {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.memory-candidate > span {
+  color: #2b6da9;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.memory-candidate p {
+  line-height: 1.3;
+}
+
+.memory-candidate > div,
+.memory-confirmed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.memory-candidate .secondary {
+  min-height: 28px;
+  font-size: 11px;
+}
+
+.memory-confirmed span {
+  min-width: 0;
+  overflow: hidden;
+  color: #306a4a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-confirmed > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.memory-conflict {
+  color: #9a6a13;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+/* The chat sidebar now owns five explicit rows: title, modes, task, memory, history. */
+.chat-sidebar {
+  align-self: start;
+  min-height: 780px;
+  grid-template-rows: auto auto auto auto minmax(430px, 1fr);
+}
+
+.chat-sidebar .memory-panel {
+  min-height: 0;
+  max-height: none;
+  margin-bottom: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.chat-sidebar .task-list {
+  min-height: 430px;
+  margin: 0 12px 12px;
+  padding-right: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.chat-bubble.user {
+  display: table;
+  width: auto;
+  max-width: 70%;
+}
+
+.chat-bubble.user .markdown-view {
+  padding: 8px 11px;
+  line-height: 1.45;
+}
+
+.chat-bubble.user .markdown-view p {
+  margin: 0;
+}
+
+/* Water-glass refinement: clearer transmission, specular highlights, and fragile thin edges. */
+.app-main {
+  background-color: #f8fafc;
+  background-image:
+    radial-gradient(circle at 10% 16%, rgba(93, 184, 255, 0.22) 0 9%, transparent 24%),
+    radial-gradient(circle at 86% 12%, rgba(255, 170, 207, 0.2) 0 8%, transparent 23%),
+    radial-gradient(circle at 78% 82%, rgba(154, 221, 122, 0.17) 0 9%, transparent 26%),
+    radial-gradient(circle at 18% 78%, rgba(255, 218, 107, 0.17) 0 8%, transparent 25%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.9), rgba(235, 240, 246, 0.72) 46%, rgba(255, 255, 255, 0.88));
+}
+
+.panel,
+.kpi-card,
+.task-list button,
+.saved-list button,
+.chat-bubble,
+.chat-current,
+.context-box,
+.knowledge-save-box,
+.source-item,
+.finding-suggestion-card,
+.mcp-server-list button,
+.mcp-tool-card,
+.mcp-log-item,
+.skill-plugin-list article,
+.skill-approval-list article,
+.skill-log-item,
+.skill-list button,
+.skill-detail dl,
+.skill-version-box,
+.skill-test-summary,
+.marketplace-card,
+.marketplace-install-card,
+.rag-gold-card,
+.benchmark-case-card,
+.benchmark-result-item,
+.trace-item,
+.prompt-card,
+.ab-result-card,
+.resume-card,
+.memory-panel,
+.memory-candidate,
+.memory-confirmed {
+  position: relative;
+  background:
+    linear-gradient(132deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.22) 33%, rgba(255, 255, 255, 0.08) 58%, rgba(255, 255, 255, 0.34) 100%);
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.98),
+    inset 1px 0 0 rgba(255, 255, 255, 0.7),
+    inset -1px -1px 0 rgba(111, 126, 146, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.8),
+    0 18px 42px rgba(44, 59, 78, 0.13),
+    0 4px 12px rgba(49, 65, 86, 0.08);
+  backdrop-filter: blur(22px) saturate(1.24) contrast(1.04);
+  -webkit-backdrop-filter: blur(22px) saturate(1.24) contrast(1.04);
+}
+
+.panel {
+  overflow: hidden;
+}
+
+.panel::before,
+.kpi-card::before,
+.mcp-tool-card::before,
+.marketplace-card::before,
+.rag-gold-card::before,
+.benchmark-result-item::before,
+.prompt-card::before,
+.trace-item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(116deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.42) 9%, transparent 27%),
+    linear-gradient(294deg, transparent 58%, rgba(255, 255, 255, 0.38) 75%, rgba(255, 255, 255, 0.78) 100%),
+    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.9) 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 22%, rgba(255, 255, 255, 0.68) 0 1px, transparent 2.2px);
+  mix-blend-mode: screen;
+  opacity: 0.68;
+}
+
+.panel::after {
+  content: "";
+  position: absolute;
+  top: -44%;
+  left: -18%;
+  width: 62%;
+  height: 150%;
+  pointer-events: none;
+  transform: rotate(18deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08), transparent);
+  opacity: 0.42;
+}
+
+.panel:hover,
+.kpi-card:hover,
+.mcp-tool-card:hover,
+.marketplace-card:hover,
+.prompt-card:hover,
+.trace-item:hover {
+  border-color: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.78),
+    inset -1px -1px 0 rgba(105, 119, 139, 0.1),
+    0 1px 0 rgba(255, 255, 255, 0.9),
+    0 24px 52px rgba(38, 54, 73, 0.16),
+    0 7px 18px rgba(49, 65, 86, 0.1);
+}
+
+.panel > *,
+.kpi-card > *,
+.mcp-tool-card > *,
+.marketplace-card > *,
+.rag-gold-card > *,
+.benchmark-result-item > *,
+.prompt-card > *,
+.trace-item > * {
+  position: relative;
+  z-index: 1;
+}
+
+.panel-title {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.16)),
+    linear-gradient(90deg, rgba(112, 192, 255, 0.14), rgba(255, 171, 208, 0.12), rgba(162, 222, 126, 0.1));
+  border-bottom-color: rgba(255, 255, 255, 0.64);
+}
+
+input,
+select,
+textarea {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.28));
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(100, 117, 137, 0.12),
+    0 5px 14px rgba(50, 65, 85, 0.07);
+  backdrop-filter: blur(18px) saturate(1.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.primary {
+  box-shadow:
+    inset 0 2px 1px rgba(236, 255, 255, 0.74),
+    inset 0 -2px 0 rgba(7, 72, 83, 0.32),
+    0 12px 24px rgba(24, 121, 137, 0.24);
+}
+
+/* Scroll restoration for dense workbench panels after the final glass overlay. */
+.run-panel,
+.state-panel,
+.workflow-sidebar,
+.config-panel {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.run-panel,
+.state-panel {
+  max-height: 100%;
+}
+
+.workflow-sidebar,
+.config-panel {
+  max-height: calc(100vh - 92px);
+}
+
+.run-page,
+.workflow-page {
+  min-height: 0;
+}
+
+.workflow-sidebar .saved-list,
+.workflow-sidebar .palette,
+.config-panel .config-form {
+  min-height: 0;
 }

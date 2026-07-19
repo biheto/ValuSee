@@ -4,7 +4,7 @@ import json
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
@@ -33,6 +33,7 @@ from app.harness.events import utc_now_iso
 from app.harness.policy import tool_policy
 from app.harness.runtime import harness_runtime
 from app.marketplace.catalog import marketplace_catalog
+from app.persistence.memory_store import memory_store
 from app.marketplace.installer import install_marketplace_package, preview_marketplace_package, uninstall_marketplace_package
 from app.persistence.rag_store import rag_store
 from app.persistence.sqlite_store import task_store
@@ -59,6 +60,9 @@ from app.schemas.studio import (
     LearningPlanCreateRequest,
     LearningPlanResponse,
     LearningPlanStatusRequest,
+    MemoryConfirmRequest,
+    MemoryExtractRequest,
+    MemoryRecordResponse,
     McpFileListRequest,
     McpFileReadRequest,
     McpGitRequest,
@@ -69,6 +73,8 @@ from app.schemas.studio import (
     McpToolToggleRequest,
     RagIngestRequest,
     RagIngestResponse,
+    RagDocumentAclRequest,
+    RagGoldCaseRequest,
     RagProcessRequest,
     RagProcessResponse,
     RagQueryRequest,
@@ -181,19 +187,49 @@ def ingest_rag(request: RagIngestRequest) -> RagIngestResponse:
         collection=request.collection,
         document_count=saved["document_count"],
         chunk_count=saved["chunk_count"],
+        changed_document_count=saved.get("changed_document_count", saved["document_count"]),
+        changed_chunk_count=saved.get("changed_chunk_count", saved["chunk_count"]),
         keywords=result["keywords"],
     )
 
 
 @router.post("/rag/query", response_model=RagQueryResponse, tags=["RAG Knowledge Agent"])
-def query_rag(request: RagQueryRequest) -> RagQueryResponse:
-    results = rag_store.query(request.collection, request.question, request.limit)
+def query_rag(request: RagQueryRequest, x_devagent_actor: str = Header("local-user")) -> RagQueryResponse:
+    actor_id = request.actor_id or x_devagent_actor
+    results = rag_store.query(request.collection, request.question, request.limit, actor_id=actor_id)
     return RagQueryResponse(collection=request.collection, question=request.question, results=results)
 
 
 @router.get("/rag/documents", tags=["RAG Knowledge Agent"])
-def list_rag_documents(collection: str | None = None) -> dict[str, object]:
-    return {"documents": rag_store.list_documents(collection)}
+def list_rag_documents(collection: str | None = None, x_devagent_actor: str = Header("local-user")) -> dict[str, object]:
+    return {"documents": rag_store.list_documents(collection, actor_id=x_devagent_actor)}
+
+
+@router.post("/rag/documents/acl", tags=["RAG Knowledge Agent"])
+def set_rag_document_acl(request: RagDocumentAclRequest) -> dict[str, object]:
+    if not hasattr(rag_store, "set_document_acl"):
+        raise HTTPException(status_code=501, detail="Document ACL is not supported by the active RAG store")
+    if not rag_store.set_document_acl(request.collection, request.path, request.principals):
+        raise HTTPException(status_code=404, detail="Current document version not found")
+    return {"collection": request.collection, "path": request.path, "principals": request.principals}
+
+
+@router.get("/rag/gold-cases", tags=["RAG Knowledge Agent"])
+def list_rag_gold_cases(collection: str | None = None, include_disabled: bool = True) -> dict[str, object]:
+    return {"cases": rag_store.list_gold_cases(collection, include_disabled=include_disabled)}
+
+
+@router.post("/rag/gold-cases", tags=["RAG Knowledge Agent"])
+def save_rag_gold_case(request: RagGoldCaseRequest) -> dict[str, object]:
+    case = rag_store.save_gold_case(request.model_dump())
+    return {"case": case}
+
+
+@router.delete("/rag/gold-cases/{case_id}", tags=["RAG Knowledge Agent"])
+def delete_rag_gold_case(case_id: str) -> dict[str, object]:
+    if not rag_store.delete_gold_case(case_id):
+        raise HTTPException(status_code=404, detail="Gold case not found")
+    return {"case_id": case_id, "deleted": True}
 
 
 @router.get("/rag/status", tags=["RAG Knowledge Agent"])
@@ -929,6 +965,7 @@ def ask_task(task_id: str, request: TaskQuestionRequest) -> TaskQuestionResponse
     events = task_store.get_events(task_id)
     report = task.get("final_report") or ""
     sources = rag_store.query(request.collection, request.question, 5)
+    memory_store.extract_candidates(request.question, source_ref=f"task/{task_id}/ask")
     answer = _answer_from_task_context(request.question, report, events, sources)
     return TaskQuestionResponse(
         task_id=task_id,
@@ -984,9 +1021,117 @@ def add_knowledge_note(request: KnowledgeNoteRequest) -> KnowledgeNoteResponse:
     return KnowledgeNoteResponse(**saved)
 
 
+@router.post("/memories/extract", response_model=list[MemoryRecordResponse], tags=["RAG Knowledge Agent"])
+def extract_memory_candidates(
+    request: MemoryExtractRequest,
+    x_devagent_actor: str | None = Header(default=None),
+    x_devagent_role: str | None = Header(default=None),
+) -> list[dict[str, object]]:
+    try:
+        _authorize_memory(request.scope, request.scope_id, "extract", x_devagent_actor, x_devagent_role)
+        return memory_store.extract_candidates(
+            request.text,
+            scope=request.scope,
+            scope_id=request.scope_id,
+            source_type=request.source_type,
+            source_ref=request.source_ref,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/memories", response_model=list[MemoryRecordResponse], tags=["RAG Knowledge Agent"])
+def list_memories(
+    scope: str | None = None,
+    scope_id: str | None = None,
+    status: str | None = None,
+    x_devagent_actor: str | None = Header(default=None),
+    x_devagent_role: str | None = Header(default=None),
+) -> list[dict[str, object]]:
+    actor, role = _memory_actor(x_devagent_actor, x_devagent_role)
+    if scope in {"project", "team"}:
+        _authorize_memory(scope, scope_id or "default", "list", actor, role)
+    elif role != "admin":
+        scope = "user"
+        scope_id = actor
+    return memory_store.list_memories(scope=scope, scope_id=scope_id, status=status)
+
+
+@router.post("/memories/{memory_id}/confirm", response_model=MemoryRecordResponse, tags=["RAG Knowledge Agent"])
+def confirm_memory(
+    memory_id: str,
+    request: MemoryConfirmRequest,
+    x_devagent_actor: str | None = Header(default=None),
+    x_devagent_role: str | None = Header(default=None),
+) -> dict[str, object]:
+    memory = memory_store.get_memory(memory_id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    _authorize_memory(memory["scope"], memory["scope_id"], "confirm", x_devagent_actor, x_devagent_role)
+    collection = request.collection or ("project-memory" if memory["scope"] == "project" else f"user-memory/{memory['scope_id']}")
+    saved = rag_store.add_note(collection, f"memory/{memory_id}", memory["content"])
+    confirmed = memory_store.confirm(memory_id, saved["path"])
+    if not confirmed:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return confirmed
+
+
+@router.post("/memories/{memory_id}/reject", response_model=MemoryRecordResponse, tags=["RAG Knowledge Agent"])
+def reject_memory(
+    memory_id: str,
+    x_devagent_actor: str | None = Header(default=None),
+    x_devagent_role: str | None = Header(default=None),
+) -> dict[str, object]:
+    memory = memory_store.get_memory(memory_id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    _authorize_memory(memory["scope"], memory["scope_id"], "reject", x_devagent_actor, x_devagent_role)
+    rejected = memory_store.reject(memory_id)
+    if not rejected:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return rejected
+
+
+@router.delete("/memories/{memory_id}", tags=["RAG Knowledge Agent"])
+def delete_memory(
+    memory_id: str,
+    x_devagent_actor: str | None = Header(default=None),
+    x_devagent_role: str | None = Header(default=None),
+) -> dict[str, bool]:
+    memory = memory_store.get_memory(memory_id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    _authorize_memory(memory["scope"], memory["scope_id"], "delete", x_devagent_actor, x_devagent_role)
+    if memory.get("rag_path"):
+        collection = "project-memory" if memory["scope"] == "project" else f"user-memory/{memory['scope_id']}"
+        rag_store.delete_note(collection, memory["rag_path"])
+    if not memory_store.delete(memory_id):
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"deleted": True}
+
+
+def _memory_actor(actor: str | None, role: str | None) -> tuple[str, str]:
+    return (actor or "local-user", (role or "member").lower())
+
+
+def _authorize_memory(scope: str, scope_id: str, action: str, actor: str | None, role: str | None) -> None:
+    actor_id, actor_role = _memory_actor(actor, role)
+    if scope == "user":
+        if actor_id != scope_id and actor_role != "admin":
+            raise HTTPException(status_code=403, detail="User memory is isolated by actor identity.")
+        return
+    if scope == "project" and actor_role not in {"editor", "admin"}:
+        raise HTTPException(status_code=403, detail="Project memory requires editor or admin role.")
+    if scope == "team" and action in {"confirm", "reject", "delete"} and actor_role != "admin":
+        raise HTTPException(status_code=403, detail="Team memory confirmation requires admin role.")
+    if scope not in {"user", "project", "team"}:
+        raise HTTPException(status_code=422, detail="Unknown memory scope.")
+
+
 @router.post("/learning/coach/chat", response_model=LearningChatResponse, tags=["Learning Coach Agent"])
 def chat_learning_coach(request: LearningChatRequest) -> LearningChatResponse:
     task = task_store.get_task(request.task_id) if request.task_id else None
+    memory_store.extract_candidates(request.answer or request.question, source_ref=f"learning/{request.task_id or 'general'}/{request.turn}")
     stage = _learning_stage_context(request)
     reply = _learning_reply(request, task, stage)
     next_questions = _learning_next_questions(request, task, stage)

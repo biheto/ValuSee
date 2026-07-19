@@ -147,7 +147,48 @@ export type RagResult = {
   chunk_id?: string;
   path?: string;
   score?: number;
+  keyword_score?: number;
+  semantic_score?: number;
+  rerank_score?: number | null;
+  retrieval_mode?: string;
   content?: string;
+};
+
+export type RagGoldCase = {
+  case_id: string;
+  collection: string;
+  question: string;
+  expected_chunk_ids: string[];
+  expected_paths: string[];
+  expected_keywords: string[];
+  metadata: Record<string, unknown>;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MemoryRecord = {
+  memory_id: string;
+  scope: 'user' | 'project' | 'team' | string;
+  scope_id: string;
+  memory_type: string;
+  memory_key: string;
+  content: string;
+  confidence: number;
+  status: 'candidate' | 'confirmed' | 'rejected' | 'superseded' | string;
+  source_type: string;
+  source_ref?: string | null;
+  extraction_source?: 'llm' | 'rule_fallback' | string;
+  quality_score?: number;
+  quality_reasons?: string;
+  retention_policy?: 'stable' | 'review_90d' | string;
+  expires_at?: string | null;
+  conflict_with?: string | null;
+  rag_path?: string | null;
+  created_at: string;
+  updated_at: string;
+  confirmed_at?: string | null;
+  duplicate?: boolean;
 };
 
 export type AskResponse = {
