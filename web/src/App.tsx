@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { FormEvent, PointerEvent, ReactNode, Ref, useEffect, useMemo, useRef, useState } from 'react';
+import { attachLiquidGlassSurfaces } from './liquidGlass';
 import {
   addKnowledgeNote,
   applyReviewAction,
@@ -139,6 +140,7 @@ type ChatMode = 'task' | 'knowledge' | 'coach';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; source?: string; day?: number | null; theme?: string | null };
 type FocusKind = 'module' | 'file';
 type ReportTab = 'final' | 'mentor' | 'mermaid' | 'governance';
+type UiTheme = 'classic' | 'liquid';
 
 const defaultProjectPath = 'D:/Java/project/Project/AI Agent/DevAgent Studio';
 
@@ -225,7 +227,23 @@ const initialEdges: WorkflowEdge[] = [
 ];
 
 export function App() {
-  const [activeView, setActiveView] = useState<ViewKey>('run');
+  const [uiTheme, setUiTheme] = useState<UiTheme>(() => {
+    const requested = new URLSearchParams(window.location.search).get('theme');
+    if (requested === 'colorful' || requested === 'classic') return 'classic';
+    if (requested === 'clear' || requested === 'liquid') return 'liquid';
+    const saved = window.localStorage.getItem('dev-agent-ui-theme');
+    return saved === 'classic' ? 'classic' : 'liquid';
+  });
+  useEffect(() => {
+    window.localStorage.setItem('dev-agent-ui-theme', uiTheme);
+    if (uiTheme !== 'liquid') return undefined;
+    return attachLiquidGlassSurfaces();
+  }, [uiTheme]);
+  const [activeView, setActiveView] = useState<ViewKey>(() => {
+    const requested = new URLSearchParams(window.location.search).get('view');
+    const views: ViewKey[] = ['run', 'workflow', 'reports', 'chat', 'history', 'llm', 'mcp', 'skills', 'marketplace', 'benchmark'];
+    return views.includes(requested as ViewKey) ? requested as ViewKey : 'run';
+  });
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('workflow');
   const [goal, setGoal] = useState('分析这个项目并给出重构建议');
   const [projectPath, setProjectPath] = useState(defaultProjectPath);
@@ -354,6 +372,11 @@ export function App() {
     refreshBenchmarks('mcp').catch(() => undefined);
     refreshMemories().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!['reports', 'chat', 'history'].includes(activeView) || selectedTaskId || !tasks.length) return;
+    loadTaskContext(tasks[0].task_id).catch(() => undefined);
+  }, [activeView, selectedTaskId, tasks]);
 
   async function refreshTasks() {
     setTasks(await listTasks());
@@ -1298,7 +1321,20 @@ export function App() {
   );
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-ui-theme={uiTheme}>
+      <svg className="liquid-glass-defs" aria-hidden="true" focusable="false">
+        <filter id="liquid-glass-refraction" x="-12%" y="-12%" width="124%" height="124%" colorInterpolationFilters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.012 0.035" numOctaves="2" seed="18" result="noise" />
+          <feGaussianBlur in="noise" stdDeviation="1.2" result="softNoise" />
+          <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="18" xChannelSelector="R" yChannelSelector="G" result="refracted" />
+          <feGaussianBlur in="refracted" stdDeviation="0.18" />
+        </filter>
+        <filter id="liquid-glass-rim" x="-16%" y="-16%" width="132%" height="132%" colorInterpolationFilters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.004 0.011" numOctaves="1" seed="28" result="rimNoise" />
+          <feGaussianBlur in="rimNoise" stdDeviation="1.4" result="softRimNoise" />
+          <feDisplacementMap in="SourceGraphic" in2="softRimNoise" scale="13" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </svg>
       <aside className="side-nav">
         <div className="nav-garden nav-garden-top" aria-hidden="true">
           <i>✦</i>
@@ -1342,7 +1378,27 @@ export function App() {
             <h1>DevAgent Studio</h1>
             <span>可视化 Workflow 任务工作台</span>
           </div>
-          <div className={`status-pill ${latestStatus}`}>{running ? 'running' : latestStatus}</div>
+          <div className="topbar-actions">
+            <div className="theme-switch" role="group" aria-label="界面风格">
+              <button
+                type="button"
+                className={uiTheme === 'classic' ? 'active' : ''}
+                onClick={() => setUiTheme('classic')}
+                title="使用带彩色环境光的缤纷风格"
+              >
+                缤纷
+              </button>
+              <button
+                type="button"
+                className={uiTheme === 'liquid' ? 'active' : ''}
+                onClick={() => setUiTheme('liquid')}
+                title="使用动态透明水玻璃的清透风格"
+              >
+                清透
+              </button>
+            </div>
+            <div className={`status-pill ${latestStatus}`}>{running ? 'running' : latestStatus}</div>
+          </div>
         </header>
 
         {activeView === 'run' ? (

@@ -20,11 +20,11 @@ It is deliberately not a code-writing IDE. Its focus is making software delivery
 - **Plugin Marketplace**: install resource packs from built-in catalogs, local paths, URLs, GitHub-style sources, or an external `SKILL.md` file.
 - **Safe third-party code execution**: Code Skills can run in a constrained Docker sandbox with no network, read-only mounts, resource limits, and audit logs.
 - **Governed RAG that can be evaluated**: project knowledge now supports incremental indexing, document versions, ACL filtering, hybrid retrieval, optional LLM rerank, and editable chunk-level Gold Sets.
-- **Glassmorphism workbench UI**: the React workbench uses translucent water-glass panels, specular highlights, colorful environmental light, and clearer visual layering.
+- **Switchable Colorful and Clear UI**: the React workbench can switch between a colorful theme with yellow/green/blue/pink environmental light pillars and a clear SVG-refraction liquid-glass theme with pointer ripples, hover lift, and connected mode transitions. The selected theme is persisted locally.
 
 ## Product Preview / 页面预览
 
-The latest UI uses a brighter glassmorphism style: translucent white panels, thin reflective borders, layered shadows, and soft yellow/green/blue/pink environmental light.
+The screenshots below show the Clear theme with per-surface SVG displacement maps, refracted grid detail, reflective rims, layered shadows, and liquid button interactions. Use the header switch to move between the Colorful and Clear themes at any time.
 
 | Run workbench / 运行 | Visual workflow / 编排 |
 | --- | --- |
@@ -379,7 +379,7 @@ DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多
 - **受控长期记忆**：对话先经 LLM/规则提取为候选记忆，再通过质量评分、冲突检测、人工确认、生命周期策略和 scope 权限边界沉淀到 RAG。
 - **遗忘衰减而非无限累积**：稳定规则长期保留；普通偏好进入 90 天复核，到期后标记为 `expired` 并退出检索，但保留审计记录，可由用户刷新、更新或删除，避免陈旧偏好和过时决策持续干扰 Agent。
 - **RAG 治理与可评测**：知识库支持增量索引、文档版本化、ACL 权限过滤、BM25/向量混合检索、可选 LLM Rerank 和 Chunk Gold Set。
-- **水玻璃风格 UI**：前端白色面板升级为透明玻璃质感，加入反光边缘、层级阴影和黄绿蓝粉环境光，界面更轻盈。
+- **缤纷 / 清透双主题 UI**：顶部可在带黄绿蓝粉彩色环境光柱的“缤纷”主题与 SVG 折射水玻璃“清透”主题之间切换；清透模式支持边缘折射、悬浮阴影、点击涟漪和模式按钮液态连贯切换，并在浏览器本地保存用户选择。
 
 ## 核心能力
 
