@@ -1,5 +1,13 @@
 # ValuSee
 
+> 别只看哪个便宜，先看是不是同款、适不适合你、现在该不该买。
+
+ValuSee / 见值 is an AI shopping decision and savings agent. Submit a product link, screenshot, or buying need to compare real landed cost, detect SKU differences, evaluate evidence-backed risks, personalize the recommendation, monitor a target price, and keep price-protection, return, and warranty deadlines visible after purchase.
+
+The first release targets phones, laptops, monitors, headphones, keyboards, routers, robot vacuums, and coffee machines. It includes a consumer Web workbench and a Manifest V3 browser extension. It does not auto-checkout, pay, refund, or use large-scale crawling as its primary data source.
+
+Production deployment: [docs/VALUSee_PRODUCTION_RELEASE.md](docs/VALUSee_PRODUCTION_RELEASE.md). Feature history: [docs/VALUSee_IMPLEMENTATION_LOG.md](docs/VALUSee_IMPLEMENTATION_LOG.md).
+
 [English](#english) | [中文](#中文)
 
 <a id="english"></a>

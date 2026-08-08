@@ -61,6 +61,7 @@ from app.schemas.shopping import (
     RegisterRequest,
     LoginRequest,
     FamilyCreateRequest,
+    FamilyInviteRequest,
     ReviewAnalysisRequest,
     ShoppingDecisionRequest,
     ShoppingExtensionCaptureRequest,
@@ -171,6 +172,32 @@ def create_family(request: FamilyCreateRequest, authorization: str | None = Head
 @router.get("/families", tags=["Account"])
 def list_families(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
     return auth_store.list_families(_request_user(authorization))
+
+
+@router.post("/families/invite", tags=["Account"])
+def invite_family_member(request: FamilyInviteRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.invite_family_member(_request_user(authorization), request.family_id, request.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/auth/export", tags=["Account"])
+def export_account_data(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _request_user(authorization)
+    if user_id == "local-user":
+        raise HTTPException(status_code=401, detail="请先登录后导出账户数据")
+    return auth_store.export_account(user_id)
+
+
+@router.delete("/auth/account", tags=["Account"])
+def delete_account(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _request_user(authorization)
+    try:
+        auth_store.delete_account(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"deleted": True, "user_id": user_id}
 
 
 @router.post("/shopping/parse-url", response_model=ShoppingParseUrlResponse, tags=["Shopping Decision"])

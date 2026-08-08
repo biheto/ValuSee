@@ -49,6 +49,16 @@ def health() -> dict[str, str]:
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env}
 
 
+@app.get("/privacy", include_in_schema=False)
+def privacy_policy() -> dict[str, object]:
+    return {"title": "ValuSee 隐私政策", "version": "2026-08-09", "summary": "ValuSee 仅处理用户主动提交的商品信息、账户信息和用户创建的提醒；不以大规模后台爬虫作为数据来源。用户可通过账户接口导出或删除数据。", "contact": os.getenv("VALUSee_PRIVACY_CONTACT", "请在部署前配置客服邮箱")}
+
+
+@app.get("/terms", include_in_schema=False)
+def service_terms() -> dict[str, object]:
+    return {"title": "ValuSee 用户服务协议", "version": "2026-08-09", "summary": "价格、优惠、风险和时机建议仅基于已获得的来源证据，不保证实时性或成交结果；下单、支付、退款和售后操作必须由用户确认并在平台完成。"}
+
+
 @app.get("/ready")
 def ready() -> JSONResponse:
     checks = {"database": database_health(), **infrastructure_health()}

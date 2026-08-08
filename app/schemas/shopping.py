@@ -233,6 +233,11 @@ class FamilyCreateRequest(BaseModel):
     name: str = Field(default="我的家庭", max_length=80)
 
 
+class FamilyInviteRequest(BaseModel):
+    family_id: str = Field(..., min_length=4, max_length=80)
+    email: str = Field(..., min_length=5, max_length=254)
+
+
 class ProductReviewInput(BaseModel):
     rating: float = Field(default=3, ge=1, le=5)
     content: str = Field(..., min_length=1, max_length=5000)

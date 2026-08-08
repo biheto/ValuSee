@@ -97,6 +97,74 @@ class AuthStore:
                 ON f.family_id=m.family_id WHERE m.user_id=? ORDER BY f.created_at DESC""", (user_id,)).fetchall()
         return [dict(row) for row in rows]
 
+    def invite_family_member(self, owner_id: str, family_id: str, email: str) -> dict[str, Any]:
+        normalized = email.strip().lower()
+        with self._session() as conn:
+            family = conn.execute("SELECT * FROM valuesee_family WHERE family_id=? AND owner_id=?", (family_id, owner_id)).fetchone()
+            member = conn.execute("SELECT user_id FROM valuesee_user WHERE email=? AND status='active'", (normalized,)).fetchone()
+            if not family:
+                raise ValueError("只有家庭所有者可以管理成员")
+            if not member:
+                raise ValueError("该邮箱尚未注册 ValuSee 账户")
+            now = utc_now_iso()
+            try:
+                conn.execute("INSERT INTO valuesee_family_member VALUES(?,?,?,?)", (family_id, member["user_id"], "member", now))
+            except Exception as exc:
+                if is_integrity_error(exc):
+                    raise ValueError("该用户已经在家庭中") from exc
+                raise
+        return {"family_id": family_id, "user_id": member["user_id"], "email": normalized, "role": "member", "created_at": now}
+
+    def export_account(self, user_id: str) -> dict[str, Any]:
+        tables = {
+            "monitors": ("shopping_price_monitor", "user_id"),
+            "purchases": ("shopping_purchase_record", "user_id"),
+            "captures": ("shopping_extension_capture", "user_id"),
+            "price_snapshots": ("shopping_price_snapshot", "user_id"),
+            "notifications": ("shopping_notification", "user_id"),
+        }
+        with self._session() as conn:
+            result = {"user": self.get_user(user_id), "families": [], **{key: [] for key in tables}}
+            result["families"] = [dict(row) for row in conn.execute("SELECT f.*,m.role FROM valuesee_family f JOIN valuesee_family_member m ON f.family_id=m.family_id WHERE m.user_id=?", (user_id,)).fetchall()]
+            for key, (table, column) in tables.items():
+                try:
+                    result[key] = [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE {column}=?", (user_id,)).fetchall()]
+                except Exception as exc:
+                    if exc.__class__.__name__ == "OperationalError":
+                        result[key] = []
+                    else:
+                        raise
+        return result
+
+    def delete_account(self, user_id: str) -> None:
+        if user_id == "local-user":
+            raise ValueError("本地演示账户不能执行删除")
+        tables = ("shopping_price_check", "shopping_price_monitor", "shopping_purchase_record", "shopping_extension_capture", "shopping_price_snapshot", "shopping_notification")
+        with self._session() as conn:
+            try:
+                monitor_ids = [row["monitor_id"] for row in conn.execute("SELECT monitor_id FROM shopping_price_monitor WHERE user_id=?", (user_id,)).fetchall()]
+            except Exception as exc:
+                if exc.__class__.__name__ != "OperationalError":
+                    raise
+                monitor_ids = []
+            for table in tables:
+                if table == "shopping_price_check":
+                    for monitor_id in monitor_ids:
+                        try:
+                            conn.execute("DELETE FROM shopping_price_check WHERE monitor_id=?", (monitor_id,))
+                        except Exception as exc:
+                            if exc.__class__.__name__ != "OperationalError":
+                                raise
+                else:
+                    try:
+                        conn.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))
+                    except Exception as exc:
+                        if exc.__class__.__name__ != "OperationalError":
+                            raise
+            conn.execute("DELETE FROM valuesee_family_member WHERE user_id=?", (user_id,))
+            conn.execute("DELETE FROM valuesee_family WHERE owner_id=?", (user_id,))
+            conn.execute("DELETE FROM valuesee_user WHERE user_id=?", (user_id,))
+
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)

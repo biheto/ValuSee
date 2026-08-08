@@ -15,6 +15,15 @@ The first release focuses on digital products and small appliances. The system m
 
 ## Completed
 
+### Productization and release hardening
+
+- Production Compose profile includes API, monitor worker, PostgreSQL/pgvector, Redis, RabbitMQ, and MinIO with health checks and non-root/read-only runtime settings.
+- `DATABASE_URL` switches account and shopping stores from local SQLite to PostgreSQL without changing business APIs.
+- Redis distributed rate limiting, RabbitMQ durable price events, S3/MinIO image storage, readiness probes, security headers, and trusted-host/CORS controls are wired.
+- Configurable official/affiliate commerce provider adapters and signed notification webhook delivery are available without pretending that unapproved platform credentials exist.
+- Account export, account deletion, family member invitation, privacy policy, and service terms endpoints are available.
+- Release and deployment acceptance criteria are recorded in `docs/VALUSee_PRODUCTION_RELEASE.md`.
+
 ### Consumer decision workbench
 
 - Four consumer views: product analysis, price monitoring, purchases, and report history.
