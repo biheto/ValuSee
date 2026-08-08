@@ -89,6 +89,90 @@ class ShoppingStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS shopping_extension_capture (
+                    capture_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    product_json TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    captured_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+    def create_extension_capture(
+        self,
+        *,
+        user_id: str,
+        product: dict[str, Any],
+        source: str,
+        captured_at: str | None,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        record = {
+            "capture_id": f"cap_{uuid4().hex}",
+            "user_id": user_id,
+            "status": "pending_confirmation",
+            "product": product,
+            "source": source,
+            "captured_at": captured_at or now,
+            "created_at": now,
+        }
+        with self._session() as conn:
+            conn.execute(
+                """
+                INSERT INTO shopping_extension_capture(
+                    capture_id, user_id, status, product_json, source, captured_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["capture_id"], record["user_id"], record["status"],
+                    json.dumps(product, ensure_ascii=False), record["source"],
+                    record["captured_at"], record["created_at"],
+                ),
+            )
+        return record
+
+    def list_extension_captures(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM shopping_extension_capture"
+        params: tuple[Any, ...] = ()
+        if user_id:
+            query += " WHERE user_id = ?"
+            params = (user_id,)
+        query += " ORDER BY created_at DESC LIMIT 100"
+        with self._session() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "capture_id": row["capture_id"], "user_id": row["user_id"],
+                "status": row["status"], "product": json.loads(row["product_json"]),
+                "source": row["source"], "captured_at": row["captured_at"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def confirm_extension_capture(self, capture_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE shopping_extension_capture SET status = 'imported' WHERE capture_id = ?",
+                (capture_id,),
+            )
+            row = conn.execute(
+                "SELECT * FROM shopping_extension_capture WHERE capture_id = ?",
+                (capture_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "capture_id": row["capture_id"], "user_id": row["user_id"],
+            "status": row["status"], "product": json.loads(row["product_json"]),
+            "source": row["source"], "captured_at": row["captured_at"],
+            "created_at": row["created_at"],
+        }
 
     def create_monitor(
         self,

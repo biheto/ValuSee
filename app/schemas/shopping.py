@@ -52,6 +52,23 @@ class ShoppingImageResponse(BaseModel):
     warning: str = ""
 
 
+class ShoppingExtensionCaptureRequest(BaseModel):
+    user_id: str = "local-user"
+    product: ShoppingProductInput
+    source: str = "browser_extension"
+    captured_at: Optional[str] = None
+
+
+class ShoppingExtensionCaptureResponse(BaseModel):
+    capture_id: str
+    user_id: str
+    status: str
+    product: ShoppingProductInput
+    source: str
+    captured_at: str
+    created_at: str
+
+
 class ShoppingProfile(BaseModel):
     budget: float = 0.0
     use_case: str = ""

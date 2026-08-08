@@ -54,6 +54,8 @@ from app.schemas.shopping import (
     PurchaseCreateRequest,
     PurchaseResponse,
     ShoppingDecisionRequest,
+    ShoppingExtensionCaptureRequest,
+    ShoppingExtensionCaptureResponse,
     ShoppingImageResponse,
     ShoppingProductInput,
     ShoppingParseUrlRequest,
@@ -156,6 +158,32 @@ async def parse_shopping_image(file: UploadFile = File(...)) -> ShoppingImageRes
     finally:
         await file.close()
     return ShoppingImageResponse(**result)
+
+
+@router.post("/shopping/extension/captures", response_model=ShoppingExtensionCaptureResponse, tags=["Shopping Decision"])
+def create_extension_capture(request: ShoppingExtensionCaptureRequest) -> ShoppingExtensionCaptureResponse:
+    if not request.product.url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="扩展采集必须包含有效商品页面地址")
+    record = shopping_store.create_extension_capture(
+        user_id=request.user_id,
+        product=request.product.model_dump(),
+        source=request.source,
+        captured_at=request.captured_at,
+    )
+    return ShoppingExtensionCaptureResponse(**record)
+
+
+@router.get("/shopping/extension/captures", response_model=list[ShoppingExtensionCaptureResponse], tags=["Shopping Decision"])
+def list_extension_captures(user_id: str | None = None) -> list[ShoppingExtensionCaptureResponse]:
+    return [ShoppingExtensionCaptureResponse(**item) for item in shopping_store.list_extension_captures(user_id)]
+
+
+@router.post("/shopping/extension/captures/{capture_id}/confirm", response_model=ShoppingExtensionCaptureResponse, tags=["Shopping Decision"])
+def confirm_extension_capture(capture_id: str) -> ShoppingExtensionCaptureResponse:
+    record = shopping_store.confirm_extension_capture(capture_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="扩展采集记录不存在")
+    return ShoppingExtensionCaptureResponse(**record)
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])

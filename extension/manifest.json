@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ValuSee 见值",
+  "version": "0.1.0",
+  "description": "将当前商品页的可见价格和规格发送到 ValuSee，先确认再比较。",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8200/*",
+    "http://localhost:8200/*",
+    "https://*.jd.com/*",
+    "https://*.taobao.com/*",
+    "https://*.tmall.com/*",
+    "https://*.pinduoduo.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "添加到 ValuSee",
+    "default_popup": "popup.html",
+    "default_icon": { "128": "icons/icon128.png" }
+  },
+  "icons": { "128": "icons/icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://*.jd.com/*", "https://*.taobao.com/*", "https://*.tmall.com/*", "https://*.pinduoduo.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

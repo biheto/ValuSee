@@ -43,7 +43,7 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 | URL input | MVP complete | User-supplied URL parsing; price/spec confirmation remains explicit. |
 | Screenshot OCR | MVP complete | Secure upload, SHA-256, MIME/size validation, optional Tesseract adapter, explicit fallback, and editable product draft are implemented. |
 | Product understanding model | Partial | OCR text normalization extracts title, known brand, model token, and visible price; richer category/spec extraction remains. |
-| Browser extension | Planned | Manifest V3 design is defined; extension package is pending. |
+| Browser extension | MVP complete | Load-unpacked Manifest V3 package reads user-visible fields on supported product pages and writes a confirmation inbox. |
 | Authorized commerce APIs | Planned | Requires platform credentials and approved data contracts. |
 | Price monitor scheduler | Partial | Persistent records and manual checks exist; external scheduler/worker is pending. |
 | Notifications | Partial | In-app status is modeled; email/push/browser delivery is pending. |
@@ -56,8 +56,7 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 ## Next implementation order
 
 1. Product understanding normalization and user confirmation workflow.
-2. Browser extension MVP for user-visible product fields.
-4. PostgreSQL/Redis/object storage/queue compose profile and repository interfaces.
+2. PostgreSQL/Redis/object storage/queue compose profile and repository interfaces.
 5. Durable monitor worker, retries, idempotency, and notification adapters.
 6. Account, session, personal/family scopes, export, and deletion flows.
 7. Historical price snapshots and price-position calculations.
