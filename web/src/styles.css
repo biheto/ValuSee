@@ -19,9 +19,9 @@ button { border: 0; cursor: pointer; }
 .brand-wordmark div strong, .brand-wordmark div span { display: block; }
 .brand-wordmark div strong { color: #263633; font-size: 24px; line-height: 1; }
 .brand-wordmark div span { margin-top: 5px; color: #e75a68; font-size: 12px; font-weight: 900; }
-.brand-lockup strong, .brand-lockup span { display: block; }
-.brand-lockup strong { font-size: 21px; letter-spacing: .02em; }
-.brand-lockup span { margin-top: 2px; color: #788180; font-size: 12px; }
+.brand-lockup > div > strong, .brand-lockup > div > span { display: block; }
+.brand-lockup > div > strong { font-size: 21px; letter-spacing: .02em; }
+.brand-lockup > div > span { margin-top: 2px; color: #788180; font-size: 12px; }
 .app-header nav { display: flex; align-items: center; gap: 5px; padding: 5px; border: 1px solid rgba(28, 45, 45, .07); border-radius: 15px; background: rgba(255,255,255,.62); box-shadow: 0 8px 25px rgba(57, 73, 64, .07); }
 .app-header nav button, .profile-button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 13px; border-radius: 11px; color: #697473; background: transparent; font-size: 13px; font-weight: 800; }
 .app-header nav button.active { color: #243535; background: #fff; box-shadow: 0 5px 14px rgba(47, 66, 58, .1); }
