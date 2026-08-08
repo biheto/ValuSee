@@ -7,7 +7,7 @@ button { border: 0; cursor: pointer; }
 .valuesee-app { width: min(1240px, calc(100vw - 36px)); margin: 0 auto; padding: 18px 0 64px; }
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-height: 74px; padding: 8px 6px 18px; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; min-width: 185px; }
-.brand-mark { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 16px; color: #fff; font-size: 25px; font-weight: 900; background: linear-gradient(135deg, #ff9a54, #fa5275); box-shadow: 0 12px 24px rgba(250, 82, 117, .25); }
+.brand-logo { display: block; width: 48px; height: 48px; border-radius: 15px; object-fit: cover; box-shadow: 0 12px 24px rgba(250, 82, 117, .2); }
 .brand-lockup strong, .brand-lockup span { display: block; }
 .brand-lockup strong { font-size: 21px; letter-spacing: .02em; }
 .brand-lockup span { margin-top: 2px; color: #788180; font-size: 12px; }
@@ -32,6 +32,9 @@ input, select { border: 1px solid #e1e7e0; border-radius: 10px; padding: 10px 11
 .primary-button, .decision-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 43px; padding: 0 17px; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #f27763, #de4f75); box-shadow: 0 10px 22px rgba(222, 79, 117, .22); font-weight: 900; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .hero-aside { display: grid; place-items: center; }
+.hero-visual { position: relative; width: min(360px, 76vw); padding: 16px; border-radius: 30px; background: linear-gradient(145deg, rgba(255,255,255,.75), rgba(255,236,191,.42)); box-shadow: 0 25px 55px rgba(235, 132, 94, .16), inset 0 1px 0 #fff; }
+.hero-visual img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; mix-blend-mode: multiply; }
+.visual-badge { position: absolute; right: -16px; bottom: 34px; padding: 10px 14px; border-radius: 12px; color: #374542; background: rgba(255,255,255,.88); box-shadow: 0 10px 24px rgba(53, 74, 62, .13); font-size: 12px; font-weight: 900; }
 .hero-orbit { position: relative; width: min(330px, 72vw); aspect-ratio: 1; border: 1px solid rgba(245, 183, 70, .35); border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.85) 0 27%, rgba(255,220,115,.18) 28% 45%, transparent 46%), conic-gradient(from 30deg, rgba(244,91,116,.2), rgba(244,208,76,.25), rgba(66,193,164,.2), rgba(244,91,116,.2)); box-shadow: 0 25px 55px rgba(246, 177, 64, .18); }
 .hero-orbit::before, .hero-orbit::after { position: absolute; content: ""; border: 1px solid rgba(31, 79, 69, .14); border-radius: 50%; inset: 12%; transform: rotate(20deg) scaleY(.42); }
 .hero-orbit::after { inset: 25%; transform: rotate(-18deg) scaleY(.5); }
