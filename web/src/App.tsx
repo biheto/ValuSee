@@ -67,6 +67,7 @@ import {
   rejectMemory,
   reviewTask,
   runBenchmark,
+  runBusinessScenarioStream,
   runCollaborationTaskStream,
   runLlmPromptAbTest,
   runTaskStream,
@@ -98,6 +99,7 @@ import {
   BenchmarkCase,
   BenchmarkRun,
   BenchmarkType,
+  BusinessScenarioCode,
   ExecutionMode,
   LearningChatResponse,
   LearningPlanRecord,
@@ -245,6 +247,11 @@ export function App() {
     return views.includes(requested as ViewKey) ? requested as ViewKey : 'run';
   });
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('workflow');
+  const [businessScenario, setBusinessScenario] = useState<BusinessScenarioCode | null>(null);
+  const [prBase, setPrBase] = useState('');
+  const [prHead, setPrHead] = useState('');
+  const [prUrl, setPrUrl] = useState('');
+  const [postPrComment, setPostPrComment] = useState(false);
   const [goal, setGoal] = useState('分析这个项目并给出重构建议');
   const [projectPath, setProjectPath] = useState(defaultProjectPath);
   const [maxFiles, setMaxFiles] = useState(100);
@@ -792,6 +799,31 @@ export function App() {
 
   async function handleRunTask(event: FormEvent) {
     event.preventDefault();
+    if (businessScenario) {
+      resetRunOutput();
+      try {
+        await runBusinessScenarioStream({
+          business_scenario: businessScenario,
+          project_path: projectPath,
+          goal,
+          max_files: maxFiles,
+          require_human_review: requireReview,
+          pr_base: prBase || undefined,
+          pr_head: prHead || undefined,
+          pr_url: prUrl || undefined,
+          post_comment: postPrComment,
+        }, consumeTaskPayload);
+        await refreshTasks();
+        await refreshLlmTraces();
+        await refreshLlmGovernance();
+        setActiveView('reports');
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      } finally {
+        setRunning(false);
+      }
+      return;
+    }
     if (executionMode === 'workflow') {
       const approvalsForRun = await listSkillApprovals();
       setSkillApprovals(approvalsForRun);
@@ -1405,7 +1437,28 @@ export function App() {
           <section className="page-grid run-page">
             <div className="panel run-panel">
               <PanelTitle icon={<Play size={17} />} title="运行入口" />
-              <ModeTabs executionMode={executionMode} onChange={setExecutionMode} />
+              <BusinessScenarioPicker
+                selected={businessScenario}
+                prBase={prBase}
+                prHead={prHead}
+                prUrl={prUrl}
+                onPrUrlChange={setPrUrl}
+                postComment={postPrComment}
+                onPostCommentChange={setPostPrComment}
+                onPrBaseChange={setPrBase}
+                onPrHeadChange={setPrHead}
+                onSelect={(scenario, scenarioGoal) => {
+                  setBusinessScenario(scenario);
+                  setGoal(scenarioGoal);
+                  setExecutionMode('collaboration');
+                  setWorkflowName(`business_${scenario}`);
+                }}
+                onClear={() => setBusinessScenario(null)}
+              />
+              <ModeTabs executionMode={executionMode} onChange={(mode) => {
+                setBusinessScenario(null);
+                setExecutionMode(mode);
+              }} />
               <ModeHint executionMode={executionMode} />
               <AnalysisGuide onApply={applyGuide} />
               <RunForm
@@ -1414,7 +1467,7 @@ export function App() {
                 maxFiles={maxFiles}
                 requireReview={requireReview}
                 running={running}
-                submitLabel={modeHelp[executionMode].button}
+                submitLabel={businessScenario ? '运行当前业务场景' : modeHelp[executionMode].button}
                 onGoalChange={setGoal}
                 onProjectPathChange={setProjectPath}
                 onMaxFilesChange={setMaxFiles}
@@ -1752,6 +1805,70 @@ function ModeHint({ executionMode }: { executionMode: ExecutionMode }) {
     <div className="mode-hint">
       <strong>{help.title}</strong>
       <p>{help.description}</p>
+    </div>
+  );
+}
+
+function BusinessScenarioPicker({
+  selected,
+  prBase,
+  prHead,
+  prUrl,
+  postComment,
+  onSelect,
+  onClear,
+  onPrBaseChange,
+  onPrHeadChange,
+  onPrUrlChange,
+  onPostCommentChange,
+}: {
+  selected: BusinessScenarioCode | null;
+  prBase: string;
+  prHead: string;
+  prUrl: string;
+  postComment: boolean;
+  onSelect: (scenario: BusinessScenarioCode, goal: string) => void;
+  onClear: () => void;
+  onPrBaseChange: (value: string) => void;
+  onPrHeadChange: (value: string) => void;
+  onPrUrlChange: (value: string) => void;
+  onPostCommentChange: (value: boolean) => void;
+}) {
+  const scenarios: Array<{ code: BusinessScenarioCode; title: string; value: string; icon: typeof BookOpen }> = [
+    { code: 'onboarding', title: '项目入职', value: '生成项目架构导览、关键模块说明、风险清单和新成员学习路径。', icon: BookOpen },
+    { code: 'pr_review', title: 'PR 风险审查', value: '审查当前 Git 变更的影响范围、代码风险和测试缺口，给出合并决策。', icon: ShieldCheck },
+    { code: 'governance', title: '架构治理', value: '检查架构漂移、依赖风险和技术债，输出可执行的治理优先级。', icon: Activity },
+  ];
+  return (
+    <div className="business-scenarios">
+      <div className="business-scenario-heading">
+        <div><strong>业务场景</strong><span>选择后运行真实任务闭环</span></div>
+        {selected ? <button type="button" onClick={onClear}>返回通用模式</button> : null}
+      </div>
+      <div className="business-scenario-grid">
+        {scenarios.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              type="button"
+              key={item.code}
+              className={selected === item.code ? 'active' : ''}
+              onClick={() => onSelect(item.code, item.value)}
+            >
+              <Icon size={16} />
+              <span><strong>{item.title}</strong><small>{item.value}</small></span>
+            </button>
+          );
+        })}
+      </div>
+      {selected === 'pr_review' ? (
+        <div className="business-pr-range">
+          <label className="business-pr-url">GitHub PR URL<input value={prUrl} onChange={(event) => onPrUrlChange(event.target.value)} placeholder="https://github.com/owner/repo/pull/123" /></label>
+          <label className="business-pr-comment"><input type="checkbox" checked={postComment} onChange={(event) => onPostCommentChange(event.target.checked)} />审查完成后回写 GitHub PR 评论</label>
+          <label>Base（可选）<input value={prBase} onChange={(event) => onPrBaseChange(event.target.value)} placeholder="例如 main" /></label>
+          <label>Head（可选）<input value={prHead} onChange={(event) => onPrHeadChange(event.target.value)} placeholder="留空则审查工作区 diff" /></label>
+        </div>
+      ) : null}
     </div>
   );
 }

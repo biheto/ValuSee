@@ -4,7 +4,15 @@
 
 <a id="english"></a>
 
-DevAgent Studio is an open-source multi-agent workbench for **software project understanding and engineering governance**. It is built with FastAPI, LangGraph, and React to help teams inspect project structure, review code risks, preserve project knowledge, govern AI and tool calls, and run traceable workflows.
+DevAgent Studio is an open-source multi-agent workbench for **software project understanding and engineering governance**. It helps engineering teams understand unfamiliar systems faster, identify change risks before code is merged, and continuously manage architecture drift and technical debt.
+
+The product is organized around three practical workflows:
+
+- **PR Change Risk Review**: inspect a pull request, trace its likely impact, identify risks and test gaps, and produce an auditable review decision.
+- **Project Onboarding**: turn an unfamiliar repository into an architecture tour, module guide, learning plan, and interactive project coach for new team members.
+- **Architecture and Technical Debt Governance**: periodically detect coupling, dependency risk, architecture drift, and deviations from project standards before they become expensive problems.
+
+These workflows share the same governed runtime and project knowledge, so review findings, architecture decisions, and team conventions can be reused instead of being lost in separate conversations.
 
 It is deliberately not a code-writing IDE. Its focus is making software delivery work easier to understand, audit, evaluate, and improve.
 
@@ -21,6 +29,26 @@ It is deliberately not a code-writing IDE. Its focus is making software delivery
 - **Safe third-party code execution**: Code Skills can run in a constrained Docker sandbox with no network, read-only mounts, resource limits, and audit logs.
 - **Governed RAG that can be evaluated**: project knowledge now supports incremental indexing, document versions, ACL filtering, hybrid retrieval, optional LLM rerank, and editable chunk-level Gold Sets.
 - **Switchable Colorful and Clear UI**: the React workbench can switch between a colorful theme with yellow/green/blue/pink environmental light pillars and a clear SVG-refraction liquid-glass theme with pointer ripples, hover lift, and connected mode transitions. The selected theme is persisted locally.
+
+## Business Workflows
+
+DevAgent Studio is designed to turn project intelligence into repeatable engineering actions, not just generate one-off summaries.
+
+| Workflow | Input | Result | Business value |
+| --- | --- | --- | --- |
+| PR Change Risk Review | Repository, branch, or pull request diff | Impact scope, call-chain risks, findings, test gaps, and review decision | Finds regression risk before merge and gives reviewers evidence they can audit. |
+| Project Onboarding | Repository and a developer's learning goal | Architecture map, module guide, learning plan, and follow-up coaching | Reduces the time required for a new engineer to become productive. |
+| Architecture and Technical Debt Governance | Repository snapshots, project rules, and historical reports | Drift findings, dependency risks, technical-debt priorities, and governance actions | Makes architecture quality visible and supports continuous improvement. |
+
+The three workflows use a shared project context, governed RAG knowledge, long-term memory, Skills, MCP tools, and human review. A team can start with one workflow and add the others without creating a separate AI system.
+
+See the detailed input/output examples in [Business Scenarios](docs/BUSINESS_SCENARIOS.md).
+
+### Runnable business workflows
+
+The Run page now has three first-class business scenario entries: **Project Onboarding**, **PR Change Risk Review**, and **Architecture Governance**. Each one creates a persisted Harness task, emits timeline events, produces a structured report, and can enter the existing human-review/resume flow. The same scenarios are available through `/api/v1/business-scenarios/run` and its streaming variant. See the runnable payloads under [`examples/business`](examples/business/).
+
+The PR workflow accepts a GitHub PR URL and can post its governance report back to the PR conversation. A signed GitHub Pull Request webhook triggers the same persisted workflow on `opened`, `reopened`, and `synchronize`. Configure `GITHUB_TOKEN` and `GITHUB_WEBHOOK_SECRET` in `.env`; setup details are in [Business Scenarios](docs/BUSINESS_SCENARIOS.md).
 
 ## Product Preview / 页面预览
 
@@ -363,7 +391,15 @@ https://github.com/biheto/DevAgent-Studio
 
 # DevAgent Studio 中文说明
 
-DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多 Agent 工作台。项目基于 FastAPI、LangGraph 和 React 构建，用于帮助团队理解项目结构、识别代码风险、沉淀项目知识、治理 LLM 与工具调用，并执行可追踪的研发工作流。
+DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多 Agent 工作台。它帮助研发团队更快看懂陌生系统、在代码合并前发现变更风险，并持续治理架构漂移与技术债。
+
+产品围绕三个实际业务工作流展开：
+
+- **PR 变更风险审查**：分析 Pull Request 的影响范围、调用链风险和测试缺口，辅助审核并生成可审计的决策报告。
+- **项目入职与架构学习**：把陌生仓库转化为架构导览、模块说明、学习计划和交互式项目陪练，帮助新人更快进入项目。
+- **架构与技术债治理**：定期发现模块耦合、依赖风险、架构漂移和规范偏离，形成可执行的治理建议。
+
+三个场景共享同一套项目上下文和治理能力，因此审核结论、架构决策和团队规范可以持续复用，而不是散落在不同的对话中。
 
 它不是代码编写 IDE，核心目标是让研发过程更容易理解、审计、评估和持续改进。
 
@@ -380,6 +416,20 @@ DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多
 - **遗忘衰减而非无限累积**：稳定规则长期保留；普通偏好进入 90 天复核，到期后标记为 `expired` 并退出检索，但保留审计记录，可由用户刷新、更新或删除，避免陈旧偏好和过时决策持续干扰 Agent。
 - **RAG 治理与可评测**：知识库支持增量索引、文档版本化、ACL 权限过滤、BM25/向量混合检索、可选 LLM Rerank 和 Chunk Gold Set。
 - **缤纷 / 清透双主题 UI**：顶部可在带黄绿蓝粉彩色环境光柱的“缤纷”主题与 SVG 折射水玻璃“清透”主题之间切换；清透模式支持边缘折射、悬浮阴影、点击涟漪和模式按钮液态连贯切换，并在浏览器本地保存用户选择。
+
+## 业务工作流
+
+DevAgent Studio 的目标不是只生成一次性的项目摘要，而是把项目理解转化为可以重复执行、审核和追踪的研发动作。
+
+| 工作流 | 输入 | 输出 | 业务价值 |
+| --- | --- | --- | --- |
+| PR 变更风险审查 | 仓库、分支或 Pull Request Diff | 影响范围、调用链风险、问题发现、测试缺口和审核结论 | 在合并前发现回归风险，为审核者提供可追溯的证据。 |
+| 项目入职与架构学习 | 项目仓库和开发者学习目标 | 架构导览、模块手册、学习计划和追问陪练 | 缩短新人熟悉项目的时间，减少重复讲解成本。 |
+| 架构与技术债治理 | 项目快照、团队规范和历史报告 | 架构漂移、依赖风险、技术债优先级和治理动作 | 让架构质量可见，并支持持续改进而不是问题爆发后再处理。 |
+
+三个工作流共用项目上下文、受控 RAG、长期记忆、Skill、MCP 工具和人工审核。团队可以先启用一个场景，再逐步扩展到其他研发治理流程。
+
+详细的输入、处理链路和输出示例见 [业务场景说明](docs/BUSINESS_SCENARIOS.md)。
 
 ## 核心能力
 

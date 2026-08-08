@@ -1,0 +1,7 @@
+{
+  "business_scenario": "onboarding",
+  "project_path": "D:/path/to/repository",
+  "goal": "生成项目架构导览、关键模块说明和新成员学习路径。",
+  "max_files": 300,
+  "require_human_review": true
+}

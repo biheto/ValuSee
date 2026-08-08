@@ -1,0 +1,7 @@
+{
+  "business_scenario": "governance",
+  "project_path": "D:/path/to/repository",
+  "goal": "检查架构漂移、依赖风险和技术债，并给出治理优先级。",
+  "max_files": 500,
+  "require_human_review": true
+}

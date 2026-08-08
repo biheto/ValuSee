@@ -4,7 +4,7 @@ import json
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request
 from fastapi.responses import StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
@@ -15,6 +15,7 @@ from app.benchmark_runner import (
     run_rag_benchmark,
     run_workflow_benchmark,
 )
+from app.business_scenarios import SCENARIOS, run_business_scenario
 from app.graphs.project_analyzer_graph import project_analyzer_graph
 from app.graphs.studio_graphs import (
     code_review_graph,
@@ -32,6 +33,7 @@ from app.graphs.workflow_compiler import (
 from app.harness.events import utc_now_iso
 from app.harness.policy import tool_policy
 from app.harness.runtime import harness_runtime
+from app.integrations.github import parse_pull_request_url, verify_webhook_signature
 from app.marketplace.catalog import marketplace_catalog
 from app.persistence.memory_store import memory_store
 from app.marketplace.installer import install_marketplace_package, preview_marketplace_package, uninstall_marketplace_package
@@ -45,6 +47,7 @@ from app.skills.sandbox import python_skill_sandbox_status
 from app.schemas.studio import (
     BenchmarkRunRequest,
     BenchmarkRunResponse,
+    BusinessScenarioRequest,
     CodeReviewRequest,
     CodeReviewResponse,
     CollaborationRequest,
@@ -96,6 +99,84 @@ from app.schemas.studio import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["DevAgent Studio"])
+
+
+@router.get("/business-scenarios", tags=["Business Scenarios"])
+def list_business_scenarios() -> dict[str, object]:
+    return {"scenarios": [{"code": code, **item} for code, item in SCENARIOS.items()]}
+
+
+@router.post("/integrations/github/webhook", tags=["GitHub Integration"])
+async def github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_github_event: str | None = Header(default=None),
+    x_hub_signature_256: str | None = Header(default=None),
+) -> dict[str, object]:
+    body = await request.body()
+    if not verify_webhook_signature(body, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid GitHub webhook signature")
+    payload = json.loads(body.decode("utf-8"))
+    action = str(payload.get("action") or "")
+    pull_request = payload.get("pull_request") or {}
+    if x_github_event != "pull_request" or action not in {"opened", "synchronize", "reopened"} or not pull_request:
+        return {"accepted": True, "ignored": True, "reason": "event is not a supported pull_request action"}
+    pr_url = str(pull_request.get("html_url") or "")
+    parse_pull_request_url(pr_url)
+    background_tasks.add_task(_run_github_webhook_review, pr_url, payload)
+    return {"accepted": True, "ignored": False, "action": action, "pr_url": pr_url}
+
+
+def _run_github_webhook_review(pr_url: str, payload: dict[str, object]) -> None:
+    pull_request = payload.get("pull_request") or {}
+    base = (pull_request.get("base") or {}).get("ref") if isinstance(pull_request, dict) else None
+    head = (pull_request.get("head") or {}).get("ref") if isinstance(pull_request, dict) else None
+    request = BusinessScenarioRequest(
+        business_scenario="pr_review",
+        project_path=None,
+        goal=f"审查 GitHub PR: {pr_url}",
+        pr_url=pr_url,
+        pr_base=str(base) if base else None,
+        pr_head=str(head) if head else None,
+        require_human_review=True,
+        post_comment=True,
+    )
+    run_business_scenario_api(request)
+
+
+@router.post("/business-scenarios/run", response_model=TaskRunResponse, tags=["Business Scenarios"])
+def run_business_scenario_api(request: BusinessScenarioRequest) -> TaskRunResponse:
+    scenario = SCENARIOS.get(request.business_scenario)
+    if not scenario:
+        raise HTTPException(status_code=400, detail="Unsupported business scenario")
+    goal = request.goal or scenario["description"]
+    context = harness_runtime.create_context(
+        goal=goal,
+        project_path=request.project_path,
+        variables={"business_scenario": request.business_scenario, "max_files": request.max_files},
+    )
+    try:
+        result = harness_runtime.run_graph(context, run_business_scenario, {**request.model_dump(), "goal": goal})
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TaskRunResponse(**result)
+
+
+@router.post("/business-scenarios/run/stream", tags=["Business Scenarios"])
+async def run_business_scenario_stream(request: BusinessScenarioRequest) -> StreamingResponse:
+    async def event_stream() -> AsyncIterator[str]:
+        try:
+            response = run_business_scenario_api(request)
+            for event in response.events:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            payload = {"type": "task_result", "task_id": response.task_id, "status": response.status, **response.result}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+        finally:
+            yield "data: {\"type\": \"complete\", \"completed\": true}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/projects/analyze", response_model=ProjectAnalyzeResponse, tags=["Project Analyzer"])

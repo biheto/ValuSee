@@ -4,6 +4,7 @@ import {
   BenchmarkCase,
   BenchmarkRun,
   BenchmarkType,
+  BusinessScenarioCode,
   ExecutionMode,
   LearningChatResponse,
   LearningPlanRecord,
@@ -38,6 +39,47 @@ import {
 } from './types';
 
 const API_BASE = '';
+
+async function consumeEventStream(response: Response, onEvent: (event: AgentEvent | Record<string, unknown>) => void) {
+  if (!response.ok || !response.body) throw await apiError(response, 'Task stream failed');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() ?? '';
+    for (const chunk of chunks) {
+      const line = chunk.split('\n').find((item) => item.startsWith('data: '));
+      const raw = line?.slice(6).trim();
+      if (raw) onEvent(JSON.parse(raw));
+    }
+  }
+}
+
+export async function runBusinessScenarioStream(
+  payload: {
+    business_scenario: BusinessScenarioCode;
+    project_path: string;
+    goal: string;
+    max_files: number;
+    require_human_review: boolean;
+    pr_base?: string;
+    pr_head?: string;
+    pr_url?: string;
+    post_comment?: boolean;
+  },
+  onEvent: (event: AgentEvent | Record<string, unknown>) => void,
+) {
+  const response = await fetch(`${API_BASE}/api/v1/business-scenarios/run/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  await consumeEventStream(response, onEvent);
+}
 
 async function apiError(response: Response, fallback: string): Promise<Error> {
   const data = await response.json().catch(() => ({}));

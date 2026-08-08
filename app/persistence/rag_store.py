@@ -347,7 +347,9 @@ class PgVectorRagStore:
             import psycopg
         except ImportError as exc:
             raise RuntimeError("psycopg is required. Install with: pip install -e \".[vector]\"") from exc
-        return psycopg.connect(self.database_url)
+        # Keep API startup responsive when Docker/Postgres is stopped. The active
+        # store can still be selected explicitly once pgvector is available.
+        return psycopg.connect(self.database_url, connect_timeout=3)
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
@@ -713,7 +715,12 @@ class PgVectorRagStore:
 def create_rag_store() -> SQLiteRagStore | PgVectorRagStore:
     kind = _config().get("DEV_AGENT_RAG_STORE", "sqlite").lower()
     if kind == "pgvector":
-        return PgVectorRagStore()
+        try:
+            return PgVectorRagStore()
+        except Exception:
+            if _config().get("DEV_AGENT_RAG_STRICT", "false").lower() == "true":
+                raise
+            return SQLiteRagStore()
     return SQLiteRagStore()
 
 

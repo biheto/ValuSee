@@ -1,4 +1,5 @@
 export type ExecutionMode = 'agent' | 'workflow' | 'tool' | 'knowledge' | 'collaboration' | 'planner';
+export type BusinessScenarioCode = 'onboarding' | 'pr_review' | 'governance';
 
 export type AgentEvent = {
   event_id?: string;

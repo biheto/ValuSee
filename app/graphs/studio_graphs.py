@@ -41,7 +41,7 @@ def _code_review_node(state: StudioState) -> StudioState:
 
 def _rag_process_node(state: StudioState) -> StudioState:
     context = SkillContext(agent_code="rag_processor")
-    return {**state, "result": skill_registry.execute("rag.process", context, state)}
+    return {**state, "result": skill_registry.execute("rag.chunk", context, state)}
 
 
 def _learning_node(state: StudioState) -> StudioState:

@@ -1,0 +1,9 @@
+{
+  "business_scenario": "pr_review",
+  "project_path": "D:/path/to/repository",
+  "goal": "审查本次变更的影响范围、风险和测试缺口。",
+  "pr_base": "main",
+  "pr_head": "feature/example",
+  "max_files": 300,
+  "require_human_review": true
+}

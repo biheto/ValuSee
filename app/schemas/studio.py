@@ -409,3 +409,15 @@ class TaskRunResponse(BaseModel):
     status: str
     events: list[dict[str, Any]]
     result: dict[str, Any]
+
+
+class BusinessScenarioRequest(BaseModel):
+    business_scenario: str = Field(description="onboarding/pr_review/governance")
+    project_path: Optional[str] = None
+    goal: str = ""
+    max_files: int = Field(default=500, ge=1, le=5000)
+    require_human_review: bool = True
+    pr_base: Optional[str] = None
+    pr_head: Optional[str] = None
+    pr_url: Optional[str] = None
+    post_comment: bool = False

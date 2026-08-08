@@ -5778,6 +5778,109 @@ textarea {
   min-height: 0;
 }
 
+.business-scenarios {
+  display: grid;
+  gap: 9px;
+  margin: 12px 14px 0;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 20px rgba(48, 68, 91, 0.08);
+}
+
+.business-scenario-heading,
+.business-scenario-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.business-scenario-heading span {
+  color: #6a788a;
+  font-size: 10px;
+}
+
+.business-scenario-heading button {
+  border: 0;
+  background: transparent;
+  color: #28668f;
+  font-size: 11px;
+}
+
+.business-scenario-grid {
+  display: grid;
+  gap: 7px;
+}
+
+.business-scenario-grid > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 1px solid rgba(203, 214, 225, 0.86);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.42);
+  color: #34465b;
+  text-align: left;
+}
+
+.business-scenario-grid > button.active {
+  border-color: #76aeda;
+  background: rgba(224, 241, 252, 0.7);
+  box-shadow: 0 0 0 2px rgba(67, 139, 191, 0.1);
+}
+
+.business-scenario-grid span,
+.business-scenario-grid small {
+  display: block;
+  min-width: 0;
+}
+
+.business-scenario-grid small {
+  margin-top: 3px;
+  color: #68788b;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.business-pr-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.business-pr-url {
+  grid-column: 1 / -1;
+}
+
+.business-pr-comment {
+  grid-column: 1 / -1;
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 7px;
+}
+
+.business-pr-comment input {
+  width: 16px;
+  height: 16px;
+}
+
+.business-pr-range label {
+  font-size: 10px;
+}
+
+.business-pr-range input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+}
+
 .liquid-glass-defs {
   position: absolute;
   width: 0;
