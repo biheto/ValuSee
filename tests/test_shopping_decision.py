@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from app.shopping.graph import shopping_decision_graph_runner
+
+
+def _run(products, profile=None):
+    state = {
+        "goal": "购买决策",
+        "products": products,
+        "profile": profile or {},
+        "task_id": "task-shopping-test",
+        "events": [],
+    }
+    return shopping_decision_graph_runner(state)
+
+
+def test_same_sku_products_are_matched_as_same_item():
+    result = _run(
+        [
+            {
+                "title": "AirPods Pro 2 USB-C",
+                "platform": "JD",
+                "brand": "Apple",
+                "model": "AirPods Pro 2",
+                "sku": "APP2-USBC",
+                "specs": {"version": "USB-C", "generation": "2"},
+                "price": 1799,
+                "coupon": 100,
+                "shipping": 0,
+                "official_store": True,
+            },
+            {
+                "title": "AirPods Pro 2 USB-C 官方正品",
+                "platform": "Tmall",
+                "brand": "Apple",
+                "model": "AirPods Pro 2",
+                "sku": "APP2-USBC",
+                "specs": {"version": "USB-C", "generation": "2"},
+                "price": 1699,
+                "coupon": 50,
+                "shipping": 0,
+                "official_store": True,
+            },
+        ],
+        {"budget": 1800, "brand_preferences": ["Apple"], "acceptable_risk": "medium"},
+    )
+
+    assert result["result"]["best_index"] == 1
+    assert result["result"]["same_item_matches"][0]["relation"] == "same"
+    assert result["result"]["same_item_matches"][1]["relation"] == "same"
+
+
+def test_lightning_and_usb_c_are_not_treated_as_same_item():
+    result = _run(
+        [
+            {
+                "title": "AirPods Pro 2 USB-C",
+                "platform": "JD",
+                "brand": "Apple",
+                "model": "AirPods Pro 2",
+                "sku": "APP2-USBC",
+                "specs": {"version": "USB-C", "generation": "2"},
+                "price": 1799,
+                "official_store": True,
+            },
+            {
+                "title": "AirPods Pro 2 Lightning",
+                "platform": "JD",
+                "brand": "Apple",
+                "model": "AirPods Pro 2",
+                "sku": "APP2-LIGHT",
+                "specs": {"version": "Lightning", "generation": "2"},
+                "price": 1599,
+                "official_store": True,
+            },
+        ]
+    )
+
+    assert result["result"]["same_item_matches"][0]["relation"] == "same"
+    assert result["result"]["same_item_matches"][1]["relation"] != "same"
+    assert result["result"]["same_item_matches"][1]["confidence"] < 0.75
+
+
+def test_true_price_is_calculated_from_discount_breakdown():
+    result = _run(
+        [
+            {
+                "title": "27寸显示器",
+                "platform": "JD",
+                "brand": "Dell",
+                "model": "U2723",
+                "price": 1499,
+                "coupon": 100,
+                "platform_discount": 50,
+                "member_discount": 30,
+                "subsidy": 20,
+                "pay_discount": 10,
+                "shipping": 15,
+                "gift_value": 25,
+                "official_store": True,
+            }
+        ]
+    )
+
+    breakdown = result["result"]["price_breakdowns"][0]
+    assert breakdown["final_price"] == 1279.0
+
+
+def test_risk_and_budget_change_recommendation():
+    result = _run(
+        [
+            {
+                "title": "翻新版耳机",
+                "platform": "unknown",
+                "brand": "Apple",
+                "model": "AirPods Pro 2",
+                "price": 1299,
+                "official_store": False,
+                "condition": "二手",
+                "return_days": 3,
+                "warranty_months": 6,
+            },
+            {
+                "title": "官方新款耳机",
+                "platform": "JD",
+                "brand": "Apple",
+                "model": "AirPods Pro 2",
+                "price": 1799,
+                "coupon": 100,
+                "official_store": True,
+                "return_days": 7,
+                "warranty_months": 12,
+            },
+        ],
+        {"budget": 1700, "acceptable_risk": "medium"},
+    )
+
+    assert result["result"]["recommendation"] in {"recommend_buy", "compare_more", "wait"}
+    assert result["result"]["risk_reports"][0]["overall_risk"] == "high"
+    assert result["result"]["comparison_rows"][0]["suitable_for_user"] is False

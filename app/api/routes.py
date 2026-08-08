@@ -23,6 +23,7 @@ from app.graphs.studio_graphs import (
     learning_coach_graph,
     rag_process_graph,
 )
+from app.shopping.graph import shopping_decision_graph_runner
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
     resume_task_workflow,
@@ -84,6 +85,7 @@ from app.schemas.studio import (
     RagQueryResponse,
     ReviewActionRequest,
     ReviewActionResponse,
+    ShoppingDecisionRequest,
     TaskRunRequest,
     TaskQuestionRequest,
     TaskQuestionResponse,
@@ -167,6 +169,38 @@ async def run_business_scenario_stream(request: BusinessScenarioRequest) -> Stre
     async def event_stream() -> AsyncIterator[str]:
         try:
             response = run_business_scenario_api(request)
+            for event in response.events:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            payload = {"type": "task_result", "task_id": response.task_id, "status": response.status, **response.result}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+        finally:
+            yield "data: {\"type\": \"complete\", \"completed\": true}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/shopping/decide", response_model=TaskRunResponse, tags=["Shopping Decision"])
+def run_shopping_decision(request: ShoppingDecisionRequest) -> TaskRunResponse:
+    goal = request.goal or "为商品候选生成购买决策"
+    context = harness_runtime.create_context(goal=goal, variables={"shopping": True})
+    try:
+        result = harness_runtime.run_graph(
+            context,
+            shopping_decision_graph_runner,
+            {"goal": goal, **request.model_dump()},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TaskRunResponse(**result)
+
+
+@router.post("/shopping/decide/stream", tags=["Shopping Decision"])
+async def run_shopping_decision_stream(request: ShoppingDecisionRequest) -> StreamingResponse:
+    async def event_stream() -> AsyncIterator[str]:
+        try:
+            response = run_shopping_decision(request)
             for event in response.events:
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             payload = {"type": "task_result", "task_id": response.task_id, "status": response.status, **response.result}
