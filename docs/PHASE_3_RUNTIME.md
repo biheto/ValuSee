@@ -1,6 +1,6 @@
 # Phase 3：可观测多 Agent Runtime
 
-本阶段把 DevAgent Studio 从 Agent API MVP 升级为可运行、可记录、可回放的多 Agent Runtime。
+本阶段把 ValuSee 从 Agent API MVP 升级为可运行、可记录、可回放的多 Agent Runtime。
 
 ## 已完成内容
 
@@ -73,7 +73,7 @@
 项目要求 Python 3.11+。如果虚拟环境指向已经不存在的 Python 安装目录，需要删除并重建：
 
 ```powershell
-cd "D:\Java\project\Project\AI Agent\DevAgent Studio"
+cd "D:\Java\project\Project\AI Agent\ValuSee"
 Remove-Item -Recurse -Force .venv
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1

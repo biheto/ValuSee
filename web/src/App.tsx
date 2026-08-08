@@ -144,7 +144,7 @@ type FocusKind = 'module' | 'file';
 type ReportTab = 'final' | 'mentor' | 'mermaid' | 'governance';
 type UiTheme = 'classic' | 'liquid';
 
-const defaultProjectPath = 'D:/Java/project/Project/AI Agent/DevAgent Studio';
+const defaultProjectPath = 'D:/Java/project/Project/AI Agent/ValuSee';
 
 const modeItems: Array<{ mode: ExecutionMode; label: string; icon: typeof Boxes }> = [
   { mode: 'agent', label: 'Agent', icon: Boxes },
@@ -1120,7 +1120,7 @@ export function App() {
     setCoachTurn(nextTurn);
     setCoachReply(
       await chatLearningCoach({
-        topic: 'DevAgent Studio 项目理解',
+        topic: 'ValuSee 项目理解',
         level: 'beginner',
         question: '请根据我的回答继续陪练',
         answer: coachAnswer,
@@ -1157,7 +1157,7 @@ export function App() {
         const nextTurn = coachTurn + 1;
         setCoachTurn(nextTurn);
         const result = await chatLearningCoach({
-          topic: 'DevAgent Studio 项目理解',
+          topic: 'ValuSee 项目理解',
           level: 'beginner',
           question,
           answer: question,
@@ -1407,7 +1407,7 @@ export function App() {
       <main className="app-main">
         <header className="topbar">
           <div>
-            <h1>DevAgent Studio</h1>
+            <h1>ValuSee</h1>
             <span>可视化 Workflow 任务工作台</span>
           </div>
           <div className="topbar-actions">
@@ -2718,10 +2718,10 @@ function defaultMcpCallArguments(toolName: string, serverId: string) {
       ],
     },
     search_nodes: { query: 'DevAgent' },
-    open_nodes: { names: ['DevAgent Studio'] },
+    open_nodes: { names: ['ValuSee'] },
     read_graph: {},
-    add_observations: { observations: [{ entityName: 'DevAgent Studio', contents: ['MCP 页面测试调用使用真实工具参数模板'] }] },
-    create_relations: { relations: [{ from: 'DevAgent Studio', to: 'MCP 管理页面', relationType: 'contains feature' }] },
+    add_observations: { observations: [{ entityName: 'ValuSee', contents: ['MCP 页面测试调用使用真实工具参数模板'] }] },
+    create_relations: { relations: [{ from: 'ValuSee', to: 'MCP 管理页面', relationType: 'contains feature' }] },
   };
   return JSON.stringify(samples[name] ?? {}, null, 2);
 }
@@ -2737,7 +2737,7 @@ function defaultBenchmarkCases(type: BenchmarkType = 'mcp'): BenchmarkCase[] {
           agent: 'planner',
           prompt_version: 'planner.v1',
           system_prompt: 'You are a concise software project planning agent.',
-          user_prompt: 'Plan how to analyze DevAgent Studio from architecture, risks, knowledge, and workflow.',
+          user_prompt: 'Plan how to analyze ValuSee from architecture, risks, knowledge, and workflow.',
           fallback: 'Analyze architecture, risks, knowledge assets, workflow runtime, and next actions.',
           expected_keywords: ['architecture', 'risk', 'workflow'],
         },
@@ -2791,7 +2791,7 @@ function defaultBenchmarkCases(type: BenchmarkType = 'mcp'): BenchmarkCase[] {
         tool_name: 'workflow.run',
         arguments: {
           workflow_name: 'benchmark_planner_reporter',
-          input_text: 'Create a short governance summary for DevAgent Studio.',
+          input_text: 'Create a short governance summary for ValuSee.',
           nodes: [
             { id: 'plan', type: 'planner', name: 'Planner', config: {} },
             { id: 'report', type: 'reporter', name: 'Reporter', config: {} },
@@ -2809,7 +2809,7 @@ function defaultBenchmarkCases(type: BenchmarkType = 'mcp'): BenchmarkCase[] {
         case_id: 'collab_project_governance',
         tool_name: 'collaboration.run',
         arguments: {
-          goal: 'Analyze DevAgent Studio and produce project structure, code risk, knowledge, and governance suggestions.',
+          goal: 'Analyze ValuSee and produce project structure, code risk, knowledge, and governance suggestions.',
           project_path: projectPath,
           max_files: 80,
           require_human_review: true,
@@ -4158,7 +4158,7 @@ function LlmGovernancePage({
     agent: 'planner',
     prompt_a: 'planner.v1',
     prompt_b: 'planner.v2',
-    system_prompt: '你是 DevAgent Studio 的 Prompt A/B 测试执行器。请输出结构清晰、可验证、可行动的中文回答。',
+    system_prompt: '你是 ValuSee 的 Prompt A/B 测试执行器。请输出结构清晰、可验证、可行动的中文回答。',
     user_prompt: '请分析一个 FastAPI + LangGraph 项目的风险，并给出治理建议。',
     fallback: 'LLM 未配置或调用失败，返回 fallback。',
   });

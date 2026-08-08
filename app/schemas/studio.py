@@ -357,7 +357,7 @@ class MemoryConfirmRequest(BaseModel):
 
 
 class LearningChatRequest(BaseModel):
-    topic: str = "DevAgent Studio"
+    topic: str = "ValuSee"
     level: str = "beginner"
     question: str
     answer: Optional[str] = None

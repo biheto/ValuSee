@@ -253,7 +253,7 @@ graph TD
 - 接入 LangGraph Checkpoint，把任务执行过程保存为可回放的时间线。
 """
     architecture = llm_provider.generate(
-        "你是 DevAgent Studio 的项目架构讲解 Agent。请基于扫描事实解释项目结构、阅读路径和治理建议，不要编造不存在的文件。",
+        "你是 ValuSee 的项目架构讲解 Agent。请基于扫描事实解释项目结构、阅读路径和治理建议，不要编造不存在的文件。",
         (
             "请输出中文 Markdown，包含：项目定位、架构理解、关键模块阅读顺序、风险理解、学习路径。"
             "只基于给定事实。\n"

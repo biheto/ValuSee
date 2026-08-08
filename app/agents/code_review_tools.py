@@ -605,7 +605,7 @@ def _build_suggestions(findings: list[dict[str, Any]], scan: dict[str, Any]) -> 
         fallback_suggestions.append("对 SQL 访问层增加参数化查询、分页和字段白名单检查。")
     fallback = "\n".join(f"- {item}" for item in fallback_suggestions)
     text = llm_provider.generate(
-        "你是 DevAgent Studio 的代码审查修复建议 Agent。规则命中由确定性扫描给出，你只负责生成修复建议、测试建议和治理优先级。",
+        "你是 ValuSee 的代码审查修复建议 Agent。规则命中由确定性扫描给出，你只负责生成修复建议、测试建议和治理优先级。",
         (
             "请输出 3-7 条中文 bullet。不要新增不存在的问题，不要编造文件内容。\n"
             f"项目：{scan.get('project_name')}\n"

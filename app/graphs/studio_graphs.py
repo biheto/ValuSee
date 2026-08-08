@@ -188,7 +188,7 @@ def _llm_supervisor_notes(
 ) -> list[str]:
     fallback = "\n".join(f"- {item}" for item in fallback_notes)
     text = llm_provider.generate(
-        "你是 DevAgent Studio 的研发治理 Supervisor。请基于各 Agent 事实判断风险优先级、是否需要人工审核和下一步动作。",
+        "你是 ValuSee 的研发治理 Supervisor。请基于各 Agent 事实判断风险优先级、是否需要人工审核和下一步动作。",
         (
             "请输出 3-6 条中文短句 bullet。不要编造事实，不要写长篇报告。\n"
             f"项目分析：{_compact_project_analysis(project_analysis)}\n"

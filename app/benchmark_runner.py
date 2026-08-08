@@ -97,7 +97,7 @@ def default_llm_benchmark_cases() -> list[dict[str, Any]]:
                 "agent": "planner",
                 "prompt_version": "planner.v1",
                 "system_prompt": "You are a concise software project planning agent.",
-                "user_prompt": "Plan how to analyze DevAgent Studio from architecture, risks, knowledge, and workflow.",
+                "user_prompt": "Plan how to analyze ValuSee from architecture, risks, knowledge, and workflow.",
                 "fallback": "Analyze architecture, risks, knowledge assets, workflow runtime, and next actions.",
                 "expected_keywords": ["architecture", "risk", "workflow"],
             },
@@ -160,7 +160,7 @@ def default_workflow_benchmark_cases() -> list[dict[str, Any]]:
             "case_id": "planner_reporter_smoke",
             "arguments": {
                 "workflow_name": "benchmark_planner_reporter",
-                "input_text": "Create a short governance summary for DevAgent Studio.",
+                "input_text": "Create a short governance summary for ValuSee.",
                 "nodes": [
                     {"id": "plan", "type": "planner", "name": "Planner", "config": {}},
                     {"id": "report", "type": "reporter", "name": "Reporter", "config": {}},
@@ -197,7 +197,7 @@ def default_collaboration_benchmark_cases() -> list[dict[str, Any]]:
         {
             "case_id": "collab_project_governance",
             "arguments": {
-                "goal": "Analyze DevAgent Studio and produce project structure, code risk, knowledge, and governance suggestions.",
+                "goal": "Analyze ValuSee and produce project structure, code risk, knowledge, and governance suggestions.",
                 "project_path": Path.cwd().as_posix(),
                 "max_files": 80,
                 "require_human_review": True,

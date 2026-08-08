@@ -98,7 +98,7 @@ from app.schemas.studio import (
     WorkflowValidateResponse,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["DevAgent Studio"])
+router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])
@@ -794,7 +794,7 @@ def run_llm_prompt_ab_test(payload: dict[str, object]) -> dict[str, object]:
         prompt_b=prompt_b,
         system_prompt=str(
             payload.get("system_prompt")
-            or "你是 DevAgent Studio 的 Prompt A/B 测试执行器。请基于输入给出结构清晰、可验证、可行动的中文回答。"
+            or "你是 ValuSee 的 Prompt A/B 测试执行器。请基于输入给出结构清晰、可验证、可行动的中文回答。"
         ).strip(),
         user_prompt=user_prompt,
         fallback=str(payload.get("fallback") or "LLM 未配置或调用失败，返回 fallback。").strip(),
@@ -1640,7 +1640,7 @@ def _answer_from_task_context(
         "sources": sources[:5],
     }
     return llm_provider.generate_with_status(
-        "你是 DevAgent Studio 的项目追问助手。请只基于任务报告、事件和给定知识来源回答，不要编造未出现的事实。",
+        "你是 ValuSee 的项目追问助手。请只基于任务报告、事件和给定知识来源回答，不要编造未出现的事实。",
         (
             "请用中文 Markdown 回答用户问题，结构要清楚，并在信息不足时说明还需要哪个 Agent 输出。\n"
             f"上下文：{facts}"
@@ -1751,7 +1751,7 @@ def _learning_reply(request: LearningChatRequest, task: dict[str, object] | None
     task_context = {"task": task, "learning_stage": stage}
     request = request.model_copy(update={"question": f"{request.question}\nTask context: {task_context}"})
     return llm_provider.generate_with_status(
-        "你是 DevAgent Studio 的学习陪练 Agent。请根据用户回答进行启发式追问、纠错和学习路径引导。",
+        "你是 ValuSee 的学习陪练 Agent。请根据用户回答进行启发式追问、纠错和学习路径引导。",
         (
             "请输出中文，语气像教练，不要直接给长篇标准答案。"
             "先反馈用户回答，再给一个下一步挑战。\n"
@@ -1804,7 +1804,7 @@ def _learning_next_questions(request: LearningChatRequest, task: dict[str, objec
     task_context = {"task": task, "learning_stage": stage}
     request = request.model_copy(update={"answer": f"{request.answer}\nTask context: {task_context}"})
     result = llm_provider.generate_with_status(
-        "你是 DevAgent Studio 的学习陪练 Agent。请基于当前项目任务和用户回答，生成 3 个递进式追问。",
+        "你是 ValuSee 的学习陪练 Agent。请基于当前项目任务和用户回答，生成 3 个递进式追问。",
         (
             "只输出 3 行，每行一个问题，不要编号，不要解释。\n"
             f"主题：{request.topic}\n任务：{task}\n用户回答：{request.answer}\n轮次：{request.turn}"

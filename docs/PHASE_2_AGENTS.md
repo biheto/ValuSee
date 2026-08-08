@@ -1,6 +1,6 @@
 # 第二阶段：七类 Agent MVP
 
-本阶段把 DevAgent Studio 从单一项目分析 Agent 扩展为面向开发者的 Agent 工作站。
+本阶段把 ValuSee 从单一项目分析 Agent 扩展为面向开发者的 Agent 工作站。
 
 ## 已实现能力
 

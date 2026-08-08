@@ -332,7 +332,7 @@ class LLMProvider:
     def plan_steps(self, goal: str, context: dict[str, Any], fallback_steps: list[str]) -> list[str]:
         fallback = "\n".join(f"- {item}" for item in fallback_steps)
         text = self.generate(
-            "你是 DevAgent Studio 的任务规划器。请把用户目标拆成清晰、可执行、短句化的步骤。",
+            "你是 ValuSee 的任务规划器。请把用户目标拆成清晰、可执行、短句化的步骤。",
             f"目标：{goal}\n上下文：{context}",
             fallback,
             agent="planner",
@@ -343,7 +343,7 @@ class LLMProvider:
 
     def write_report(self, goal: str, facts: dict[str, Any], fallback: str) -> str:
         return self.generate(
-            "你是 DevAgent Studio 的报告生成器。请基于事实生成结构清晰、可行动的中文 Markdown 报告，不要编造事实。",
+            "你是 ValuSee 的报告生成器。请基于事实生成结构清晰、可行动的中文 Markdown 报告，不要编造事实。",
             f"目标：{goal}\n事实：{facts}",
             fallback,
             agent="reporter",

@@ -9,7 +9,7 @@ $InstallerDir = Join-Path $Root ".cache"
 $NugetZip = Join-Path $InstallerDir "python-3.13.5-nuget.zip"
 $PythonUrl = "https://www.nuget.org/api/v2/package/python/3.13.5"
 
-Write-Host "== DevAgent Studio setup =="
+Write-Host "== ValuSee setup =="
 Write-Host "Project: $Root"
 
 if (!(Test-Path $PythonExe)) {
@@ -57,7 +57,7 @@ Write-Host "Writing start-all.cmd..."
 $StartCmd = @"
 @echo off
 cd /d "%~dp0"
-echo Starting DevAgent Studio at http://127.0.0.1:8100/
+echo Starting ValuSee at http://127.0.0.1:8100/
 ".venv\Scripts\python.exe" -m uvicorn app.main:app --reload --port 8100
 "@
 Set-Content -Path (Join-Path $Root "start-all.cmd") -Value $StartCmd -Encoding ASCII

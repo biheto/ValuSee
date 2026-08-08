@@ -1,10 +1,10 @@
-# DevAgent Studio Implementation Timeline
+# ValuSee Implementation Timeline
 
-This document records the implementation history, MVP scope, priority order, and current completion status for DevAgent Studio. It is written for GitHub review, project interviews, and future milestone tracking.
+This document records the implementation history, MVP scope, priority order, and current completion status for ValuSee. It is written for GitHub review, project interviews, and future milestone tracking.
 
 ## Product Positioning
 
-DevAgent Studio is a multi-agent workbench for software project understanding and engineering governance. It uses FastAPI and LangGraph to orchestrate project analysis, code review, RAG knowledge processing, learning coaching, MCP tools, visual workflows, human review, LLM governance, and benchmark evaluation.
+ValuSee is a multi-agent workbench for software project understanding and engineering governance. It uses FastAPI and LangGraph to orchestrate project analysis, code review, RAG knowledge processing, learning coaching, MCP tools, visual workflows, human review, LLM governance, and benchmark evaluation.
 
 The project is intentionally not positioned as a code-writing IDE. Its core value is helping users understand a software project, identify risks, preserve project knowledge, review engineering quality, and interact with agents through traceable workflows.
 
@@ -156,7 +156,7 @@ This benchmark is intended to answer whether MCP tools are stable, approved corr
 
 Because the current workspace did not have a valid historical Git repository, exact historical code snapshots cannot be reconstructed honestly. The recommended GitHub submission strategy is:
 
-1. `chore: initialize DevAgent Studio repository`
+1. `chore: initialize ValuSee repository`
    - Add project scaffold, configuration, setup scripts, Docker Compose, and documentation.
 2. `feat: add LangGraph multi-agent MVP`
    - Add backend agents, graphs, schemas, API routes, and runtime foundation.

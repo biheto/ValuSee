@@ -10,7 +10,7 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
         "name": "Security Governance Skill Pack",
         "version": "1.0.0",
         "package_type": "skill_pack",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Declarative security and governance skills for project risk review.",
         "permissions": ["filesystem.read", "llm.call"],
         "skills": [
@@ -57,7 +57,7 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
         "name": "DevAgent RAG Knowledge Pack",
         "version": "1.0.0",
         "package_type": "rag_pack",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Seed project-memory with reusable RAG notes about DevAgent concepts.",
         "permissions": ["rag.write"],
         "rag_notes": [
@@ -78,7 +78,7 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
         "name": "Filesystem MCP Pack",
         "version": "1.0.0",
         "package_type": "mcp_pack",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Register a stdio filesystem MCP server configuration template.",
         "permissions": ["mcp.configure"],
         "mcp_servers": [
@@ -98,7 +98,7 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
         "name": "Governance Benchmark Dataset",
         "version": "1.0.0",
         "package_type": "benchmark_pack",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Reusable benchmark cases for LLM, RAG, Workflow and collaboration evaluation.",
         "permissions": ["benchmark.read"],
         "benchmark_cases": [
@@ -121,7 +121,7 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
         "name": "Review Workflow Template Pack",
         "version": "1.0.0",
         "package_type": "workflow_pack",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Install a reusable Skill-based review workflow template.",
         "permissions": ["workflow.write"],
         "workflows": [
@@ -150,7 +150,7 @@ BUILTIN_MARKETPLACE_MANIFESTS: dict[str, dict[str, Any]] = {
         "name": "Prompt Governance Pack",
         "version": "1.0.0",
         "package_type": "prompt_pack",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Install an additional reporter prompt version for evidence-first reports.",
         "permissions": ["prompt.write"],
         "prompts": [

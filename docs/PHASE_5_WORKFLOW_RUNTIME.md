@@ -79,6 +79,6 @@ C:\Users\13231\AppData\Local\Programs\Python\Python313\python.exe
 因此后端端到端 API smoke test 暂时无法运行。恢复或重新安装 Python 3.11+ 后，建议重新执行：
 
 ```powershell
-cd "D:\Java\project\Project\AI Agent\DevAgent Studio"
+cd "D:\Java\project\Project\AI Agent\ValuSee"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8100
 ```

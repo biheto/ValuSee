@@ -1,1 +1,1 @@
-"""DevAgent Studio application package."""
+"""ValuSee application package."""

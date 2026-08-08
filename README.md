@@ -1,10 +1,10 @@
-# DevAgent Studio
+# ValuSee
 
 [English](#english) | [中文](#中文)
 
 <a id="english"></a>
 
-DevAgent Studio is an open-source multi-agent workbench for **software project understanding and engineering governance**. It helps engineering teams understand unfamiliar systems faster, identify change risks before code is merged, and continuously manage architecture drift and technical debt.
+ValuSee is an open-source multi-agent workbench for **software project understanding and engineering governance**. It helps engineering teams understand unfamiliar systems faster, identify change risks before code is merged, and continuously manage architecture drift and technical debt.
 
 The product is organized around three practical workflows:
 
@@ -16,9 +16,9 @@ These workflows share the same governed runtime and project knowledge, so review
 
 It is deliberately not a code-writing IDE. Its focus is making software delivery work easier to understand, audit, evaluate, and improve.
 
-![DevAgent Studio architecture](docs/assets/architecture.png)
+![ValuSee architecture](docs/assets/architecture.png)
 
-## Why DevAgent Studio
+## Why ValuSee
 
 - **Multi-agent workflows, not isolated prompts**: Planner, Project Analyzer, Code Reviewer, RAG Processor, Supervisor, and Reporter are composed through LangGraph.
 - **Governed runtime**: Harness Runtime provides task context, event timelines, artifacts, review state, persistence, deterministic policy checks, and resume support.
@@ -32,7 +32,7 @@ It is deliberately not a code-writing IDE. Its focus is making software delivery
 
 ## Business Workflows
 
-DevAgent Studio is designed to turn project intelligence into repeatable engineering actions, not just generate one-off summaries.
+ValuSee is designed to turn project intelligence into repeatable engineering actions, not just generate one-off summaries.
 
 | Workflow | Input | Result | Business value |
 | --- | --- | --- | --- |
@@ -344,7 +344,7 @@ cd ..
 ## Project Structure
 
 ```text
-DevAgent Studio/
+ValuSee/
   app/
     agents/              # Project, review, RAG, learning, and report logic
     api/                 # FastAPI route modules
@@ -381,7 +381,7 @@ This project is licensed under the [MIT License](LICENSE).
 Copyright (c) 2026 biheto. When redistributing the project, preserve the original copyright notice and license text.
 
 ```text
-DevAgent Studio by biheto
+ValuSee by biheto
 https://github.com/biheto/DevAgent-Studio
 ```
 
@@ -389,9 +389,9 @@ https://github.com/biheto/DevAgent-Studio
 
 <a id="中文"></a>
 
-# DevAgent Studio 中文说明
+# ValuSee 中文说明
 
-DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多 Agent 工作台。它帮助研发团队更快看懂陌生系统、在代码合并前发现变更风险，并持续治理架构漂移与技术债。
+ValuSee 是一个面向**软件项目理解与研发治理**的开源多 Agent 工作台。它帮助研发团队更快看懂陌生系统、在代码合并前发现变更风险，并持续治理架构漂移与技术债。
 
 产品围绕三个实际业务工作流展开：
 
@@ -419,7 +419,7 @@ DevAgent Studio 是一个面向**软件项目理解与研发治理**的开源多
 
 ## 业务工作流
 
-DevAgent Studio 的目标不是只生成一次性的项目摘要，而是把项目理解转化为可以重复执行、审核和追踪的研发动作。
+ValuSee 的目标不是只生成一次性的项目摘要，而是把项目理解转化为可以重复执行、审核和追踪的研发动作。
 
 | 工作流 | 输入 | 输出 | 业务价值 |
 | --- | --- | --- | --- |
@@ -588,7 +588,7 @@ cd ..
 ## 项目结构
 
 ```text
-DevAgent Studio/
+ValuSee/
   app/
     agents/              # 项目分析、代码审查、RAG、学习、报告逻辑
     api/                 # FastAPI 路由
@@ -615,6 +615,6 @@ DevAgent Studio/
 项目使用 [MIT License](LICENSE)。分发或修改时请保留原版权和许可证文本。
 
 ```text
-DevAgent Studio by biheto
+ValuSee by biheto
 https://github.com/biheto/DevAgent-Studio
 ```

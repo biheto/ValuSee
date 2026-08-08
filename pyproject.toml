@@ -1,7 +1,7 @@
 [project]
-name = "dev-agent-studio"
+name = "valuesee"
 version = "0.1.0"
-description = "Developer-focused multi-agent task studio built with FastAPI and LangGraph."
+description = "AI shopping decision and savings agent built with FastAPI and LangGraph."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",

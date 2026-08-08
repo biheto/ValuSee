@@ -123,7 +123,7 @@ def _execute_declarative_skill(skill: dict[str, Any], payload: dict[str, Any]) -
             f"## Input\n\n```json\n{payload}\n```"
         )
         text = llm_provider.generate(
-            "You are a DevAgent Studio marketplace skill. Return a concise Markdown report based only on the provided input.",
+            "You are a ValuSee marketplace skill. Return a concise Markdown report based only on the provided input.",
             user_prompt,
             fallback,
             agent=f"skill:{skill.get('code')}",

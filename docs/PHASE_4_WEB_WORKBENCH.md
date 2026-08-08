@@ -1,6 +1,6 @@
 # Phase 4：前端工作台 + 拖拽 Workflow
 
-本阶段把 DevAgent Studio 从后端 API 项目升级为可操作的多 Agent 工作台。
+本阶段把 ValuSee 从后端 API 项目升级为可操作的多 Agent 工作台。
 
 ## 已实现功能
 
@@ -30,7 +30,7 @@ web/
 后端：
 
 ```powershell
-cd "D:\Java\project\Project\AI Agent\DevAgent Studio"
+cd "D:\Java\project\Project\AI Agent\ValuSee"
 .\.venv\Scripts\Activate.ps1
 python -m uvicorn app.main:app --reload --port 8100
 ```
@@ -38,7 +38,7 @@ python -m uvicorn app.main:app --reload --port 8100
 前端开发：
 
 ```powershell
-cd "D:\Java\project\Project\AI Agent\DevAgent Studio\web"
+cd "D:\Java\project\Project\AI Agent\ValuSee\web"
 npm install
 npm run dev
 ```
@@ -46,7 +46,7 @@ npm run dev
 生产构建：
 
 ```powershell
-cd "D:\Java\project\Project\AI Agent\DevAgent Studio\web"
+cd "D:\Java\project\Project\AI Agent\ValuSee\web"
 npm run build
 ```
 

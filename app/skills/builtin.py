@@ -89,12 +89,12 @@ class LearningCoachSkill(BuiltinSkill):
             permissions=["llm.call"],
             input_schema={"topic": "string", "level": "string", "days": "number", "goal": "string"},
             output_schema={"plan": "array", "quiz": "array", "report_markdown": "string"},
-            default_input={"topic": "DevAgent Studio", "level": "beginner", "days": 5},
+            default_input={"topic": "ValuSee", "level": "beginner", "days": 5},
         )
 
     def execute(self, context: SkillContext, input_data: dict[str, Any]) -> dict[str, Any]:
         return build_learning_plan(
-            str(input_data.get("topic") or "DevAgent Studio"),
+            str(input_data.get("topic") or "ValuSee"),
             str(input_data.get("level") or "beginner"),
             int(input_data.get("days") or 5),
             input_data.get("goal"),
@@ -286,7 +286,7 @@ def builtin_plugin() -> dict[str, Any]:
         "version": "1.0.0",
         "source_type": "builtin",
         "source_url": "",
-        "author": "DevAgent Studio",
+        "author": "ValuSee",
         "description": "Built-in runtime skills for code review, RAG, learning, MCP, Git, security, tests and architecture reports.",
         "enabled": True,
     }

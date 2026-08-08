@@ -1,6 +1,6 @@
-# DevAgent Studio Business Scenarios
+# ValuSee Business Scenarios
 
-DevAgent Studio is a project intelligence and engineering governance workbench. Its purpose is to help a software team make better decisions around an existing system, rather than act as a code-writing IDE.
+ValuSee is a project intelligence and engineering governance workbench. Its purpose is to help a software team make better decisions around an existing system, rather than act as a code-writing IDE.
 
 ## 1. PR Change Risk Review
 

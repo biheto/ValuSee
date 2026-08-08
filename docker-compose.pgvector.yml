@@ -1,7 +1,7 @@
 services:
   pgvector:
     image: pgvector/pgvector:pg16
-    container_name: dev-agent-studio-pgvector
+    container_name: valuesee-pgvector
     environment:
       POSTGRES_DB: dev_agent_studio
       POSTGRES_USER: postgres
