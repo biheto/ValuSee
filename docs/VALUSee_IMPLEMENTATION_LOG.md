@@ -44,6 +44,8 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 - Xiaozhi character IP and promotional scenes;
 - store listing and showcase images.
 
+Runtime branding no longer depends on loading the large PNG logo, wordmark, or mascot files. `web/src/BrandArt.tsx` provides reusable React/CSS `BrandMark`, `BrandWordmark`, and `ValueMascot` components that preserve the coral price-tag shape, yellow “见” glyph, mint check, sparkle, and Xiaozhi character cues. This removes broken deployment paths and keeps the artwork sharp at every rendered size; the original images remain reference and store-listing material only.
+
 ## Release status
 
 | Area | Status | Notes |
