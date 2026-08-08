@@ -174,16 +174,14 @@ class ShoppingStore:
             for row in rows
         ]
 
-    def confirm_extension_capture(self, capture_id: str) -> dict[str, Any] | None:
+    def confirm_extension_capture(self, capture_id: str, user_id: str | None = None) -> dict[str, Any] | None:
         with self._session() as conn:
-            conn.execute(
-                "UPDATE shopping_extension_capture SET status = 'imported' WHERE capture_id = ?",
-                (capture_id,),
-            )
-            row = conn.execute(
-                "SELECT * FROM shopping_extension_capture WHERE capture_id = ?",
-                (capture_id,),
-            ).fetchone()
+            if user_id:
+                conn.execute("UPDATE shopping_extension_capture SET status='imported' WHERE capture_id=? AND user_id=?", (capture_id, user_id))
+                row = conn.execute("SELECT * FROM shopping_extension_capture WHERE capture_id=? AND user_id=?", (capture_id, user_id)).fetchone()
+            else:
+                conn.execute("UPDATE shopping_extension_capture SET status='imported' WHERE capture_id=?", (capture_id,))
+                row = conn.execute("SELECT * FROM shopping_extension_capture WHERE capture_id=?", (capture_id,)).fetchone()
         if not row:
             return None
         return {

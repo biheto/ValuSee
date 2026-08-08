@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import sqlite3
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+from uuid import uuid4
+
+from app.harness.events import utc_now_iso
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _unb64(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+class AuthStore:
+    def __init__(self, db_path: str | Path = "data/valuesee.db"):
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
+
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _init_schema(self) -> None:
+        with self._session() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_user(
+                user_id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,
+                display_name TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_family(
+                family_id TEXT PRIMARY KEY,name TEXT NOT NULL,owner_id TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_family_member(
+                family_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,
+                PRIMARY KEY(family_id,user_id)
+            )""")
+
+    def register(self, email: str, password: str, display_name: str) -> dict[str, Any]:
+        normalized = email.strip().lower()
+        if "@" not in normalized or len(normalized) > 254:
+            raise ValueError("请输入有效邮箱")
+        if len(password) < 8:
+            raise ValueError("密码至少需要 8 个字符")
+        user_id, now = f"usr_{uuid4().hex}", utc_now_iso()
+        with self._session() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO valuesee_user VALUES(?,?,?,?,?,?)",
+                    (user_id, normalized, hash_password(password), display_name.strip() or normalized.split("@")[0], "active", now),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("该邮箱已注册") from exc
+        return self.get_user(user_id) or {}
+
+    def authenticate(self, email: str, password: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_user WHERE email = ? AND status = 'active'", (email.strip().lower(),)).fetchone()
+        if not row or not verify_password(password, row["password_hash"]):
+            return None
+        return _public_user(row)
+
+    def get_user(self, user_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_user WHERE user_id = ?", (user_id,)).fetchone()
+        return _public_user(row) if row else None
+
+    def create_family(self, owner_id: str, name: str) -> dict[str, Any]:
+        family_id, now = f"fam_{uuid4().hex}", utc_now_iso()
+        with self._session() as conn:
+            conn.execute("INSERT INTO valuesee_family VALUES(?,?,?,?)", (family_id, name.strip() or "我的家庭", owner_id, now))
+            conn.execute("INSERT INTO valuesee_family_member VALUES(?,?,?,?)", (family_id, owner_id, "owner", now))
+        return {"family_id": family_id, "name": name.strip() or "我的家庭", "owner_id": owner_id, "role": "owner", "created_at": now}
+
+    def list_families(self, user_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("""SELECT f.*,m.role FROM valuesee_family f JOIN valuesee_family_member m
+                ON f.family_id=m.family_id WHERE m.user_id=? ORDER BY f.created_at DESC""", (user_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310_000)
+    return f"pbkdf2_sha256$310000${_b64(salt)}${_b64(digest)}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        _, iterations, salt, expected = encoded.split("$", 3)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), _unb64(salt), int(iterations))
+        return hmac.compare_digest(_b64(digest), expected)
+    except (TypeError, ValueError):
+        return False
+
+
+def issue_token(user_id: str, expires_seconds: int = 86_400) -> str:
+    header = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
+    payload = _b64(json.dumps({"sub": user_id, "iat": int(time.time()), "exp": int(time.time()) + expires_seconds}, separators=(",", ":")).encode())
+    signature = _b64(hmac.new(_jwt_secret(), f"{header}.{payload}".encode(), hashlib.sha256).digest())
+    return f"{header}.{payload}.{signature}"
+
+
+def verify_token(token: str) -> str:
+    try:
+        header, payload, signature = token.split(".")
+        expected = _b64(hmac.new(_jwt_secret(), f"{header}.{payload}".encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("invalid signature")
+        body = json.loads(_unb64(payload))
+        if int(body["exp"]) < int(time.time()):
+            raise ValueError("expired")
+        return str(body["sub"])
+    except Exception as exc:
+        raise ValueError("登录状态无效或已过期") from exc
+
+
+def bearer_subject(authorization: str | None, *, allow_local: bool = True) -> str:
+    if authorization and authorization.startswith("Bearer "):
+        return verify_token(authorization[7:].strip())
+    if allow_local:
+        return "local-user"
+    raise ValueError("请先登录")
+
+
+def _jwt_secret() -> bytes:
+    secret = os.getenv("VALUSee_JWT_SECRET", "valuesee-dev-secret-change-before-production")
+    if os.getenv("APP_ENV", "dev").lower() in {"prod", "production"} and secret == "valuesee-dev-secret-change-before-production":
+        raise RuntimeError("生产环境必须配置 VALUSee_JWT_SECRET")
+    return secret.encode("utf-8")
+
+
+def _public_user(row: sqlite3.Row) -> dict[str, Any]:
+    return {"user_id": row["user_id"], "email": row["email"], "display_name": row["display_name"], "status": row["status"], "created_at": row["created_at"]}
+
+
+auth_store = AuthStore()

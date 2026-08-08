@@ -214,3 +214,18 @@ class PurchaseResponse(BaseModel):
     notes: str = ""
     created_at: str
     updated_at: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class FamilyCreateRequest(BaseModel):
+    name: str = Field(default="我的家庭", max_length=80)

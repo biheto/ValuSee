@@ -43,7 +43,10 @@ const sample: Product[] = [
 const blank = (): Product => ({ title: '新商品候选', platform: '', url: '', brand: '', model: '', sku: '', specs: {}, price: 0, coupon: 0, platform_discount: 0, member_discount: 0, subsidy: 0, pay_discount: 0, shipping: 0, gift_value: 0, condition: '新品', official_store: false, return_days: 7, warranty_months: 12, notes: '' });
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  const headers = new Headers(init?.headers);
+  const token = localStorage.getItem('valuesee-token');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(path, { ...init, headers });
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(String(body.detail ?? `请求失败（${response.status}）`)); }
   return response.json();
 }
@@ -68,6 +71,12 @@ export function App() {
   const [targetPrice, setTargetPrice] = useState(1300);
   const [purchaseProduct, setPurchaseProduct] = useState(0);
   const [paidPrice, setPaidPrice] = useState(0);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountMode, setAccountMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [accountName, setAccountName] = useState(localStorage.getItem('valuesee-account-name') || '本地账户');
 
   const refreshRecords = async () => {
     try { const [m, p, c] = await Promise.all([request<Monitor[]>('/api/v1/shopping/monitors?user_id=local-user'), request<Purchase[]>('/api/v1/shopping/purchases?user_id=local-user'), request<Capture[]>('/api/v1/shopping/extension/captures?user_id=local-user')]); setMonitors(m); setPurchases(p); setCaptures(c.filter((item) => item.status === 'pending_confirmation')); } catch { /* backend may be offline while the static preview is open */ }
@@ -98,11 +107,14 @@ export function App() {
   function updateProduct(index: number, patch: Partial<Product>) { setProducts((items) => items.map((item, i) => i === index ? { ...item, ...patch } : item)); }
   async function createMonitor(event: FormEvent) { event.preventDefault(); const product = products[monitorProduct]; try { await request<Monitor>('/api/v1/shopping/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product, target_price: targetPrice, monitor_days: 30, notify_channel: 'in_app' }) }); setMessage('降价监控已创建，服务重启后仍会保留。'); await refreshRecords(); } catch (err) { setError(err instanceof Error ? err.message : '创建监控失败'); } }
   async function createPurchase(event: FormEvent) { event.preventDefault(); const product = products[purchaseProduct]; try { await request<Purchase>('/api/v1/shopping/purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product, paid_price: paidPrice || product.price, platform: product.platform, store_name: product.official_store ? '官方/自营店' : '待确认', price_protection_days: 7, return_days: product.return_days, warranty_months: product.warranty_months, notes: '由 ValuSee 记录，提醒仅供参考。' }) }); setMessage('购买记录已保存，保价和退货提醒已建立。'); await refreshRecords(); } catch (err) { setError(err instanceof Error ? err.message : '保存购买记录失败'); } }
+  async function submitAccount(event: FormEvent) { event.preventDefault(); setError(''); try { const data = await request<{ access_token: string; user: { display_name: string } }>(`/api/v1/auth/${accountMode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, display_name: displayName }) }); localStorage.setItem('valuesee-token', data.access_token); localStorage.setItem('valuesee-account-name', data.user.display_name); setAccountName(data.user.display_name); setAccountOpen(false); setMessage(accountMode === 'login' ? '登录成功。' : '账户创建成功。'); await refreshRecords(); } catch (err) { setError(err instanceof Error ? err.message : '账户操作失败'); } }
+  function logout() { localStorage.removeItem('valuesee-token'); localStorage.removeItem('valuesee-account-name'); setAccountName('本地账户'); setAccountOpen(false); void refreshRecords(); }
 
   const best = useMemo(() => result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index], [result]);
   const nav: Array<[View, string, typeof Search]> = [['analyze', '分析商品', Search], ['monitors', '降价监控', Bell], ['purchases', '我的购买', Receipt], ['history', '历史报告', History]];
   return <main className="valuesee-app">
-    <header className="app-header"><div className="brand-lockup"><img className="brand-logo" src="/brand/logo-icon.png" alt="ValuSee" /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button">本地账户</button></header>
+    <header className="app-header"><div className="brand-lockup"><img className="brand-logo" src="/brand/logo-icon.png" alt="ValuSee" /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button" onClick={() => setAccountOpen(true)}>{accountName}</button></header>
+    {accountOpen && <div className="account-backdrop" onClick={() => setAccountOpen(false)}><section className="account-dialog" onClick={(event) => event.stopPropagation()}><img src="/brand/logo-wordmark.png" alt="ValuSee" /><h2>{accountMode === 'login' ? '登录 ValuSee' : '创建账户'}</h2><p>你的监控、购买记录和家庭数据会与账户隔离。</p><form onSubmit={submitAccount}>{accountMode === 'register' && <label>昵称<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>}<label>邮箱<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label><label>密码<input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></label><button className="primary-button">{accountMode === 'login' ? '登录' : '注册'}</button></form><button className="account-switch" onClick={() => setAccountMode(accountMode === 'login' ? 'register' : 'login')}>{accountMode === 'login' ? '没有账户？立即注册' : '已有账户？返回登录'}</button>{localStorage.getItem('valuesee-token') && <button className="account-switch danger" onClick={logout}>退出登录</button>}</section></div>}
     {message && <div className="toast"><CheckCircle2 size={16} />{message}<button onClick={() => setMessage('')}>关闭</button></div>}
     {error && <div className="error-banner">{error}</div>}
     {view === 'analyze' && <>

@@ -15,6 +15,12 @@ button { border: 0; cursor: pointer; }
 .app-header nav button, .profile-button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 13px; border-radius: 11px; color: #697473; background: transparent; font-size: 13px; font-weight: 800; }
 .app-header nav button.active { color: #243535; background: #fff; box-shadow: 0 5px 14px rgba(47, 66, 58, .1); }
 .profile-button { color: #e05264; background: rgba(255, 255, 255, .65); }
+.account-backdrop { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:20px; background:rgba(36,43,40,.28); backdrop-filter:blur(8px); }
+.account-dialog { width:min(410px,100%); padding:24px; border:1px solid rgba(255,255,255,.9); border-radius:22px; background:rgba(255,253,248,.96); box-shadow:0 30px 80px rgba(37,45,41,.24); }
+.account-dialog>img { display:block; width:150px; height:54px; object-fit:cover; object-position:center; margin:0 auto 12px; mix-blend-mode:multiply; }
+.account-dialog h2 { margin:0; text-align:center; } .account-dialog>p { margin:7px 0 18px; color:#7a8581; font-size:12px; text-align:center; }
+.account-dialog form { display:grid; gap:12px; } .account-dialog label { display:grid; gap:6px; color:#68736f; font-size:12px; font-weight:800; } .account-dialog input { width:100%; }
+.account-switch { display:block; margin:13px auto 0; color:#566762; background:transparent; font-size:12px; } .account-switch.danger { color:#c85462; }
 .toast, .error-banner { display: flex; align-items: center; gap: 9px; margin: 0 0 14px; padding: 11px 14px; border-radius: 13px; color: #187a67; background: #e6fbf4; font-size: 13px; font-weight: 700; }
 .toast button { margin-left: auto; color: inherit; background: transparent; font-size: 12px; }
 .error-banner { color: #9b3040; background: #ffe7e8; }

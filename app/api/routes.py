@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Req
 from fastapi.responses import StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
+from app.auth.service import auth_store, bearer_subject, issue_token
 from app.benchmark_runner import (
     run_collaboration_benchmark,
     run_llm_benchmark,
@@ -46,6 +47,7 @@ from app.persistence.sqlite_store import task_store
 from app.providers.llm_provider import llm_provider
 from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
+from app.core.config import settings
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -53,6 +55,9 @@ from app.schemas.shopping import (
     PriceMonitorResponse,
     PurchaseCreateRequest,
     PurchaseResponse,
+    RegisterRequest,
+    LoginRequest,
+    FamilyCreateRequest,
     ShoppingDecisionRequest,
     ShoppingExtensionCaptureRequest,
     ShoppingExtensionCaptureResponse,
@@ -120,6 +125,47 @@ from app.schemas.studio import (
 router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
 
 
+def _request_user(authorization: str | None) -> str:
+    try:
+        return bearer_subject(authorization, allow_local=settings.app_env != "prod")
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
+
+
+@router.post("/auth/register", tags=["Account"])
+def register_account(request: RegisterRequest) -> dict[str, object]:
+    try:
+        user = auth_store.register(request.email, request.password, request.display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+
+
+@router.post("/auth/login", tags=["Account"])
+def login_account(request: LoginRequest) -> dict[str, object]:
+    user = auth_store.authenticate(request.email, request.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="邮箱或密码错误")
+    return {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+
+
+@router.get("/auth/me", tags=["Account"])
+def current_account(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _request_user(authorization)
+    user = auth_store.get_user(user_id)
+    return {"user": user or {"user_id": user_id, "display_name": "本地账户", "status": "local"}}
+
+
+@router.post("/families", tags=["Account"])
+def create_family(request: FamilyCreateRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return auth_store.create_family(_request_user(authorization), request.name)
+
+
+@router.get("/families", tags=["Account"])
+def list_families(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return auth_store.list_families(_request_user(authorization))
+
+
 @router.post("/shopping/parse-url", response_model=ShoppingParseUrlResponse, tags=["Shopping Decision"])
 def parse_shopping_url(request: ShoppingParseUrlRequest) -> ShoppingParseUrlResponse:
     parsed = urlparse(request.url)
@@ -161,11 +207,12 @@ async def parse_shopping_image(file: UploadFile = File(...)) -> ShoppingImageRes
 
 
 @router.post("/shopping/extension/captures", response_model=ShoppingExtensionCaptureResponse, tags=["Shopping Decision"])
-def create_extension_capture(request: ShoppingExtensionCaptureRequest) -> ShoppingExtensionCaptureResponse:
+def create_extension_capture(request: ShoppingExtensionCaptureRequest, authorization: str | None = Header(default=None)) -> ShoppingExtensionCaptureResponse:
     if not request.product.url.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="扩展采集必须包含有效商品页面地址")
+    user_id = _request_user(authorization)
     record = shopping_store.create_extension_capture(
-        user_id=request.user_id,
+        user_id=user_id,
         product=request.product.model_dump(),
         source=request.source,
         captured_at=request.captured_at,
@@ -173,7 +220,7 @@ def create_extension_capture(request: ShoppingExtensionCaptureRequest) -> Shoppi
     if request.product.price > 0:
         breakdown = final_price_from_breakdown(request.product.model_dump())
         shopping_store.record_price_snapshot(
-            user_id=request.user_id,
+            user_id=user_id,
             product=request.product.model_dump(),
             final_price=breakdown["final_price"],
             source=request.source,
@@ -183,23 +230,26 @@ def create_extension_capture(request: ShoppingExtensionCaptureRequest) -> Shoppi
 
 
 @router.get("/shopping/extension/captures", response_model=list[ShoppingExtensionCaptureResponse], tags=["Shopping Decision"])
-def list_extension_captures(user_id: str | None = None) -> list[ShoppingExtensionCaptureResponse]:
-    return [ShoppingExtensionCaptureResponse(**item) for item in shopping_store.list_extension_captures(user_id)]
+def list_extension_captures(user_id: str | None = None, authorization: str | None = Header(default=None)) -> list[ShoppingExtensionCaptureResponse]:
+    del user_id
+    subject = _request_user(authorization)
+    return [ShoppingExtensionCaptureResponse(**item) for item in shopping_store.list_extension_captures(subject)]
 
 
 @router.post("/shopping/extension/captures/{capture_id}/confirm", response_model=ShoppingExtensionCaptureResponse, tags=["Shopping Decision"])
-def confirm_extension_capture(capture_id: str) -> ShoppingExtensionCaptureResponse:
-    record = shopping_store.confirm_extension_capture(capture_id)
+def confirm_extension_capture(capture_id: str, authorization: str | None = Header(default=None)) -> ShoppingExtensionCaptureResponse:
+    record = shopping_store.confirm_extension_capture(capture_id, _request_user(authorization))
     if not record:
         raise HTTPException(status_code=404, detail="扩展采集记录不存在")
     return ShoppingExtensionCaptureResponse(**record)
 
 
 @router.get("/shopping/price-history", tags=["Shopping Monitor"])
-def get_price_history(product_url: str, user_id: str | None = None, limit: int = 365) -> dict[str, object]:
+def get_price_history(product_url: str, user_id: str | None = None, limit: int = 365, authorization: str | None = Header(default=None)) -> dict[str, object]:
     if not product_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="请输入有效商品链接")
-    return shopping_store.price_history(product_url, user_id=user_id, limit=max(1, min(limit, 1000)))
+    del user_id
+    return shopping_store.price_history(product_url, user_id=_request_user(authorization), limit=max(1, min(limit, 1000)))
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])
@@ -313,11 +363,11 @@ async def run_shopping_decision_stream(request: ShoppingDecisionRequest) -> Stre
 
 
 @router.post("/shopping/monitors", response_model=PriceMonitorResponse, tags=["Shopping Monitor"])
-def create_price_monitor(request: PriceMonitorCreateRequest) -> PriceMonitorResponse:
+def create_price_monitor(request: PriceMonitorCreateRequest, authorization: str | None = Header(default=None)) -> PriceMonitorResponse:
     product = request.product.model_dump()
     breakdown = final_price_from_breakdown(product)
     record = shopping_store.create_monitor(
-        user_id=request.user_id,
+        user_id=_request_user(authorization),
         product=product,
         target_price=request.target_price,
         current_final_price=breakdown["final_price"],
@@ -328,8 +378,9 @@ def create_price_monitor(request: PriceMonitorCreateRequest) -> PriceMonitorResp
 
 
 @router.get("/shopping/monitors", response_model=list[PriceMonitorResponse], tags=["Shopping Monitor"])
-def list_price_monitors(user_id: str | None = None) -> list[PriceMonitorResponse]:
-    return [PriceMonitorResponse(**item) for item in shopping_store.list_monitors(user_id=user_id)]
+def list_price_monitors(user_id: str | None = None, authorization: str | None = Header(default=None)) -> list[PriceMonitorResponse]:
+    del user_id
+    return [PriceMonitorResponse(**item) for item in shopping_store.list_monitors(user_id=_request_user(authorization))]
 
 
 @router.get("/shopping/monitors/{monitor_id}/checks", tags=["Shopping Monitor"])
@@ -364,9 +415,9 @@ def record_price_monitor_check(monitor_id: str, request: PriceMonitorCheckReques
 
 
 @router.post("/shopping/purchases", response_model=PurchaseResponse, tags=["Shopping Purchase"])
-def create_purchase_record(request: PurchaseCreateRequest) -> PurchaseResponse:
+def create_purchase_record(request: PurchaseCreateRequest, authorization: str | None = Header(default=None)) -> PurchaseResponse:
     record = shopping_store.create_purchase(
-        user_id=request.user_id,
+        user_id=_request_user(authorization),
         product=request.product.model_dump(),
         paid_price=request.paid_price,
         platform=request.platform,
@@ -382,8 +433,9 @@ def create_purchase_record(request: PurchaseCreateRequest) -> PurchaseResponse:
 
 
 @router.get("/shopping/purchases", response_model=list[PurchaseResponse], tags=["Shopping Purchase"])
-def list_purchase_records(user_id: str | None = None) -> list[PurchaseResponse]:
-    return [PurchaseResponse(**item) for item in shopping_store.list_purchases(user_id=user_id)]
+def list_purchase_records(user_id: str | None = None, authorization: str | None = Header(default=None)) -> list[PurchaseResponse]:
+    del user_id
+    return [PurchaseResponse(**item) for item in shopping_store.list_purchases(user_id=_request_user(authorization))]
 
 
 @router.post("/projects/analyze", response_model=ProjectAnalyzeResponse, tags=["Project Analyzer"])

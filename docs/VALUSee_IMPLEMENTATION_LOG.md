@@ -47,7 +47,7 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 | Authorized commerce APIs | Planned | Requires platform credentials and approved data contracts. |
 | Price monitor scheduler | Partial | Persistent records and manual checks exist; external scheduler/worker is pending. |
 | Notifications | Partial | In-app status is modeled; email/push/browser delivery is pending. |
-| Accounts and family isolation | Planned | Current MVP uses `local-user`; production identity and ACL are pending. |
+| Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
 | Production storage | Partial | SQLite is the local default; PostgreSQL/Redis/object storage/queue deployment is pending. |
 | Review risk analysis | Partial | Deterministic risk checks exist; real review ingestion and evidence ranking are pending. |
