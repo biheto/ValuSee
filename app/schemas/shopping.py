@@ -98,3 +98,45 @@ class ShoppingDecisionResult(BaseModel):
     final_report: str
     summary: str
     events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class PriceMonitorCreateRequest(BaseModel):
+    user_id: str = "local-user"
+    product: ShoppingProductInput
+    target_price: float = Field(..., ge=0)
+    monitor_days: int = Field(default=30, ge=1, le=365)
+    notify_channel: str = "in_app"
+
+
+class PriceMonitorCheckRequest(BaseModel):
+    price: float = Field(..., ge=0)
+    coupon: float = 0.0
+    platform_discount: float = 0.0
+    member_discount: float = 0.0
+    subsidy: float = 0.0
+    pay_discount: float = 0.0
+    shipping: float = 0.0
+    gift_value: float = 0.0
+    stock_status: str = "in_stock"
+    source: str = "manual"
+
+
+class PriceMonitorResponse(BaseModel):
+    monitor_id: str
+    user_id: str
+    status: str
+    target_price: float
+    current_final_price: float
+    product: dict[str, Any]
+    notify_channel: str
+    created_at: str
+    expires_at: str
+    updated_at: str
+    last_message: str = ""
+
+
+class PriceMonitorCheckResponse(BaseModel):
+    monitor: PriceMonitorResponse
+    check: dict[str, Any]
+    target_reached: bool
+    message: str

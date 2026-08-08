@@ -24,6 +24,7 @@ from app.graphs.studio_graphs import (
     rag_process_graph,
 )
 from app.shopping.graph import shopping_decision_graph_runner
+from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
     resume_task_workflow,
@@ -85,6 +86,10 @@ from app.schemas.studio import (
     RagQueryResponse,
     ReviewActionRequest,
     ReviewActionResponse,
+    PriceMonitorCheckRequest,
+    PriceMonitorCheckResponse,
+    PriceMonitorCreateRequest,
+    PriceMonitorResponse,
     ShoppingDecisionRequest,
     TaskRunRequest,
     TaskQuestionRequest,
@@ -211,6 +216,57 @@ async def run_shopping_decision_stream(request: ShoppingDecisionRequest) -> Stre
             yield "data: {\"type\": \"complete\", \"completed\": true}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/shopping/monitors", response_model=PriceMonitorResponse, tags=["Shopping Monitor"])
+def create_price_monitor(request: PriceMonitorCreateRequest) -> PriceMonitorResponse:
+    product = request.product.model_dump()
+    breakdown = final_price_from_breakdown(product)
+    record = shopping_store.create_monitor(
+        user_id=request.user_id,
+        product=product,
+        target_price=request.target_price,
+        current_final_price=breakdown["final_price"],
+        monitor_days=request.monitor_days,
+        notify_channel=request.notify_channel,
+    )
+    return PriceMonitorResponse(**record)
+
+
+@router.get("/shopping/monitors", response_model=list[PriceMonitorResponse], tags=["Shopping Monitor"])
+def list_price_monitors(user_id: str | None = None) -> list[PriceMonitorResponse]:
+    return [PriceMonitorResponse(**item) for item in shopping_store.list_monitors(user_id=user_id)]
+
+
+@router.get("/shopping/monitors/{monitor_id}/checks", tags=["Shopping Monitor"])
+def list_price_monitor_checks(monitor_id: str) -> dict[str, object]:
+    monitor = shopping_store.get_monitor(monitor_id)
+    if not monitor:
+        raise HTTPException(status_code=404, detail="Monitor not found")
+    return {"monitor": monitor, "checks": shopping_store.list_price_checks(monitor_id)}
+
+
+@router.post("/shopping/monitors/{monitor_id}/checks", response_model=PriceMonitorCheckResponse, tags=["Shopping Monitor"])
+def record_price_monitor_check(monitor_id: str, request: PriceMonitorCheckRequest) -> PriceMonitorCheckResponse:
+    breakdown = final_price_from_breakdown(request.model_dump())
+    try:
+        check = shopping_store.record_price_check(
+            monitor_id=monitor_id,
+            breakdown=breakdown,
+            stock_status=request.stock_status,
+            source=request.source,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Monitor not found") from exc
+    monitor = shopping_store.get_monitor(monitor_id)
+    if not monitor:
+        raise HTTPException(status_code=404, detail="Monitor not found")
+    return PriceMonitorCheckResponse(
+        monitor=PriceMonitorResponse(**monitor),
+        check=check,
+        target_reached=check["target_reached"],
+        message=check["message"],
+    )
 
 
 @router.post("/projects/analyze", response_model=ProjectAnalyzeResponse, tags=["Project Analyzer"])
