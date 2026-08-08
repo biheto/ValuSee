@@ -39,6 +39,19 @@ class ShoppingParseUrlResponse(BaseModel):
     message: str
 
 
+class ShoppingImageResponse(BaseModel):
+    asset_id: str
+    file_name: str
+    content_type: str
+    size: int
+    sha256: str
+    ocr_provider: str
+    ocr_text: str
+    product: ShoppingProductInput
+    requires_confirmation: bool
+    warning: str = ""
+
+
 class ShoppingProfile(BaseModel):
     budget: float = 0.0
     use_case: str = ""

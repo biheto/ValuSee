@@ -26,6 +26,10 @@ vector = [
     "psycopg[binary]>=3.2.0",
     "langchain-openai>=0.2.0"
 ]
+ocr = [
+    "Pillow>=10.4.0",
+    "pytesseract>=0.3.13"
+]
 
 [build-system]
 requires = ["setuptools>=68"]

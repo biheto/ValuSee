@@ -41,8 +41,8 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 | --- | --- | --- |
 | Consumer analysis UI | MVP complete | Web workbench is buildable and uses the shopping APIs. |
 | URL input | MVP complete | User-supplied URL parsing; price/spec confirmation remains explicit. |
-| Screenshot OCR | Planned | Requires an OCR provider and image upload storage contract. |
-| Product understanding model | Partial | Structured deterministic fields exist; model/OCR extraction is pending. |
+| Screenshot OCR | MVP complete | Secure upload, SHA-256, MIME/size validation, optional Tesseract adapter, explicit fallback, and editable product draft are implemented. |
+| Product understanding model | Partial | OCR text normalization extracts title, known brand, model token, and visible price; richer category/spec extraction remains. |
 | Browser extension | Planned | Manifest V3 design is defined; extension package is pending. |
 | Authorized commerce APIs | Planned | Requires platform credentials and approved data contracts. |
 | Price monitor scheduler | Partial | Persistent records and manual checks exist; external scheduler/worker is pending. |
@@ -55,9 +55,8 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 
 ## Next implementation order
 
-1. Image upload and OCR adapter with provider-independent response schema.
-2. Product understanding normalization and user confirmation workflow.
-3. Browser extension MVP for user-visible product fields.
+1. Product understanding normalization and user confirmation workflow.
+2. Browser extension MVP for user-visible product fields.
 4. PostgreSQL/Redis/object storage/queue compose profile and repository interfaces.
 5. Durable monitor worker, retries, idempotency, and notification adapters.
 6. Account, session, personal/family scopes, export, and deletion flows.
@@ -68,4 +67,3 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 ## Verification rule
 
 Every feature must include an automated check or a deterministic integration check, update this document, and be committed with author `biheto` before moving to the next feature.
-

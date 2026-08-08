@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from uuid import uuid4
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
@@ -26,6 +26,7 @@ from app.graphs.studio_graphs import (
 )
 from app.shopping.graph import shopping_decision_graph_runner
 from app.shopping.store import final_price_from_breakdown, shopping_store
+from app.shopping.vision import inspect_product_image
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
     resume_task_workflow,
@@ -53,6 +54,7 @@ from app.schemas.shopping import (
     PurchaseCreateRequest,
     PurchaseResponse,
     ShoppingDecisionRequest,
+    ShoppingImageResponse,
     ShoppingProductInput,
     ShoppingParseUrlRequest,
     ShoppingParseUrlResponse,
@@ -142,6 +144,18 @@ def parse_shopping_url(request: ShoppingParseUrlRequest) -> ShoppingParseUrlResp
         source=host,
         message="已读取链接来源，商品价格和规格需要你确认。",
     )
+
+
+@router.post("/shopping/parse-image", response_model=ShoppingImageResponse, tags=["Shopping Decision"])
+async def parse_shopping_image(file: UploadFile = File(...)) -> ShoppingImageResponse:
+    try:
+        content = await file.read()
+        result = inspect_product_image(content, file.content_type or "", file.filename or "product-image")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        await file.close()
+    return ShoppingImageResponse(**result)
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])

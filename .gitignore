@@ -6,6 +6,7 @@ dev_agent_studio.egg-info/
 data/*.db
 data/*.log
 data/*.jsonl
+data/uploads/
 *.log
 web/node_modules/
 node_modules/
