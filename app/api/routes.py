@@ -29,6 +29,7 @@ from app.shopping.graph import shopping_decision_graph_runner
 from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
+from app.shopping.providers import configured_providers
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
     resume_task_workflow,
@@ -49,6 +50,7 @@ from app.providers.llm_provider import llm_provider
 from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.core.config import settings
+from app.core.infrastructure import publish_monitor_event
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -129,7 +131,10 @@ router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
 
 def _request_user(authorization: str | None) -> str:
     try:
-        return bearer_subject(authorization, allow_local=settings.app_env != "prod")
+        return bearer_subject(
+            authorization,
+            allow_local=settings.app_env.lower() not in {"prod", "production"},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
 
@@ -221,13 +226,14 @@ def create_extension_capture(request: ShoppingExtensionCaptureRequest, authoriza
     )
     if request.product.price > 0:
         breakdown = final_price_from_breakdown(request.product.model_dump())
-        shopping_store.record_price_snapshot(
+        snapshot = shopping_store.record_price_snapshot(
             user_id=user_id,
             product=request.product.model_dump(),
             final_price=breakdown["final_price"],
             source=request.source,
             captured_at=request.captured_at,
         )
+        publish_monitor_event({"type": "price_snapshot", "snapshot_id": snapshot["snapshot_id"]})
     return ShoppingExtensionCaptureResponse(**record)
 
 
@@ -264,6 +270,26 @@ def analyze_product_reviews(request: ReviewAnalysisRequest, authorization: str |
     user_id = _request_user(authorization)
     report = analyze_reviews([item.model_dump() for item in request.reviews])
     return {"user_id": user_id, "product": request.product.model_dump(), "report": report, "sources": sorted({item.source for item in request.reviews})}
+
+
+@router.get("/shopping/providers", tags=["Shopping Integrations"])
+def list_commerce_providers(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _request_user(authorization)
+    return {"providers": [{"name": item.name, "kind": item.kind} for item in configured_providers().values()]}
+
+
+@router.post("/shopping/providers/{provider_name}/lookup", tags=["Shopping Integrations"])
+def lookup_commerce_product(provider_name: str, request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _request_user(authorization)
+    if urlparse(request.url).scheme not in {"http", "https"}:
+        raise HTTPException(status_code=422, detail="请输入有效的商品链接")
+    provider = configured_providers().get(provider_name)
+    if not provider:
+        raise HTTPException(status_code=404, detail="平台适配器未配置或未获授权")
+    try:
+        return provider.lookup(request.url)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"平台数据暂时不可用：{type(exc).__name__}") from exc
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])

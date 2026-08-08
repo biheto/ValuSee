@@ -6,7 +6,6 @@ import hmac
 import json
 import os
 import secrets
-import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from app.harness.events import utc_now_iso
+from app.core.database import connect_database, is_integrity_error
 
 
 def _b64(data: bytes) -> str:
@@ -31,9 +31,8 @@ class AuthStore:
         self._init_schema()
 
     @contextmanager
-    def _session(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+    def _session(self) -> Iterator[Any]:
+        conn = connect_database(self.db_path)
         try:
             yield conn
             conn.commit()
@@ -67,8 +66,10 @@ class AuthStore:
                     "INSERT INTO valuesee_user VALUES(?,?,?,?,?,?)",
                     (user_id, normalized, hash_password(password), display_name.strip() or normalized.split("@")[0], "active", now),
                 )
-            except sqlite3.IntegrityError as exc:
-                raise ValueError("该邮箱已注册") from exc
+            except Exception as exc:
+                if is_integrity_error(exc):
+                    raise ValueError("该邮箱已注册") from exc
+                raise
         return self.get_user(user_id) or {}
 
     def authenticate(self, email: str, password: str) -> dict[str, Any] | None:
@@ -148,7 +149,7 @@ def _jwt_secret() -> bytes:
     return secret.encode("utf-8")
 
 
-def _public_user(row: sqlite3.Row) -> dict[str, Any]:
+def _public_user(row: Any) -> dict[str, Any]:
     return {"user_id": row["user_id"], "email": row["email"], "display_name": row["display_name"], "status": row["status"], "created_at": row["created_at"]}
 
 

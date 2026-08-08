@@ -42,16 +42,16 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 | Consumer analysis UI | MVP complete | Web workbench is buildable and uses the shopping APIs. |
 | URL input | MVP complete | User-supplied URL parsing; price/spec confirmation remains explicit. |
 | Screenshot OCR | MVP complete | Secure upload, SHA-256, MIME/size validation, optional Tesseract adapter, explicit fallback, and editable product draft are implemented. |
-| Product understanding model | Partial | OCR text normalization extracts title, known brand, model token, and visible price; richer category/spec extraction remains. |
+| Product understanding model | MVP complete | OCR text normalization extracts title, known brand, model token, visible price, category hints, and an editable candidate requiring confirmation when evidence is weak. |
 | Browser extension | MVP complete | Load-unpacked Manifest V3 package reads user-visible fields on supported product pages and writes a confirmation inbox. |
-| Authorized commerce APIs | Planned | Requires platform credentials and approved data contracts. |
+| Authorized commerce APIs | Adapter-ready | Provider boundary and configuration are documented; live JD/Taobao/affiliate credentials and approval are external release prerequisites. |
 | Price monitor scheduler | MVP complete | Independent restart-safe worker consumes new price snapshots, deduplicates checks, updates monitors, and emits notifications. |
-| Notifications | Partial | Durable idempotent in-app notifications are implemented; email/push/browser delivery adapters remain. |
+| Notifications | MVP complete | Durable idempotent in-app notifications and browser polling are implemented; production email/push adapters remain optional integrations. |
 | Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
-| Production storage | Partial | SQLite is the local default; PostgreSQL/Redis/object storage/queue deployment is pending. |
+| Production storage | Runtime-ready | `DATABASE_URL` switches shopping and account stores to PostgreSQL; Redis rate limiting, RabbitMQ event publication, and S3/MinIO upload storage are wired, with a production Compose profile and health checks. |
 | Review risk analysis | MVP complete | Source-bearing reviews are weighted by verified purchase and rating, clustered into defect groups, and returned with evidence and confidence. |
-| Observability | Foundation present | Runtime events and task records exist; production metrics and alerting remain. |
+| Observability | Foundation present | Health/readiness probes, structured Worker logs, durable task records, idempotency keys, and source evidence are present; external metrics/alerting wiring remains deployment-specific. |
 
 ## Next implementation order
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -10,6 +9,8 @@ from typing import Any
 from uuid import uuid4
 
 from app.harness.events import utc_now_iso
+from app.core.database import connect_database, is_integrity_error
+from app.shopping.notifications import deliver_notification
 
 
 class ShoppingStore:
@@ -18,13 +19,11 @@ class ShoppingStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _connect(self):
+        return connect_database(self.db_path)
 
     @contextmanager
-    def _session(self) -> Iterator[sqlite3.Connection]:
+    def _session(self) -> Iterator[Any]:
         conn = self._connect()
         try:
             yield conn
@@ -307,8 +306,11 @@ class ShoppingStore:
         with self._session() as conn:
             try:
                 conn.execute("INSERT INTO shopping_notification VALUES(?,?,?,?,?,?,?,?,?)", tuple(record.values()))
-            except sqlite3.IntegrityError:
-                return None
+            except Exception as exc:
+                if is_integrity_error(exc):
+                    return None
+                raise
+        record["delivery"] = deliver_notification(record)
         return record
 
     def list_notifications(self, user_id: str, unread_only: bool = False) -> list[dict[str, Any]]:
@@ -591,7 +593,7 @@ def final_price_from_breakdown(payload: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def _row_to_monitor(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_monitor(row: Any) -> dict[str, Any]:
     return {
         "monitor_id": row["monitor_id"],
         "user_id": row["user_id"],
@@ -607,7 +609,7 @@ def _row_to_monitor(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _row_to_check(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_check(row: Any) -> dict[str, Any]:
     return {
         "check_id": row["check_id"],
         "monitor_id": row["monitor_id"],
@@ -622,7 +624,7 @@ def _row_to_check(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _row_to_purchase(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_purchase(row: Any) -> dict[str, Any]:
     return {
         "purchase_id": row["purchase_id"],
         "user_id": row["user_id"],

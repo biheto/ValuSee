@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class ShoppingProductInput(BaseModel):
     title: str
+    category: str = "unknown"
     platform: str = ""
     url: str = ""
     brand: str = ""
@@ -45,6 +46,7 @@ class ShoppingImageResponse(BaseModel):
     content_type: str
     size: int
     sha256: str
+    storage: dict[str, str] = Field(default_factory=dict)
     ocr_provider: str
     ocr_text: str
     product: ShoppingProductInput
