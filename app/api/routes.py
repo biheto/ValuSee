@@ -28,6 +28,7 @@ from app.graphs.studio_graphs import (
 from app.shopping.graph import shopping_decision_graph_runner
 from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.shopping.vision import inspect_product_image
+from app.shopping.reviews import analyze_reviews
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
     resume_task_workflow,
@@ -58,6 +59,7 @@ from app.schemas.shopping import (
     RegisterRequest,
     LoginRequest,
     FamilyCreateRequest,
+    ReviewAnalysisRequest,
     ShoppingDecisionRequest,
     ShoppingExtensionCaptureRequest,
     ShoppingExtensionCaptureResponse,
@@ -255,6 +257,13 @@ def get_price_history(product_url: str, user_id: str | None = None, limit: int =
 @router.get("/shopping/notifications", tags=["Shopping Monitor"])
 def list_shopping_notifications(unread_only: bool = False, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
     return shopping_store.list_notifications(_request_user(authorization), unread_only=unread_only)
+
+
+@router.post("/shopping/reviews/analyze", tags=["Shopping Decision"])
+def analyze_product_reviews(request: ReviewAnalysisRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _request_user(authorization)
+    report = analyze_reviews([item.model_dump() for item in request.reviews])
+    return {"user_id": user_id, "product": request.product.model_dump(), "report": report, "sources": sorted({item.source for item in request.reviews})}
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])

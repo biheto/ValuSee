@@ -50,7 +50,7 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 | Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
 | Production storage | Partial | SQLite is the local default; PostgreSQL/Redis/object storage/queue deployment is pending. |
-| Review risk analysis | Partial | Deterministic risk checks exist; real review ingestion and evidence ranking are pending. |
+| Review risk analysis | MVP complete | Source-bearing reviews are weighted by verified purchase and rating, clustered into defect groups, and returned with evidence and confidence. |
 | Observability | Foundation present | Runtime events and task records exist; production metrics and alerting remain. |
 
 ## Next implementation order

@@ -229,3 +229,17 @@ class LoginRequest(BaseModel):
 
 class FamilyCreateRequest(BaseModel):
     name: str = Field(default="我的家庭", max_length=80)
+
+
+class ProductReviewInput(BaseModel):
+    rating: float = Field(default=3, ge=1, le=5)
+    content: str = Field(..., min_length=1, max_length=5000)
+    verified_purchase: bool = False
+    source: str = Field(..., min_length=1, max_length=120)
+    source_url: str = ""
+    created_at: Optional[str] = None
+
+
+class ReviewAnalysisRequest(BaseModel):
+    product: ShoppingProductInput
+    reviews: list[ProductReviewInput] = Field(default_factory=list, max_length=2000)
