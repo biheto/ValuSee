@@ -102,6 +102,25 @@ class ShoppingStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS shopping_price_snapshot (
+                    snapshot_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    product_url TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    final_price REAL NOT NULL,
+                    region TEXT NOT NULL,
+                    membership TEXT NOT NULL,
+                    conditions_json TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    captured_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_price_snapshot_url_time ON shopping_price_snapshot(product_url, captured_at)")
 
     def create_extension_capture(
         self,
@@ -172,6 +191,70 @@ class ShoppingStore:
             "status": row["status"], "product": json.loads(row["product_json"]),
             "source": row["source"], "captured_at": row["captured_at"],
             "created_at": row["created_at"],
+        }
+
+    def record_price_snapshot(
+        self,
+        *,
+        user_id: str,
+        product: dict[str, Any],
+        final_price: float,
+        source: str,
+        captured_at: str | None = None,
+        region: str = "unknown",
+        membership: str = "unknown",
+    ) -> dict[str, Any]:
+        record = {
+            "snapshot_id": f"price_{uuid4().hex}", "user_id": user_id,
+            "product_url": str(product.get("url", "")), "platform": str(product.get("platform", "")),
+            "title": str(product.get("title", "")), "price": float(product.get("price", 0)),
+            "final_price": round(float(final_price), 2), "region": region, "membership": membership,
+            "conditions": {
+                key: float(product.get(key, 0) or 0)
+                for key in ("coupon", "platform_discount", "member_discount", "subsidy", "pay_discount", "shipping", "gift_value")
+            },
+            "source": source, "captured_at": captured_at or utc_now_iso(),
+        }
+        with self._session() as conn:
+            conn.execute(
+                """INSERT INTO shopping_price_snapshot(
+                    snapshot_id,user_id,product_url,platform,title,price,final_price,region,
+                    membership,conditions_json,source,captured_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (record["snapshot_id"], record["user_id"], record["product_url"], record["platform"],
+                 record["title"], record["price"], record["final_price"], record["region"],
+                 record["membership"], json.dumps(record["conditions"], ensure_ascii=False),
+                 record["source"], record["captured_at"]),
+            )
+        return record
+
+    def price_history(self, product_url: str, user_id: str | None = None, limit: int = 365) -> dict[str, Any]:
+        query = "SELECT * FROM shopping_price_snapshot WHERE product_url = ?"
+        params: list[Any] = [product_url]
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        query += " ORDER BY captured_at DESC LIMIT ?"
+        params.append(limit)
+        with self._session() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        points = [
+            {"snapshot_id": row["snapshot_id"], "final_price": row["final_price"],
+             "price": row["price"], "source": row["source"], "region": row["region"],
+             "membership": row["membership"], "conditions": json.loads(row["conditions_json"]),
+             "captured_at": row["captured_at"]}
+            for row in rows
+        ]
+        prices = [float(item["final_price"]) for item in points]
+        current = prices[0] if prices else 0.0
+        sorted_prices = sorted(prices)
+        percentile = (sum(1 for value in prices if value <= current) / len(prices) * 100) if prices else 0.0
+        return {
+            "product_url": product_url, "count": len(points), "current_price": current,
+            "lowest_price": min(prices) if prices else 0.0,
+            "average_price": round(sum(prices) / len(prices), 2) if prices else 0.0,
+            "current_percentile": round(percentile, 1), "points": points,
+            "sorted_prices": sorted_prices,
         }
 
     def create_monitor(

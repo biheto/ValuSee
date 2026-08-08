@@ -170,6 +170,15 @@ def create_extension_capture(request: ShoppingExtensionCaptureRequest) -> Shoppi
         source=request.source,
         captured_at=request.captured_at,
     )
+    if request.product.price > 0:
+        breakdown = final_price_from_breakdown(request.product.model_dump())
+        shopping_store.record_price_snapshot(
+            user_id=request.user_id,
+            product=request.product.model_dump(),
+            final_price=breakdown["final_price"],
+            source=request.source,
+            captured_at=request.captured_at,
+        )
     return ShoppingExtensionCaptureResponse(**record)
 
 
@@ -184,6 +193,13 @@ def confirm_extension_capture(capture_id: str) -> ShoppingExtensionCaptureRespon
     if not record:
         raise HTTPException(status_code=404, detail="扩展采集记录不存在")
     return ShoppingExtensionCaptureResponse(**record)
+
+
+@router.get("/shopping/price-history", tags=["Shopping Monitor"])
+def get_price_history(product_url: str, user_id: str | None = None, limit: int = 365) -> dict[str, object]:
+    if not product_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="请输入有效商品链接")
+    return shopping_store.price_history(product_url, user_id=user_id, limit=max(1, min(limit, 1000)))
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])
