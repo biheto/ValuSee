@@ -16,6 +16,30 @@ These workflows share the same governed runtime and project knowledge, so review
 
 It is deliberately not a code-writing IDE. Its focus is making software delivery work easier to understand, audit, evaluate, and improve.
 
+## ValuSee Consumer Product
+
+ValuSee is also a usable AI shopping decision and savings assistant. It is designed around one complete consumer loop:
+
+```text
+shopping need -> product identification -> true landed price -> same-SKU matching
+-> risk analysis -> personal recommendation -> price monitoring -> after-sales reminders
+```
+
+The consumer workbench provides four practical views:
+
+- **Analyze products**: paste product links, upload a screenshot for follow-up, confirm price/specification fields, compare candidates, and generate a decision report.
+- **Price monitoring**: set a target landed price and keep a persisted monitoring record that survives application restarts.
+- **My purchases**: record the actual paid price and receive visible price-protection, return, warranty, and consumable reminders.
+- **Report history**: reopen the latest decision report locally without losing the previous analysis after a page refresh.
+
+The first release intentionally supports user-supplied product information and manual price confirmation. It does not perform automatic checkout, payment, refunds, or large-scale crawling. This keeps recommendations explainable and puts platform data access on a compliant path: user-provided links first, browser extension and authorized platform APIs next.
+
+Core message:
+
+> Don't just ask which one is cheaper. Ask whether it is the same product, whether it fits you, and whether now is the right time to buy.
+
+The product foundation is modular: deterministic price calculation and SKU/risk rules provide predictable results, while the existing workflow runtime, knowledge, memory, and observability layers can be enabled as the product grows.
+
 ![ValuSee architecture](docs/assets/architecture.png)
 
 ## Why ValuSee
@@ -261,8 +285,8 @@ Approving `skill_console` does not approve `workflow_runner`. A Skill must be ex
 ### Install
 
 ```powershell
-git clone https://github.com/biheto/DevAgent-Studio.git
-cd DevAgent-Studio
+git clone https://github.com/biheto/ValuSee.git
+cd ValuSee
 
 python -m venv .venv
 .\.venv\Scripts\activate

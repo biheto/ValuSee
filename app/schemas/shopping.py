@@ -28,6 +28,17 @@ class ShoppingProductInput(BaseModel):
     notes: str = ""
 
 
+class ShoppingParseUrlRequest(BaseModel):
+    url: str = Field(..., min_length=8)
+    title: str = ""
+
+
+class ShoppingParseUrlResponse(BaseModel):
+    product: ShoppingProductInput
+    source: str
+    message: str
+
+
 class ShoppingProfile(BaseModel):
     budget: float = 0.0
     use_case: str = ""

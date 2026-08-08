@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from uuid import uuid4
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request
 from fastapi.responses import StreamingResponse
@@ -44,6 +45,18 @@ from app.persistence.sqlite_store import task_store
 from app.providers.llm_provider import llm_provider
 from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
+from app.schemas.shopping import (
+    PriceMonitorCheckRequest,
+    PriceMonitorCheckResponse,
+    PriceMonitorCreateRequest,
+    PriceMonitorResponse,
+    PurchaseCreateRequest,
+    PurchaseResponse,
+    ShoppingDecisionRequest,
+    ShoppingProductInput,
+    ShoppingParseUrlRequest,
+    ShoppingParseUrlResponse,
+)
 from app.skills.executor import ensure_builtin_skills_seeded, execute_skill
 from app.skills.sandbox import python_skill_sandbox_status
 from app.schemas.studio import (
@@ -86,13 +99,6 @@ from app.schemas.studio import (
     RagQueryResponse,
     ReviewActionRequest,
     ReviewActionResponse,
-    PriceMonitorCheckRequest,
-    PriceMonitorCheckResponse,
-    PriceMonitorCreateRequest,
-    PriceMonitorResponse,
-    PurchaseCreateRequest,
-    PurchaseResponse,
-    ShoppingDecisionRequest,
     TaskRunRequest,
     TaskQuestionRequest,
     TaskQuestionResponse,
@@ -108,6 +114,34 @@ from app.schemas.studio import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
+
+
+@router.post("/shopping/parse-url", response_model=ShoppingParseUrlResponse, tags=["Shopping Decision"])
+def parse_shopping_url(request: ShoppingParseUrlRequest) -> ShoppingParseUrlResponse:
+    parsed = urlparse(request.url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=422, detail="请输入有效的商品链接")
+
+    host = parsed.netloc.lower().removeprefix("www.")
+    platform = next(
+        (name for key, name in (("jd.", "京东"), ("taobao.", "淘宝"), ("tmall.", "天猫"), ("pinduoduo.", "拼多多"), ("douyin.", "抖音")) if key in host),
+        host,
+    )
+    slug = parsed.path.rstrip("/").split("/")[-1] or host
+    title = request.title.strip() or f"来自 {platform} 的商品（待确认）"
+    product = ShoppingProductInput(
+        title=title,
+        platform=platform,
+        url=request.url,
+        model=slug[:80],
+        condition="new",
+        notes="链接已保存。请确认商品标题、型号和页面价格后再分析。",
+    )
+    return ShoppingParseUrlResponse(
+        product=product,
+        source=host,
+        message="已读取链接来源，商品价格和规格需要你确认。",
+    )
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])
