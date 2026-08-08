@@ -90,6 +90,8 @@ from app.schemas.studio import (
     PriceMonitorCheckResponse,
     PriceMonitorCreateRequest,
     PriceMonitorResponse,
+    PurchaseCreateRequest,
+    PurchaseResponse,
     ShoppingDecisionRequest,
     TaskRunRequest,
     TaskQuestionRequest,
@@ -267,6 +269,29 @@ def record_price_monitor_check(monitor_id: str, request: PriceMonitorCheckReques
         target_reached=check["target_reached"],
         message=check["message"],
     )
+
+
+@router.post("/shopping/purchases", response_model=PurchaseResponse, tags=["Shopping Purchase"])
+def create_purchase_record(request: PurchaseCreateRequest) -> PurchaseResponse:
+    record = shopping_store.create_purchase(
+        user_id=request.user_id,
+        product=request.product.model_dump(),
+        paid_price=request.paid_price,
+        platform=request.platform,
+        store_name=request.store_name,
+        purchased_at=request.purchased_at,
+        price_protection_days=request.price_protection_days,
+        return_days=request.return_days,
+        warranty_months=request.warranty_months,
+        consumable_cycle_days=request.consumable_cycle_days,
+        notes=request.notes,
+    )
+    return PurchaseResponse(**record)
+
+
+@router.get("/shopping/purchases", response_model=list[PurchaseResponse], tags=["Shopping Purchase"])
+def list_purchase_records(user_id: str | None = None) -> list[PurchaseResponse]:
+    return [PurchaseResponse(**item) for item in shopping_store.list_purchases(user_id=user_id)]
 
 
 @router.post("/projects/analyze", response_model=ProjectAnalyzeResponse, tags=["Project Analyzer"])

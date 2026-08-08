@@ -140,3 +140,36 @@ class PriceMonitorCheckResponse(BaseModel):
     check: dict[str, Any]
     target_reached: bool
     message: str
+
+
+class PurchaseCreateRequest(BaseModel):
+    user_id: str = "local-user"
+    product: ShoppingProductInput
+    paid_price: float = Field(..., ge=0)
+    platform: str = ""
+    store_name: str = ""
+    purchased_at: Optional[str] = None
+    price_protection_days: int = Field(default=7, ge=0, le=90)
+    return_days: int = Field(default=7, ge=0, le=30)
+    warranty_months: int = Field(default=12, ge=0, le=120)
+    consumable_cycle_days: Optional[int] = Field(default=None, ge=1, le=730)
+    notes: str = ""
+
+
+class PurchaseResponse(BaseModel):
+    purchase_id: str
+    user_id: str
+    product: dict[str, Any]
+    paid_price: float
+    platform: str
+    store_name: str
+    purchased_at: str
+    price_protection_deadline: Optional[str] = None
+    return_deadline: Optional[str] = None
+    warranty_deadline: Optional[str] = None
+    consumable_reminder_at: Optional[str] = None
+    status: str
+    reminders: list[dict[str, Any]] = Field(default_factory=list)
+    notes: str = ""
+    created_at: str
+    updated_at: str

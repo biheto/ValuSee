@@ -67,6 +67,28 @@ class ShoppingStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS shopping_purchase_record (
+                    purchase_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    product_json TEXT NOT NULL,
+                    paid_price REAL NOT NULL,
+                    platform TEXT,
+                    store_name TEXT,
+                    purchased_at TEXT NOT NULL,
+                    price_protection_deadline TEXT,
+                    return_deadline TEXT,
+                    warranty_deadline TEXT,
+                    consumable_reminder_at TEXT,
+                    status TEXT NOT NULL,
+                    reminders_json TEXT NOT NULL,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
     def create_monitor(
         self,
@@ -222,6 +244,99 @@ class ShoppingStore:
             ).fetchall()
         return [_row_to_check(row) for row in rows]
 
+    def create_purchase(
+        self,
+        *,
+        user_id: str,
+        product: dict[str, Any],
+        paid_price: float,
+        platform: str,
+        store_name: str,
+        purchased_at: str | None,
+        price_protection_days: int,
+        return_days: int,
+        warranty_months: int,
+        consumable_cycle_days: int | None,
+        notes: str,
+    ) -> dict[str, Any]:
+        purchase_id = f"buy_{uuid4().hex}"
+        purchased_dt = _parse_or_now(purchased_at)
+        price_protection_deadline = _deadline(purchased_dt, days=price_protection_days) if price_protection_days else None
+        return_deadline = _deadline(purchased_dt, days=return_days) if return_days else None
+        warranty_deadline = _deadline(purchased_dt, days=warranty_months * 30) if warranty_months else None
+        consumable_reminder_at = _deadline(purchased_dt, days=consumable_cycle_days) if consumable_cycle_days else None
+        reminders = _build_purchase_reminders(
+            price_protection_deadline=price_protection_deadline,
+            return_deadline=return_deadline,
+            warranty_deadline=warranty_deadline,
+            consumable_reminder_at=consumable_reminder_at,
+        )
+        now = utc_now_iso()
+        record = {
+            "purchase_id": purchase_id,
+            "user_id": user_id,
+            "product": product,
+            "paid_price": round(float(paid_price), 2),
+            "platform": platform or product.get("platform") or "",
+            "store_name": store_name,
+            "purchased_at": purchased_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "price_protection_deadline": price_protection_deadline,
+            "return_deadline": return_deadline,
+            "warranty_deadline": warranty_deadline,
+            "consumable_reminder_at": consumable_reminder_at,
+            "status": "active",
+            "reminders": reminders,
+            "notes": notes,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._session() as conn:
+            conn.execute(
+                """
+                INSERT INTO shopping_purchase_record(
+                    purchase_id, user_id, product_json, paid_price, platform, store_name,
+                    purchased_at, price_protection_deadline, return_deadline, warranty_deadline,
+                    consumable_reminder_at, status, reminders_json, notes, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    purchase_id,
+                    user_id,
+                    json.dumps(product, ensure_ascii=False),
+                    record["paid_price"],
+                    record["platform"],
+                    store_name,
+                    record["purchased_at"],
+                    price_protection_deadline,
+                    return_deadline,
+                    warranty_deadline,
+                    consumable_reminder_at,
+                    record["status"],
+                    json.dumps(reminders, ensure_ascii=False),
+                    notes,
+                    now,
+                    now,
+                ),
+            )
+        return record
+
+    def list_purchases(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT purchase_id, user_id, product_json, paid_price, platform, store_name,
+                   purchased_at, price_protection_deadline, return_deadline, warranty_deadline,
+                   consumable_reminder_at, status, reminders_json, notes, created_at, updated_at
+            FROM shopping_purchase_record
+        """
+        params: tuple[Any, ...] = ()
+        if user_id:
+            query += " WHERE user_id = ?"
+            params = (user_id,)
+        query += " ORDER BY purchased_at DESC"
+        with self._session() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_row_to_purchase(row) for row in rows]
+
 
 def final_price_from_breakdown(payload: dict[str, Any]) -> dict[str, float]:
     page_price = float(payload.get("price") or 0.0)
@@ -277,8 +392,67 @@ def _row_to_check(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _row_to_purchase(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "purchase_id": row["purchase_id"],
+        "user_id": row["user_id"],
+        "product": json.loads(row["product_json"]),
+        "paid_price": float(row["paid_price"]),
+        "platform": row["platform"] or "",
+        "store_name": row["store_name"] or "",
+        "purchased_at": row["purchased_at"],
+        "price_protection_deadline": row["price_protection_deadline"],
+        "return_deadline": row["return_deadline"],
+        "warranty_deadline": row["warranty_deadline"],
+        "consumable_reminder_at": row["consumable_reminder_at"],
+        "status": row["status"],
+        "reminders": json.loads(row["reminders_json"]),
+        "notes": row["notes"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def _utc_plus_days(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _parse_or_now(value: str | None) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    text = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _deadline(start: datetime, *, days: int | None) -> str | None:
+    if not days:
+        return None
+    return (start + timedelta(days=days)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _build_purchase_reminders(
+    *,
+    price_protection_deadline: str | None,
+    return_deadline: str | None,
+    warranty_deadline: str | None,
+    consumable_reminder_at: str | None,
+) -> list[dict[str, Any]]:
+    reminders = []
+    if price_protection_deadline:
+        reminders.append({"type": "price_protection", "title": "保价截止提醒", "remind_at": price_protection_deadline})
+    if return_deadline:
+        reminders.append({"type": "return_deadline", "title": "无理由退货截止提醒", "remind_at": return_deadline})
+    if warranty_deadline:
+        reminders.append({"type": "warranty_deadline", "title": "保修到期提醒", "remind_at": warranty_deadline})
+    if consumable_reminder_at:
+        reminders.append({"type": "consumable", "title": "耗材更换提醒", "remind_at": consumable_reminder_at})
+    return reminders
 
 
 def _monitor_message(final_price: float, target_price: float) -> str:
