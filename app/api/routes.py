@@ -252,6 +252,11 @@ def get_price_history(product_url: str, user_id: str | None = None, limit: int =
     return shopping_store.price_history(product_url, user_id=_request_user(authorization), limit=max(1, min(limit, 1000)))
 
 
+@router.get("/shopping/notifications", tags=["Shopping Monitor"])
+def list_shopping_notifications(unread_only: bool = False, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_notifications(_request_user(authorization), unread_only=unread_only)
+
+
 @router.get("/business-scenarios", tags=["Business Scenarios"])
 def list_business_scenarios() -> dict[str, object]:
     return {"scenarios": [{"code": code, **item} for code, item in SCENARIOS.items()]}

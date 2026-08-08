@@ -121,6 +121,13 @@ class ShoppingStore:
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_price_snapshot_url_time ON shopping_price_snapshot(product_url, captured_at)")
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS shopping_notification(
+                    notification_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,kind TEXT NOT NULL,
+                    title TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,read_at TEXT
+                )"""
+            )
 
     def create_extension_capture(
         self,
@@ -254,6 +261,64 @@ class ShoppingStore:
             "current_percentile": round(percentile, 1), "points": points,
             "sorted_prices": sorted_prices,
         }
+
+    def process_latest_snapshots(self) -> dict[str, int]:
+        processed = notifications = 0
+        for monitor in self.list_monitors():
+            if monitor["status"] not in {"watching", "target_reached"}:
+                continue
+            product_url = str(monitor["product"].get("url", ""))
+            if not product_url:
+                continue
+            with self._session() as conn:
+                snapshot = conn.execute(
+                    "SELECT * FROM shopping_price_snapshot WHERE product_url=? ORDER BY captured_at DESC LIMIT 1",
+                    (product_url,),
+                ).fetchone()
+                if not snapshot:
+                    continue
+                source = f"snapshot:{snapshot['snapshot_id']}"
+                duplicate = conn.execute(
+                    "SELECT 1 FROM shopping_price_check WHERE monitor_id=? AND source=?",
+                    (monitor["monitor_id"], source),
+                ).fetchone()
+            if duplicate:
+                continue
+            conditions = json.loads(snapshot["conditions_json"])
+            breakdown = {"page_price": snapshot["price"], **conditions, "final_price": snapshot["final_price"]}
+            check = self.record_price_check(
+                monitor_id=monitor["monitor_id"], breakdown=breakdown,
+                stock_status="in_stock", source=source,
+            )
+            processed += 1
+            if check["target_reached"]:
+                created = self.create_notification(
+                    user_id=monitor["user_id"], kind="price_reached",
+                    title=f"{monitor['product'].get('title', '关注商品')} 已到目标价",
+                    message=check["message"], idempotency_key=f"price:{monitor['monitor_id']}:{snapshot['snapshot_id']}",
+                )
+                notifications += 1 if created else 0
+        return {"processed": processed, "notifications": notifications}
+
+    def create_notification(self, *, user_id: str, kind: str, title: str, message: str, idempotency_key: str) -> dict[str, Any] | None:
+        record = {"notification_id": f"note_{uuid4().hex}", "user_id": user_id, "kind": kind,
+                  "title": title, "message": message, "status": "unread",
+                  "idempotency_key": idempotency_key, "created_at": utc_now_iso(), "read_at": None}
+        with self._session() as conn:
+            try:
+                conn.execute("INSERT INTO shopping_notification VALUES(?,?,?,?,?,?,?,?,?)", tuple(record.values()))
+            except sqlite3.IntegrityError:
+                return None
+        return record
+
+    def list_notifications(self, user_id: str, unread_only: bool = False) -> list[dict[str, Any]]:
+        query = "SELECT * FROM shopping_notification WHERE user_id=?"
+        params: list[Any] = [user_id]
+        if unread_only:
+            query += " AND status='unread'"
+        query += " ORDER BY created_at DESC LIMIT 100"
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
 
     def create_monitor(
         self,

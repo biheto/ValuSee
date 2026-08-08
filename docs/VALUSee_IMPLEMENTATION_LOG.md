@@ -45,8 +45,8 @@ Brand assets supplied by the product owner are stored under `web/public/brand/` 
 | Product understanding model | Partial | OCR text normalization extracts title, known brand, model token, and visible price; richer category/spec extraction remains. |
 | Browser extension | MVP complete | Load-unpacked Manifest V3 package reads user-visible fields on supported product pages and writes a confirmation inbox. |
 | Authorized commerce APIs | Planned | Requires platform credentials and approved data contracts. |
-| Price monitor scheduler | Partial | Persistent records and manual checks exist; external scheduler/worker is pending. |
-| Notifications | Partial | In-app status is modeled; email/push/browser delivery is pending. |
+| Price monitor scheduler | MVP complete | Independent restart-safe worker consumes new price snapshots, deduplicates checks, updates monitors, and emits notifications. |
+| Notifications | Partial | Durable idempotent in-app notifications are implemented; email/push/browser delivery adapters remain. |
 | Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
 | Production storage | Partial | SQLite is the local default; PostgreSQL/Redis/object storage/queue deployment is pending. |
