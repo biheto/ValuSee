@@ -32,6 +32,15 @@ class CommerceProvider:
             raise ValueError("平台适配器返回的数据缺少商品标题")
         return {"provider": self.name, "kind": self.kind, "product": payload}
 
+    def health_check(self) -> dict[str, object]:
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "https" and os.getenv("APP_ENV", "dev").lower() in {"prod", "production"}:
+            raise ValueError("production provider adapters must use HTTPS")
+        endpoint = self.base_url.rstrip("/") + "/health"
+        request = Request(endpoint, method="GET", headers={"Accept": "application/json", "Authorization": f"Bearer {self.token}"})
+        with urlopen(request, timeout=8) as response:
+            return {"provider": self.name, "status": "healthy" if 200 <= response.status < 300 else "unhealthy", "http_status": response.status}
+
     def search(self, query: str, category: str = "", limit: int = 12) -> list[dict[str, object]]:
         parsed = urlparse(self.base_url)
         if parsed.scheme != "https" and os.getenv("APP_ENV", "dev").lower() in {"prod", "production"}:

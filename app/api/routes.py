@@ -31,6 +31,7 @@ from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
 from app.shopping.providers import configured_providers
+from app.shopping.catalog import commerce_catalog
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
     resume_task_workflow,
@@ -318,6 +319,56 @@ def list_commerce_providers(authorization: str | None = Header(default=None)) ->
     return {"providers": [{"name": item.name, "kind": item.kind} for item in configured_providers().values()]}
 
 
+@router.post("/admin/providers/{provider_name}/health", tags=["Admin Console"])
+def admin_provider_health(provider_name: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    provider = configured_providers().get(provider_name)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Commerce provider is not configured")
+    try:
+        return provider.health_check()
+    except Exception as exc:
+        return {"provider": provider.name, "status": "unhealthy", "error": type(exc).__name__}
+
+
+@router.get("/admin/prompts", tags=["Admin Console"])
+def admin_prompts(agent: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"prompts": llm_provider.list_prompt_versions(agent), "active": llm_provider.active_prompt_map()}
+
+
+@router.post("/admin/prompts", tags=["Admin Console"])
+def admin_save_prompt(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    agent = str(payload.get("agent") or "").strip()
+    version = str(payload.get("prompt_version") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    if not agent or not version or not title:
+        raise HTTPException(status_code=422, detail="agent, prompt_version and title are required")
+    prompt = llm_provider.save_prompt_version({**payload, "agent": agent, "prompt_version": version, "title": title})
+    if payload.get("is_active"):
+        prompt = llm_provider.set_active_prompt_version(agent, version) or prompt
+    return {"prompt": prompt, "active": llm_provider.active_prompt_map()}
+
+
+@router.post("/admin/prompts/active", tags=["Admin Console"])
+def admin_activate_prompt(payload: dict[str, str], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    agent, version = payload.get("agent"), payload.get("prompt_version")
+    if not agent or not version:
+        raise HTTPException(status_code=422, detail="agent and prompt_version are required")
+    prompt = llm_provider.set_active_prompt_version(agent, version)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt version not found")
+    return {"prompt": prompt, "active": llm_provider.active_prompt_map()}
+
+
+@router.get("/admin/benchmarks", tags=["Admin Console"])
+def admin_benchmarks(limit: int = 100, benchmark_type: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"runs": task_store.list_benchmark_runs(limit=max(1, min(limit, 500)), benchmark_type=benchmark_type)}
+
+
 @router.get("/admin/overview", tags=["Admin Console"])
 def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
@@ -349,6 +400,46 @@ def admin_tasks(limit: int = 100, authorization: str | None = Header(default=Non
 def admin_traces(limit: int = 100, agent: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
     return {"traces": task_store.list_llm_traces(limit=max(1, min(limit, 500)), agent=agent)}
+
+
+@router.get("/admin/catalog/products", tags=["Admin Catalog"])
+def admin_catalog_products(query: str | None = None, limit: int = 200, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"products": commerce_catalog.list_products(query=query, limit=limit)}
+
+
+@router.post("/admin/catalog/products", tags=["Admin Catalog"])
+def admin_catalog_product_upsert(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    try:
+        return {"product": commerce_catalog.upsert_product(payload)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/admin/catalog/products/{product_id}", tags=["Admin Catalog"])
+def admin_catalog_product_delete(product_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    if not commerce_catalog.delete_product(product_id):
+        raise HTTPException(status_code=404, detail="Catalog product not found")
+    return {"product_id": product_id, "deleted": True}
+
+
+@router.post("/admin/catalog/skus", tags=["Admin Catalog"])
+def admin_catalog_sku_upsert(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    try:
+        return {"sku": commerce_catalog.upsert_sku(payload)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/admin/catalog/skus/{sku_id}", tags=["Admin Catalog"])
+def admin_catalog_sku_delete(sku_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    if not commerce_catalog.delete_sku(sku_id):
+        raise HTTPException(status_code=404, detail="Catalog SKU not found")
+    return {"sku_id": sku_id, "deleted": True}
 
 
 @router.get("/admin/monitors", tags=["Admin Console"])
