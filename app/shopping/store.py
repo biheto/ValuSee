@@ -223,6 +223,18 @@ class ShoppingStore:
                 status TEXT NOT NULL,result TEXT NOT NULL,created_at TEXT NOT NULL
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_notification_delivery ON shopping_notification_delivery(user_id,notification_id,attempt)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_monitor_preference(
+                monitor_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,group_name TEXT NOT NULL,frequency TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_budget_pool(
+                pool_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,target_amount REAL NOT NULL,
+                spent_amount REAL NOT NULL,currency TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_savings_ledger(
+                entry_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,source_type TEXT NOT NULL,source_id TEXT NOT NULL,
+                amount REAL NOT NULL,title TEXT NOT NULL,occurred_at TEXT NOT NULL,created_at TEXT NOT NULL,
+                UNIQUE(user_id,source_type,source_id)
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_content(
                 content_id TEXT PRIMARY KEY,content_type TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,
                 body TEXT NOT NULL,category TEXT NOT NULL,source_url TEXT,status TEXT NOT NULL,
@@ -558,7 +570,68 @@ class ShoppingStore:
         query += " ORDER BY created_at DESC"
         with self._session() as conn:
             rows = conn.execute(query, params).fetchall()
-        return [_row_to_monitor(row) for row in rows]
+        items = [_row_to_monitor(row) for row in rows]
+        with self._session() as conn:
+            for item in items:
+                preference = conn.execute("SELECT group_name,frequency FROM shopping_monitor_preference WHERE monitor_id=? AND user_id=?", (item["monitor_id"], item["user_id"])).fetchone()
+                item["group_name"] = preference["group_name"] if preference else "默认分组"
+                item["frequency"] = preference["frequency"] if preference else "daily"
+        return items
+
+    def save_monitor_preference(self, user_id: str, monitor_id: str, group_name: str, frequency: str) -> dict[str, Any]:
+        if frequency not in {"realtime", "daily", "weekly"}:
+            raise ValueError("invalid monitor frequency")
+        group_name = group_name.strip()[:40] or "默认分组"
+        now = utc_now_iso()
+        with self._session() as conn:
+            if not conn.execute("SELECT 1 FROM shopping_price_monitor WHERE monitor_id=? AND user_id=?", (monitor_id, user_id)).fetchone():
+                raise ValueError("monitor not found")
+            conn.execute("INSERT INTO shopping_monitor_preference(monitor_id,user_id,group_name,frequency,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(monitor_id) DO UPDATE SET group_name=excluded.group_name,frequency=excluded.frequency,updated_at=excluded.updated_at", (monitor_id, user_id, group_name, frequency, now))
+        return {"monitor_id": monitor_id, "group_name": group_name, "frequency": frequency, "updated_at": now}
+
+    def save_budget_pool(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now, pool_id = utc_now_iso(), str(payload.get("pool_id") or f"pool_{uuid4().hex}")
+        name = str(payload.get("name") or "").strip()[:60]
+        target = max(0, float(payload.get("target_amount") or 0))
+        spent = max(0, float(payload.get("spent_amount") or 0))
+        if not name or target <= 0:
+            raise ValueError("budget pool name and positive target are required")
+        with self._session() as conn:
+            old = conn.execute("SELECT user_id,created_at FROM shopping_budget_pool WHERE pool_id=?", (pool_id,)).fetchone()
+            if old and old["user_id"] != user_id:
+                raise ValueError("budget pool does not belong to user")
+            created = old["created_at"] if old else now
+            conn.execute("INSERT INTO shopping_budget_pool(pool_id,user_id,name,target_amount,spent_amount,currency,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(pool_id) DO UPDATE SET name=excluded.name,target_amount=excluded.target_amount,spent_amount=excluded.spent_amount,currency=excluded.currency,status=excluded.status,updated_at=excluded.updated_at", (pool_id, user_id, name, target, spent, str(payload.get("currency") or "CNY")[:3].upper(), str(payload.get("status") or "active"), created, now))
+            row = conn.execute("SELECT * FROM shopping_budget_pool WHERE pool_id=?", (pool_id,)).fetchone()
+        return dict(row)
+
+    def list_budget_pools(self, user_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute("SELECT * FROM shopping_budget_pool WHERE user_id=? ORDER BY updated_at DESC", (user_id,)).fetchall()]
+
+    def record_savings(self, user_id: str, source_type: str, source_id: str, amount: float, title: str, occurred_at: str | None = None) -> dict[str, Any] | None:
+        if source_type not in {"purchase", "price_protection", "coupon"} or amount <= 0 or not source_id:
+            raise ValueError("invalid savings entry")
+        record = {"entry_id": f"saving_{uuid4().hex}", "user_id": user_id, "source_type": source_type, "source_id": source_id, "amount": round(float(amount), 2), "title": title.strip()[:120], "occurred_at": occurred_at or utc_now_iso(), "created_at": utc_now_iso()}
+        with self._session() as conn:
+            try:
+                conn.execute("INSERT INTO shopping_savings_ledger(entry_id,user_id,source_type,source_id,amount,title,occurred_at,created_at) VALUES(?,?,?,?,?,?,?,?)", tuple(record.values()))
+            except Exception as exc:
+                if is_integrity_error(exc):
+                    return None
+                raise
+        return record
+
+    def list_savings(self, user_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            rows = [dict(row) for row in conn.execute("SELECT * FROM shopping_savings_ledger WHERE user_id=? ORDER BY occurred_at DESC LIMIT 500", (user_id,)).fetchall()]
+        return {"items": rows, "total": round(sum(float(item["amount"]) for item in rows), 2)}
+
+    def price_calendar(self, user_id: str, days: int = 90) -> list[dict[str, Any]]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+        with self._session() as conn:
+            rows = conn.execute("SELECT substr(captured_at,1,10) AS day,COUNT(*) AS observations,MIN(final_price) AS lowest_price,AVG(final_price) AS average_price FROM shopping_price_snapshot WHERE user_id=? AND captured_at>=? GROUP BY substr(captured_at,1,10) ORDER BY day", (user_id, cutoff)).fetchall()
+        return [dict(row) for row in rows]
 
     def get_monitor(self, monitor_id: str) -> dict[str, Any] | None:
         with self._session() as conn:
@@ -607,6 +680,7 @@ class ShoppingStore:
                 "INSERT INTO shopping_monitor_action(action_id,monitor_id,actor_id,action,from_status,to_status,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
                 (f"mact_{uuid4().hex}", monitor_id, actor_id, "delete", monitor["status"], None, reason, now),
             )
+            conn.execute("DELETE FROM shopping_monitor_preference WHERE monitor_id=?", (monitor_id,))
             conn.execute("DELETE FROM shopping_price_monitor WHERE monitor_id=?", (monitor_id,))
         return True
 
@@ -773,6 +847,9 @@ class ShoppingStore:
         self.upsert_product_record(user_id, product)
         reference_price = float(product.get("price") or paid_price)
         self.record_business_event(user_id, "purchase_confirmed", purchase_id, max(0.0, reference_price - float(paid_price)), idempotency_key=f"purchase:{purchase_id}")
+        saved = max(0.0, reference_price - float(paid_price))
+        if saved:
+            self.record_savings(user_id, "purchase", purchase_id, saved, f"购买节省 · {product.get('title') or '商品'}", record["purchased_at"])
         return record
 
     def list_purchases(self, user_id: str | None = None) -> list[dict[str, Any]]:
@@ -1404,6 +1481,7 @@ class ShoppingStore:
             found = conn.execute("SELECT 1 FROM shopping_price_monitor WHERE monitor_id=? AND user_id=?", (monitor_id, user_id)).fetchone()
             if not found: return False
             conn.execute("DELETE FROM shopping_price_check WHERE monitor_id=?", (monitor_id,))
+            conn.execute("DELETE FROM shopping_monitor_preference WHERE monitor_id=? AND user_id=?", (monitor_id, user_id))
             return conn.execute("DELETE FROM shopping_price_monitor WHERE monitor_id=? AND user_id=?", (monitor_id, user_id)).rowcount > 0
 
 

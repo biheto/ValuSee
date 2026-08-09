@@ -519,6 +519,9 @@ class AuthStore:
             "upgrade_requests": ("valuesee_upgrade_request", "user_id"),
             "account_profile": ("valuesee_user_profile", "user_id"),
             "account_audits": ("valuesee_user_audit", "user_id"),
+            "monitor_preferences": ("shopping_monitor_preference", "user_id"),
+            "budget_pools": ("shopping_budget_pool", "user_id"),
+            "savings_ledger": ("shopping_savings_ledger", "user_id"),
         }
         with self._session() as conn:
             result = {"user": self.get_user(user_id), "families": [], "family_assets": [], "family_budgets": [], "family_invitations": [], "support_messages": [], **{key: [] for key in tables}}
@@ -564,6 +567,7 @@ class AuthStore:
             "shopping_purchase_attachment", "shopping_support_ticket",
             "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request",
             "valuesee_user_profile", "valuesee_user_audit",
+            "shopping_monitor_preference", "shopping_budget_pool", "shopping_savings_ledger",
         )
         attachment_objects: list[tuple[str, str]] = []
         with self._session() as conn:

@@ -1111,6 +1111,37 @@ def delete_price_monitor(monitor_id: str, authorization: str | None = Header(def
     return {"deleted": True, "monitor_id": monitor_id}
 
 
+@router.put("/shopping/monitors/{monitor_id}/preference", tags=["Shopping Monitor"])
+def save_monitor_preference(monitor_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.save_monitor_preference(_request_user(authorization), monitor_id, str(payload.get("group_name") or ""), str(payload.get("frequency") or "daily"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/shopping/savings", tags=["Shopping Savings"])
+def shopping_savings(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.list_savings(_request_user(authorization))
+
+
+@router.get("/shopping/price-calendar", tags=["Shopping Savings"])
+def shopping_price_calendar(days: int = 90, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"days": shopping_store.price_calendar(_request_user(authorization), days)}
+
+
+@router.get("/shopping/budget-pools", tags=["Shopping Savings"])
+def shopping_budget_pools(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"items": shopping_store.list_budget_pools(_request_user(authorization))}
+
+
+@router.post("/shopping/budget-pools", tags=["Shopping Savings"])
+def save_shopping_budget_pool(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.save_budget_pool(_request_user(authorization), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/shopping/profile", tags=["Shopping Account"])
 def get_shopping_profile(authorization: str | None = Header(default=None)) -> dict[str, object]:
     return shopping_store.get_profile(_request_user(authorization))
