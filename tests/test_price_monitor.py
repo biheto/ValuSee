@@ -79,12 +79,12 @@ def test_monitor_admin_actions_are_stateful_and_audited():
             user_id="u1", product=_product(), target_price=99,
             current_final_price=129, monitor_days=30, notify_channel="in_app",
         )
-        paused = store.update_monitor_status(record["monitor_id"], "paused", actor_id="admin", reason="来源暂时不可用")
+        paused = store.update_monitor_status(record["monitor_id"], "paused", actor_id="admin", reason="来源暂时不可用", action="pause")
         assert paused and paused["status"] == "paused"
-        resumed = store.update_monitor_status(record["monitor_id"], "watching", actor_id="admin", reason="已恢复")
+        resumed = store.update_monitor_status(record["monitor_id"], "watching", actor_id="admin", reason="已恢复", action="resume")
         assert resumed and resumed["status"] == "watching"
         actions = store.list_monitor_actions(record["monitor_id"])
-        assert [item["action"] for item in actions][:2] == ["watching", "paused"]
+        assert [item["action"] for item in actions][:2] == ["resume", "pause"]
 
 
 def test_monitor_invalid_transition_is_rejected():

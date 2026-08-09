@@ -379,7 +379,7 @@ def admin_monitor_action(
     if not status:
         raise HTTPException(status_code=422, detail="action must be pause, resume, retry, expire, or delete")
     try:
-        monitor = shopping_store.update_monitor_status(monitor_id, status, actor_id=actor_id, reason=reason)
+        monitor = shopping_store.update_monitor_status(monitor_id, status, actor_id=actor_id, reason=reason, action=action)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not monitor:

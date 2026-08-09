@@ -415,7 +415,7 @@ class ShoppingStore:
             ).fetchone()
         return _row_to_monitor(row) if row else None
 
-    def update_monitor_status(self, monitor_id: str, status: str, *, actor_id: str, reason: str = "") -> dict[str, Any] | None:
+    def update_monitor_status(self, monitor_id: str, status: str, *, actor_id: str, reason: str = "", action: str | None = None) -> dict[str, Any] | None:
         allowed = {
             "watching": {"paused", "expired", "target_reached"},
             "target_reached": {"watching", "paused", "expired"},
@@ -435,7 +435,7 @@ class ShoppingStore:
             )
             conn.execute(
                 "INSERT INTO shopping_monitor_action(action_id,monitor_id,actor_id,action,from_status,to_status,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                (f"mact_{uuid4().hex}", monitor_id, actor_id, status, monitor["status"], status, reason, now),
+                (f"mact_{uuid4().hex}", monitor_id, actor_id, action or status, monitor["status"], status, reason, now),
             )
         return self.get_monitor(monitor_id)
 
