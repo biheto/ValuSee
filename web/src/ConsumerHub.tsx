@@ -1,0 +1,63 @@
+import { Bell, Bookmark, ChevronRight, Clock3, ExternalLink, Heart, History, Laptop, MessageSquare, PackageCheck, Receipt, Search, ShieldCheck, Sparkles, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+export type ConsumerProduct = {
+  title: string; platform: string; url: string; brand: string; model: string; sku: string;
+  specs: Record<string, string>; price: number; coupon: number; platform_discount: number;
+  member_discount: number; subsidy: number; pay_discount: number; shipping: number; gift_value: number;
+  condition: string; official_store: boolean; return_days: number; warranty_months: number; notes: string;
+};
+export type SavedItem = { saved_id: string; item_type: 'favorite' | 'recent' | 'brand'; reference_key: string; label: string; product: ConsumerProduct; updated_at: string };
+export type Dashboard = { reports?: number; monitors?: number; purchases?: number; unread?: number; favorite?: number; recent?: number; brand?: number; actual_savings?: number };
+export type ConsumerNotification = { notification_id: string; kind?: string; title: string; message: string; status: string; created_at: string };
+
+const money = (value?: number) => `¥${Number(value || 0).toFixed(0)}`;
+const day = (value: string) => new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+
+export function DiscoverPage({ dashboard, recent, onStart, onOpen }: { dashboard: Dashboard; recent: SavedItem[]; onStart: (goal: string) => void; onOpen: (product: ConsumerProduct) => void }) {
+  const [query, setQuery] = useState('');
+  const categories = [['手机', '换机前先核对版本与补贴'], ['电脑', '性能、续航和接口一起看'], ['显示器', '尺寸、供电与色彩不踩坑'], ['耳机', '降噪、接口与售后都算清'], ['家电', '能耗、耗材与保修全周期']];
+  return <section className="discover-page">
+    <div className="discover-hero"><div><span><Sparkles size={16} />AI 购物决策</span><h1>买之前，先看清真正的价值。</h1><p>把需求、商品链接或截图交给 ValuSee，从同款识别、到手价到买后保价，一次算明白。</p><form onSubmit={(event) => { event.preventDefault(); if (query.trim()) onStart(query.trim()); }}><Search size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="想买什么？例如：适合 MacBook 的 27 英寸显示器" /><button>开始分析</button></form></div><div className="discover-value"><strong>{money(dashboard.actual_savings)}</strong><span>已记录节省</span><small>{dashboard.monitors || 0} 个监控正在守候目标价</small></div></div>
+    <div className="category-strip">{categories.map(([name, description]) => <button key={name} onClick={() => onStart(`帮我选${name}，请结合预算、用途和已有设备推荐`)}><i><Tag size={18} /></i><strong>{name}</strong><span>{description}</span><ChevronRight size={16} /></button>)}</div>
+    <div className="discover-grid"><section><div className="consumer-section-title"><div><span>继续上次</span><h2>最近看过</h2></div><History size={20} /></div>{recent.length ? <div className="consumer-product-grid">{recent.slice(0, 6).map((item) => <ProductTile key={item.saved_id} product={item.product} subtitle={`${item.product.platform || '来源待确认'} · ${day(item.updated_at)}`} onOpen={() => onOpen(item.product)} />)}</div> : <EmptyState icon={<Clock3 />} title="还没有浏览足迹" text="搜索或打开商品后，会在这里继续你的购买决策。" />}</section><aside><div className="consumer-section-title"><div><span>你的进度</span><h2>购物助理摘要</h2></div><WalletCards size={20} /></div><div className="home-stats"><article><Bell /><strong>{dashboard.monitors || 0}</strong><span>降价监控</span></article><article><Heart /><strong>{dashboard.favorite || 0}</strong><span>收藏商品</span></article><article><Receipt /><strong>{dashboard.purchases || 0}</strong><span>购买记录</span></article><article><MessageSquare /><strong>{dashboard.unread || 0}</strong><span>未读提醒</span></article></div><div className="truth-note"><ShieldCheck size={20} /><div><strong>真实来源优先</strong><p>没有授权价格或可追溯证据时，ValuSee 会明确提示缺失，不生成虚假榜单和优惠。</p></div></div></aside></div>
+  </section>;
+}
+
+function ProductTile({ product, subtitle, onOpen }: { product: ConsumerProduct; subtitle: string; onOpen: () => void }) {
+  return <button className="consumer-product-tile" onClick={onOpen}><div className="product-placeholder"><Laptop size={28} /></div><div><strong>{product.title || '未命名商品'}</strong><span>{subtitle}</span><b>{product.price ? money(product.price) : '价格待确认'}</b></div><ChevronRight size={17} /></button>;
+}
+
+export function SavedPage({ items, onOpen, onDelete }: { items: SavedItem[]; onOpen: (product: ConsumerProduct) => void; onDelete: (id: string) => void }) {
+  const [tab, setTab] = useState<'favorite' | 'recent' | 'brand'>('favorite');
+  const tabs: Array<[typeof tab, string]> = [['favorite', '收藏'], ['recent', '足迹'], ['brand', '关注品牌']];
+  const rows = items.filter((item) => item.item_type === tab);
+  return <section className="page-section"><div className="consumer-page-head"><div><span>我的关注</span><h1>收藏与足迹</h1><p>把有兴趣的商品、品牌和最近浏览留在账户里。</p></div><Bookmark size={28} /></div><div className="consumer-tabs">{tabs.map(([key, label]) => <button className={tab === key ? 'active' : ''} onClick={() => setTab(key)} key={key}>{label}<b>{items.filter((item) => item.item_type === key).length}</b></button>)}</div><div className="panel saved-list">{rows.length ? rows.map((item) => <article key={item.saved_id}><button className="saved-main" onClick={() => item.item_type !== 'brand' && onOpen(item.product)}><div className="saved-icon">{item.item_type === 'brand' ? <Tag /> : <Laptop />}</div><div><strong>{item.label}</strong><span>{item.item_type === 'brand' ? '关注品牌' : `${item.product.platform || '来源待确认'} · ${day(item.updated_at)}`}</span></div>{item.item_type !== 'brand' && <b>{item.product.price ? money(item.product.price) : '价格待确认'}</b>}</button><button className="icon-button danger" title="删除" onClick={() => onDelete(item.saved_id)}><Trash2 size={15} /></button></article>) : <EmptyState icon={<Heart />} title="这里还是空的" text="在商品详情中点击收藏，之后可以快速回来查看。" />}</div></section>;
+}
+
+export function MessagesPage({ notifications, onRead, onReadAll }: { notifications: ConsumerNotification[]; onRead: (id: string) => void; onReadAll: () => void }) {
+  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const rows = notifications.filter((item) => filter === 'all' || item.status === 'unread');
+  return <section className="page-section"><div className="consumer-page-head"><div><span>提醒中心</span><h1>消息</h1><p>降价、保价、退货与系统提醒集中处理。</p></div><Bell size={28} /></div><div className="message-toolbar"><div className="consumer-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>全部</button><button className={filter === 'unread' ? 'active' : ''} onClick={() => setFilter('unread')}>未读</button></div><button className="soft-button" onClick={onReadAll}>全部标为已读</button></div><div className="panel message-center">{rows.length ? rows.map((item) => <button key={item.notification_id} className={item.status === 'unread' ? 'unread' : ''} onClick={() => item.status === 'unread' && onRead(item.notification_id)}><i><Bell size={17} /></i><div><strong>{item.title}</strong><span>{item.message}</span><small>{day(item.created_at)}</small></div>{item.status === 'unread' && <em>未读</em>}</button>) : <EmptyState icon={<MessageSquare />} title="没有新消息" text="达到目标价或临近售后期限时，提醒会出现在这里。" />}</div></section>;
+}
+
+export function AccountHome({ name, dashboard, onNavigate, onLogin }: { name: string; dashboard: Dashboard; onNavigate: (view: string) => void; onLogin: () => void }) {
+  const loggedIn = Boolean(localStorage.getItem('valuesee-token'));
+  return <section className="page-section"><div className="profile-hero panel"><div className="profile-avatar"><UserRound size={30} /></div><div><span>{loggedIn ? 'ValuSee 用户' : '本地体验账户'}</span><h1>{name}</h1><p>{loggedIn ? '你的购物偏好、报告和提醒已跨设备同步。' : '登录后同步收藏、报告、监控和家庭数据。'}</p></div>{!loggedIn && <button className="primary-button" onClick={onLogin}>登录 / 注册</button>}</div><div className="profile-kpis"><article><strong>{money(dashboard.actual_savings)}</strong><span>累计记录节省</span></article><article><strong>{dashboard.reports || 0}</strong><span>决策报告</span></article><article><strong>{dashboard.favorite || 0}</strong><span>收藏商品</span></article><article><strong>{dashboard.purchases || 0}</strong><span>购买记录</span></article></div><div className="account-menu panel"><MenuRow icon={<UserRound />} title="购物偏好与设备档案" text="预算、品牌、已有设备和风险偏好" onClick={() => onNavigate('settings')} /><MenuRow icon={<History />} title="报告与对比清单" text="回看购买结论，继续未完成的比较" onClick={() => onNavigate('history')} /><MenuRow icon={<PackageCheck />} title="家庭账户" text="共享家庭设备和售后提醒" onClick={() => onNavigate('family')} /><MenuRow icon={<ShieldCheck />} title="账户与数据安全" text="邮箱验证、导出数据和注销账户" onClick={onLogin} /></div></section>;
+}
+
+function MenuRow({ icon, title, text, onClick }: { icon: React.ReactNode; title: string; text: string; onClick: () => void }) { return <button onClick={onClick}><i>{icon}</i><div><strong>{title}</strong><span>{text}</span></div><ChevronRight size={18} /></button>; }
+
+export function ProductDetail({ product, favorite, onClose, onFavorite, onCompare, request }: { product: ConsumerProduct; favorite: boolean; onClose: () => void; onFavorite: () => void; onCompare: () => void; request: <T>(path: string) => Promise<T> }) {
+  const [history, setHistory] = useState<{ snapshots?: Array<{ captured_at: string; final_price: number }>; lowest_price?: number; average_price?: number }>({});
+  useEffect(() => { if (product.url) void request<typeof history>(`/api/v1/shopping/price-history?product_url=${encodeURIComponent(product.url)}`).then(setHistory).catch(() => setHistory({})); }, [product.url]);
+  const finalPrice = Math.max(0, product.price - product.coupon - product.platform_discount - product.member_discount - product.subsidy - product.pay_discount + product.shipping - product.gift_value);
+  return <div className="detail-backdrop" onClick={onClose}><aside className="product-detail" onClick={(event) => event.stopPropagation()}><button className="detail-close" title="关闭" onClick={onClose}><X /></button><div className="detail-visual"><Laptop size={54} /><span>{product.platform || '来源待确认'}</span></div><div className="detail-title"><div><span>{product.brand} {product.model}</span><h2>{product.title}</h2></div><button className={favorite ? 'favorite active' : 'favorite'} onClick={onFavorite}><Heart size={18} fill={favorite ? 'currentColor' : 'none'} />{favorite ? '已收藏' : '收藏'}</button></div><div className="detail-price"><div><span>预计到手</span><strong>{product.price ? money(finalPrice) : '待确认'}</strong></div><small>页面价 {money(product.price)} - 优惠 {money(product.coupon + product.platform_discount + product.member_discount + product.subsidy + product.pay_discount)} + 运费 {money(product.shipping)}</small></div><section><h3>规格与版本</h3><div className="spec-list"><span><b>型号</b>{product.model || '待确认'}</span><span><b>SKU</b>{product.sku || '待确认'}</span><span><b>成色</b>{product.condition || '待确认'}</span>{Object.entries(product.specs || {}).map(([key, value]) => <span key={key}><b>{key}</b>{value}</span>)}</div></section><section><h3>价格记录</h3>{history.snapshots?.length ? <div className="price-history-summary"><div><b>{money(history.lowest_price)}</b><span>历史最低</span></div><div><b>{money(history.average_price)}</b><span>平均到手价</span></div><div><b>{history.snapshots.length}</b><span>有效记录</span></div></div> : <p className="detail-empty">还没有可追溯的历史价格。使用浏览器扩展采集后会形成趋势。</p>}</section><section><h3>购买保障</h3><div className="assurance-row"><span><ShieldCheck />{product.official_store ? '官方/自营来源' : '店铺资质待核验'}</span><span><Clock3 />{product.return_days || 0} 天退货</span><span><PackageCheck />{product.warranty_months || 0} 个月保修</span></div></section>{product.notes && <section><h3>来源说明</h3><p className="detail-empty">{product.notes}</p></section>}<div className="detail-actions">{product.url && <a href={product.url} target="_blank" rel="noreferrer"><ExternalLink size={16} />查看原商品</a>}<button onClick={onCompare}>加入对比</button></div></aside></div>;
+}
+
+export function MobileNav({ view, onChange }: { view: string; onChange: (view: string) => void }) {
+  const items = [['discover', '首页', Search], ['analyze', '对比', Sparkles], ['monitors', '省钱', Bell], ['messages', '消息', MessageSquare], ['account', '我的', UserRound]] as const;
+  return <nav className="mobile-nav">{items.map(([key, label, Icon]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => onChange(key)}><Icon size={19} /><span>{label}</span></button>)}</nav>;
+}
+
+function EmptyState({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="consumer-empty"><i>{icon}</i><strong>{title}</strong><span>{text}</span></div>; }

@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Compass,
   Clock3,
   FileText,
   ExternalLink,
@@ -12,26 +13,25 @@ import {
   Save,
   Settings,
   History,
+  Heart,
   Link2,
   Loader2,
   Plus,
   Receipt,
   Search,
+  MessageSquare,
   ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
   Users,
+  UserRound,
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { BrandMark, BrandWordmark, ValueMascot } from './BrandArt';
+import { AccountHome, ConsumerNotification, ConsumerProduct, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedItem, SavedPage } from './ConsumerHub';
 
-type Product = {
-  title: string; platform: string; url: string; brand: string; model: string; sku: string;
-  specs: Record<string, string>; price: number; coupon: number; platform_discount: number;
-  member_discount: number; subsidy: number; pay_discount: number; shipping: number; gift_value: number;
-  condition: string; official_store: boolean; return_days: number; warranty_months: number; notes: string;
-};
+type Product = ConsumerProduct;
 type Decision = { task_id: string; status: string; result: {
   best_index: number | null; recommendation: string; recommendation_reason: string; summary: string;
   comparison_rows: Array<{ index: number; title: string; platform: string; model: string; same_item_relation: string; same_item_confidence: number; final_price: number; value_score: number; risk_level: string; suitable_for_user: boolean }>;
@@ -42,13 +42,13 @@ type Decision = { task_id: string; status: string; result: {
 type Monitor = { monitor_id: string; status: string; target_price: number; current_final_price: number; product: Product; expires_at: string; last_message: string };
 type Purchase = { purchase_id: string; product: Product; paid_price: number; platform: string; store_name: string; purchased_at: string; price_protection_deadline?: string; return_deadline?: string; warranty_deadline?: string; status: string; reminders: Array<{ kind: string; deadline: string; label: string }>; notes: string };
 type Capture = { capture_id: string; status: string; product: Product; source: string; captured_at: string };
-type Notification = { notification_id: string; title: string; message: string; status: string; created_at: string };
+type Notification = ConsumerNotification;
 type ProductSearchResult = { provider: string; kind: string; product: Product };
 type SavedReport = { report_id: string; task_id: string; goal: string; products: Product[]; result: Decision['result']; created_at: string };
 type SavedComparison = { comparison_id: string; name: string; products: Product[]; updated_at: string };
 type ShoppingProfile = { budget: number; devices: string[]; brand_preferences: string[]; sensitivities: string[]; acceptable_risk: string };
 type NotificationPreference = { email_enabled: boolean; in_app_enabled: boolean; quiet_start: string | null; quiet_end: string | null };
-type View = 'analyze' | 'monitors' | 'purchases' | 'history' | 'family' | 'settings';
+type View = 'discover' | 'analyze' | 'monitors' | 'purchases' | 'saved' | 'messages' | 'account' | 'history' | 'family' | 'settings';
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
 const sample: Product[] = [
@@ -70,7 +70,7 @@ const date = (value?: string) => value ? new Date(value).toLocaleDateString('zh-
 const riskLabel: Record<string, string> = { low: '低风险', medium: '中风险', high: '高风险' };
 
 export function App() {
-  const [view, setView] = useState<View>('analyze');
+  const [view, setView] = useState<View>('discover');
   const [goal, setGoal] = useState('想买一副适合 iPhone 的降噪耳机，预算 1800 元以内');
   const [budget, setBudget] = useState(1800);
   const [products, setProducts] = useState<Product[]>([]);
@@ -79,6 +79,9 @@ export function App() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+  const [dashboard, setDashboard] = useState<Dashboard>({});
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [comparisons, setComparisons] = useState<SavedComparison[]>([]);
   const [profile, setProfile] = useState<ShoppingProfile>({ budget: 1800, devices: [], brand_preferences: [], sensitivities: ['售后', '兼容性'], acceptable_risk: 'medium' });
@@ -101,15 +104,17 @@ export function App() {
 
   const refreshRecords = async () => {
     try {
-      const [m, p, c, n, savedReports, savedComparisons, savedProfile, preferences] = await Promise.all([
+      const [m, p, c, n, savedReports, savedComparisons, savedProfile, preferences, saved, overview] = await Promise.all([
         request<Monitor[]>('/api/v1/shopping/monitors'), request<Purchase[]>('/api/v1/shopping/purchases'),
         request<Capture[]>('/api/v1/shopping/extension/captures'), request<Notification[]>('/api/v1/shopping/notifications'),
         request<SavedReport[]>('/api/v1/shopping/reports'), request<SavedComparison[]>('/api/v1/shopping/comparisons'),
         request<{ profile: Partial<ShoppingProfile> }>('/api/v1/shopping/profile'),
         request<NotificationPreference>('/api/v1/shopping/notification-preferences'),
+        request<SavedItem[]>('/api/v1/shopping/saved'), request<Dashboard>('/api/v1/shopping/dashboard'),
       ]);
       setMonitors(m); setPurchases(p); setCaptures(c.filter((item) => item.status === 'pending_confirmation')); setNotifications(n);
       setReports(savedReports); setComparisons(savedComparisons); setNotificationPreference(preferences);
+      setSavedItems(saved); setDashboard(overview);
       if (Object.keys(savedProfile.profile || {}).length) {
         setProfile((current) => ({ ...current, ...savedProfile.profile }));
         setBudget(Number(savedProfile.profile.budget || 1800));
@@ -150,6 +155,11 @@ export function App() {
   async function importCapture(capture: Capture) {
     try { await request(`/api/v1/shopping/extension/captures/${capture.capture_id}/confirm`, { method: 'POST' }); setProducts((items) => [...items, capture.product]); setCaptures((items) => items.filter((item) => item.capture_id !== capture.capture_id)); setMessage('已将浏览器采集商品加入候选清单，请确认字段。'); } catch (err) { setError(err instanceof Error ? err.message : '导入采集商品失败'); }
   }
+  async function addProduct(product: Product, openDetail = false) { setProducts((items) => items.some((item) => item.url && item.url === product.url) ? items : [...items, product]); if (product.url) { await request('/api/v1/shopping/saved', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_type: 'recent', reference_key: product.url, label: product.title, product }) }).catch(() => undefined); } if (openDetail) setDetailProduct(product); await refreshRecords(); }
+  async function toggleFavorite(product: Product) { const key = product.url || `${product.brand}:${product.model}:${product.sku}`; const existing = savedItems.find((item) => item.item_type === 'favorite' && item.reference_key === key); if (existing) await request(`/api/v1/shopping/saved/${existing.saved_id}`, { method: 'DELETE' }); else await request('/api/v1/shopping/saved', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_type: 'favorite', reference_key: key, label: product.title, product }) }); await refreshRecords(); }
+  async function deleteSaved(id: string) { await request(`/api/v1/shopping/saved/${id}`, { method: 'DELETE' }); await refreshRecords(); }
+  async function readMessage(id: string) { await request(`/api/v1/shopping/notifications/${id}/read`, { method: 'PATCH' }); await refreshRecords(); }
+  async function readAllMessages() { await request('/api/v1/shopping/notifications/read-all', { method: 'POST' }); await refreshRecords(); }
   function updateProduct(index: number, patch: Partial<Product>) { setProducts((items) => items.map((item, i) => i === index ? { ...item, ...patch } : item)); }
   async function createMonitor(event: FormEvent) { event.preventDefault(); const product = products[monitorProduct]; try { await request<Monitor>('/api/v1/shopping/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product, target_price: targetPrice, monitor_days: 30, notify_channel: 'in_app' }) }); setMessage('降价监控已创建，服务重启后仍会保留。'); await refreshRecords(); } catch (err) { setError(err instanceof Error ? err.message : '创建监控失败'); } }
   async function createPurchase(event: FormEvent) { event.preventDefault(); const product = products[purchaseProduct]; try { await request<Purchase>('/api/v1/shopping/purchases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product, paid_price: paidPrice || product.price, platform: product.platform, store_name: product.official_store ? '官方/自营店' : '待确认', price_protection_days: 7, return_days: product.return_days, warranty_months: product.warranty_months, notes: '由 ValuSee 记录，提醒仅供参考。' }) }); setMessage('购买记录已保存，保价和退货提醒已建立。'); await refreshRecords(); } catch (err) { setError(err instanceof Error ? err.message : '保存购买记录失败'); } }
@@ -163,16 +173,20 @@ export function App() {
   function logout() { localStorage.removeItem('valuesee-token'); localStorage.removeItem('valuesee-account-name'); setAccountName('本地账户'); setAccountOpen(false); void refreshRecords(); }
 
   const best = useMemo(() => result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index], [result]);
-  const nav: Array<[View, string, typeof Search]> = [['analyze', '分析商品', Search], ['monitors', '降价监控', Bell], ['purchases', '我的购买', Receipt], ['history', '报告与清单', History], ['family', '我的家庭', Users], ['settings', '偏好设置', Settings]];
+  const nav: Array<[View, string, typeof Search]> = [['discover', '发现', Compass], ['analyze', '智能对比', Search], ['monitors', '省钱中心', Bell], ['purchases', '订单售后', Receipt], ['saved', '收藏足迹', Heart], ['messages', '消息', MessageSquare], ['account', '我的', UserRound]];
   return <main className="valuesee-app">
     <header className="app-header"><div className="brand-lockup"><BrandMark /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button" onClick={() => setAccountOpen(true)}>{accountName}</button></header>
     {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} displayName={displayName} onEmail={setEmail} onPassword={setPassword} onDisplayName={setDisplayName} onMode={setAccountMode} onSubmit={submitAccount} onClose={() => setAccountOpen(false)} onLogout={logout} />}
     {message && <div className="toast"><CheckCircle2 size={16} />{message}<button onClick={() => setMessage('')}>关闭</button></div>}
     {error && <div className="error-banner">{error}</div>}
+    {view === 'discover' && <DiscoverPage dashboard={dashboard} recent={savedItems.filter((item) => item.item_type === 'recent')} onStart={(nextGoal) => { setGoal(nextGoal); setView('analyze'); }} onOpen={(product) => void addProduct(product, true)} />}
+    {view === 'saved' && <SavedPage items={savedItems} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} />}
+    {view === 'messages' && <MessagesPage notifications={notifications} onRead={(id) => void readMessage(id)} onReadAll={() => void readAllMessages()} />}
+    {view === 'account' && <AccountHome name={accountName} dashboard={dashboard} onNavigate={(next) => setView(next as View)} onLogin={() => setAccountOpen(true)} />}
     {view === 'analyze' && <>
       <section className="hero"><div className="hero-copy"><div className="eyebrow"><Sparkles size={16} />AI 购物决策助手</div><h1>别只看便不便宜，先看它值不值得。</h1><p>识别真假同款，算清真实到手价，结合你的预算和设备给出建议。买完之后，继续帮你盯住降价与保价。</p><form className="decision-box" onSubmit={runDecision}><textarea value={goal} onChange={(e) => setGoal(e.target.value)} /><div className="decision-controls"><label>预算 <input type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /> 元</label><button type="submit" disabled={loading}>{loading ? <Loader2 className="spin" size={18} /> : <Search size={18} />}立即分析</button></div></form></div><div className="hero-aside"><div className="hero-visual"><ValueMascot /><div className="visual-badge">看清价值，再决定</div></div></div></section>
       <section className="quick-strip"><button onClick={() => setGoal('帮我选一台适合代码办公的 27 英寸显示器，预算 2500 元')}><Search size={20} /><strong>帮我选</strong><span>输入需求，得到适配候选</span><ChevronRight size={17} /></button><button onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}><Link2 size={20} /><strong>帮我比</strong><span>添加链接，识别是否同款</span><ChevronRight size={17} /></button><button onClick={() => setView('monitors')}><Clock3 size={20} /><strong>等等再买</strong><span>到目标价再提醒我</span><ChevronRight size={17} /></button></section>
-      <ProductSearchPanel onAdd={(product) => setProducts((items) => items.some((item) => item.url === product.url) ? items : [...items, product])} />
+      <ProductSearchPanel onAdd={(product) => void addProduct(product, true)} />
       {products.length > 0 && <div className="comparison-savebar"><div><strong>{products.length} 个候选商品</strong><span>保存后可在“报告与清单”继续比较</span></div><button className="soft-button" onClick={() => void saveComparison()}><Save size={17} />保存当前清单</button></div>}
       {result && <><DecisionEvidence events={result.events} /><div className="feedback-bar"><MessageSquareWarning size={18} /><span>这份建议对你有帮助吗？</span><button onClick={() => void acceptRecommendation(result.task_id)}>有帮助</button><span>发现问题：</span><button onClick={() => void sendFeedback('wrong_sku', result.task_id)}>规格有误</button><button onClick={() => void sendFeedback('wrong_price', result.task_id)}>价格有误</button><button onClick={() => void sendFeedback('wrong_recommendation', result.task_id)}>建议不合适</button></div></>}
       {captures.length > 0 && <section className="capture-inbox"><div><strong>浏览器采集收件箱</strong><span>这些商品来自你正在浏览的页面，确认后才会加入分析。</span></div><div className="capture-items">{captures.map((capture) => <article key={capture.capture_id}><div><b>{capture.product.title}</b><small>{capture.product.platform} · {capture.product.price ? money(capture.product.price) : '价格待确认'}</small></div><button onClick={() => void importCapture(capture)}>加入候选</button></article>)}</div></section>}
@@ -184,6 +198,8 @@ export function App() {
     {view === 'history' && <SavedWork reports={reports} comparisons={comparisons} onOpenReport={(report) => { setResult({ task_id: report.task_id, status: 'completed', result: report.result, events: [] }); setProducts(report.products); setGoal(report.goal); setView('analyze'); }} onOpenComparison={(comparison) => { setProducts(comparison.products); setGoal(comparison.name); setView('analyze'); }} onDeleteComparison={removeComparison} />}
     {view === 'family' && <FamilyPanel />}
     {view === 'settings' && <SettingsPanel profile={profile} budget={budget} preferences={notificationPreference} onProfile={setProfile} onBudget={setBudget} onPreferences={setNotificationPreference} onSubmit={saveSettings} />}
+    {detailProduct && <ProductDetail product={detailProduct} favorite={savedItems.some((item) => item.item_type === 'favorite' && item.reference_key === (detailProduct.url || `${detailProduct.brand}:${detailProduct.model}:${detailProduct.sku}`))} onClose={() => setDetailProduct(null)} onFavorite={() => void toggleFavorite(detailProduct)} onCompare={() => { void addProduct(detailProduct); setDetailProduct(null); setView('analyze'); }} request={request} />}
+    <MobileNav view={view} onChange={(next) => setView(next as View)} />
   </main>;
 }
 function MonitorControls({ monitors, onAction }: { monitors: Monitor[]; onAction: (monitor: Monitor, action: 'toggle' | 'price' | 'delete') => Promise<void> }) {
