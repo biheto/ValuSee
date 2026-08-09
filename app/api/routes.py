@@ -842,6 +842,25 @@ def admin_audits(limit: int = 500, authorization: str | None = Header(default=No
     return {"audits": shopping_store.list_admin_audits(limit)}
 
 
+@router.get("/admin/price-anomalies", tags=["Admin Operations"])
+def admin_price_anomalies(status: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"items": shopping_store.list_price_anomalies(status)}
+
+
+@router.patch("/admin/price-anomalies/{anomaly_id}", tags=["Admin Operations"])
+def admin_review_price_anomaly(anomaly_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        item = shopping_store.review_price_anomaly(anomaly_id, actor_id, str(payload.get("status") or ""), str(payload.get("note") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=404, detail="price anomaly not found")
+    shopping_store.record_admin_audit(actor_id, "price_anomaly.review", "price_anomaly", anomaly_id, {"status": item["status"]})
+    return item
+
+
 @router.get("/admin/experiments", tags=["Admin Operations"])
 def admin_experiments(authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)

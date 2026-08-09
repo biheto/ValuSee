@@ -65,3 +65,25 @@ def test_saved_product_returns_stable_detail_reference():
         saved = store.save_item("owner", "favorite", item["url"], item["title"], item)
         assert saved["product_ref"].startswith("prd_")
         assert store.product_detail("owner", saved["product_ref"])["product"] == item
+
+
+def test_product_versions_and_price_anomalies_are_traceable():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "products.db")
+        item = product("https://shop.example/product/1", "U2723QE", price=1500)
+        product_ref = store.upsert_product_record("owner", {**item, "source": "extension"})
+        store.upsert_product_record("owner", {**item, "source": "extension", "price": 1450})
+        detail = store.product_detail("owner", product_ref)
+        assert detail and [version["version"] for version in detail["versions"]] == [2, 1]
+        assert detail["versions"][0]["source_confidence"] == 0.85
+        for price in (1500, 1480, 1520):
+            store.record_price_snapshot(user_id="owner", product=item, final_price=price, source="extension")
+        suspicious = store.record_price_snapshot(user_id="owner", product=item, final_price=99, source="manual")
+        anomalies = store.list_price_anomalies("pending")
+        assert len(anomalies) == 1 and anomalies[0]["snapshot_id"] == suspicious["snapshot_id"]
+        assert anomalies[0]["source_confidence"] == 0.55
+        assert store.price_history(item["url"], "owner")["count"] == 3
+        reviewed = store.review_price_anomaly(anomalies[0]["anomaly_id"], "admin", "dismissed", "coupon parse error")
+        assert reviewed and reviewed["reviewed_by"] == "admin"
+        assert store.list_price_anomalies("pending") == []
+        assert store.price_history(item["url"], "owner")["lowest_price"] == 1480

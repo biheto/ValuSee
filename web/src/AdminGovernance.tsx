@@ -28,6 +28,7 @@ export function AdminGovernance() {
   const [shares, setShares] = useState<Item[]>([]);
   const [audits, setAudits] = useState<Item[]>([]);
   const [experiments, setExperiments] = useState<Item[]>([]);
+  const [priceAnomalies, setPriceAnomalies] = useState<Item[]>([]);
   const [metrics, setMetrics] = useState<Record<string, unknown>>({});
   const [error, setError] = useState('');
   const [brand, setBrand] = useState('');
@@ -53,7 +54,7 @@ export function AdminGovernance() {
   async function load() {
     setError('');
     try {
-      const [catalog, promptData, benchmarkData, monitorData, feedbackData, metricsData, contentData, ticketData, userData, upgradeData, campaignData, riskData, shareData, auditData, experimentData] = await Promise.all([
+      const [catalog, promptData, benchmarkData, monitorData, feedbackData, metricsData, contentData, ticketData, userData, upgradeData, campaignData, riskData, shareData, auditData, experimentData, anomalyData] = await Promise.all([
         api<{ products: Item[] }>('/api/v1/admin/catalog/products'),
         api<{ prompts: Item[] }>('/api/v1/admin/prompts'),
         api<{ runs: Item[] }>('/api/v1/admin/benchmarks'),
@@ -69,6 +70,7 @@ export function AdminGovernance() {
         api<{ shares: Item[] }>('/api/v1/admin/shares'),
         api<{ audits: Item[] }>('/api/v1/admin/audits?limit=100'),
         api<{ experiments: Item[] }>('/api/v1/admin/experiments'),
+        api<{ items: Item[] }>('/api/v1/admin/price-anomalies?status=pending'),
       ]);
       setProducts(catalog.products); setPrompts(promptData.prompts); setBenchmarks(benchmarkData.runs); setMonitors(monitorData.monitors);
       setFeedback(feedbackData.feedback);
@@ -77,6 +79,7 @@ export function AdminGovernance() {
       setTickets(ticketData.tickets);
       setUsers(userData.users); setUpgrades(upgradeData.requests); setCampaigns(campaignData.items); setRiskRules(riskData.rules); setShares(shareData.shares); setAudits(auditData.audits);
       setExperiments(experimentData.experiments);
+      setPriceAnomalies(anomalyData.items);
       if (!skuProductId && catalog.products[0]) setSkuProductId(String(catalog.products[0].product_id));
     } catch (err) { setError(err instanceof Error ? err.message : '治理数据加载失败'); }
   }
@@ -116,9 +119,11 @@ export function AdminGovernance() {
   async function deleteRiskRule(id: string) { await api(`/api/v1/admin/risk-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }); await load(); }
   async function revokeShare(id: string) { await api(`/api/v1/admin/shares/${encodeURIComponent(id)}`, { method: 'DELETE' }); await load(); }
   async function saveExperiment(event: FormEvent) { event.preventDefault(); await api('/api/v1/admin/experiments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: experimentCode, name: experimentName, variants: ['control', 'compact'], status: 'running' }) }); await load(); }
+  async function reviewPriceAnomaly(id: string, status: 'accepted' | 'dismissed') { const note = window.prompt('审核备注') || ''; await api(`/api/v1/admin/price-anomalies/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, note }) }); await load(); }
 
   return <section className="admin-content governance-stack">
     {error && <div className="admin-error">{error}</div>}
+    <section className="admin-panel"><div className="admin-panel-title"><h2>异常价格审核</h2><span>{priceAnomalies.length} 条待处理</span></div>{priceAnomalies.length ? priceAnomalies.map((item) => <div className="admin-row" key={String(item.anomaly_id)}><div><strong>{String(item.product_url || '未知商品')}</strong><span>观测 ¥{String(item.observed_price)} · 基线 ¥{String(item.baseline_price)} · 来源置信 {Math.round(Number(item.source_confidence || 0) * 100)}%</span></div><div className="admin-row-buttons"><button title="确认真实价格" onClick={() => void reviewPriceAnomaly(String(item.anomaly_id), 'accepted')}><Check size={14} /></button><button title="驳回异常数据" onClick={() => void reviewPriceAnomaly(String(item.anomaly_id), 'dismissed')}><Trash2 size={14} /></button></div></div>) : <div className="admin-empty">暂无异常价格</div>}</section>
     <div className="admin-grid">
       <section className="admin-panel"><div className="admin-panel-title"><h2>标准商品与 SKU</h2><span>{products.length} 个商品</span></div><form className="admin-inline-form" onSubmit={saveProduct}><input required placeholder="品牌" value={brand} onChange={(e) => setBrand(e.target.value)} /><input required placeholder="标准型号" value={model} onChange={(e) => setModel(e.target.value)} /><input required placeholder="商品名称" value={title} onChange={(e) => setTitle(e.target.value)} /><button title="新增标准商品"><Plus size={15} /></button></form>{products.length > 0 && <form className="admin-inline-form" onSubmit={saveSku}><select required value={skuProductId} onChange={(e) => setSkuProductId(e.target.value)}>{products.map((item) => <option key={String(item.product_id)} value={String(item.product_id)}>{String(item.title)}</option>)}</select><input required placeholder="SKU 编码" value={skuCode} onChange={(e) => setSkuCode(e.target.value)} /><input required placeholder="版本 / 颜色 / 套装" value={skuVariant} onChange={(e) => setSkuVariant(e.target.value)} /><button title="新增 SKU"><Plus size={15} /></button></form>}{products.length ? products.map((item) => <div key={String(item.product_id)}><div className="admin-row"><div><strong>{String(item.title)}</strong><span>{String(item.brand)} · {String(item.model)} · {Array.isArray(item.skus) ? item.skus.length : 0} 个 SKU</span></div><button className="admin-icon-button" title="删除商品" onClick={() => void deleteProduct(String(item.product_id))}><Trash2 size={14} /></button></div>{Array.isArray(item.skus) && item.skus.map((sku) => { const row = sku as Item; return <div className="admin-row admin-sub-row" key={String(row.sku_id)}><div><strong>{String(row.sku)}</strong><span>{String(row.variant || '标准版本')}</span></div><button className="admin-icon-button" title="删除 SKU" onClick={() => void deleteSku(String(row.sku_id))}><Trash2 size={13} /></button></div>; })}</div>) : <div className="admin-empty">尚未建立标准商品库</div>}</section>
       <section className="admin-panel"><div className="admin-panel-title"><h2>Prompt 发布</h2><span>{prompts.length} 个版本</span></div><form className="admin-inline-form" onSubmit={savePrompt}><input required placeholder="Agent" value={agent} onChange={(e) => setAgent(e.target.value)} /><input required placeholder="版本" value={promptVersion} onChange={(e) => setPromptVersion(e.target.value)} /><input required placeholder="标题" value={promptTitle} onChange={(e) => setPromptTitle(e.target.value)} /><button title="保存并激活"><Plus size={15} /></button></form>{prompts.slice(0, 8).map((item) => <div className="admin-row" key={`${item.agent}-${item.prompt_version}`}><div><strong>{String(item.title)}</strong><span>{String(item.agent)} · {String(item.prompt_version)}</span></div><b className={item.is_active ? 'status-ok' : ''}>{item.is_active ? '使用中' : '历史版'}</b></div>)}</section>

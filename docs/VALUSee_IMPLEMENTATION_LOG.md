@@ -98,6 +98,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Savings and after-sales now form an auditable loop: monitor groups/frequencies, budget pools, a deduplicated savings ledger, 90-day price calendar, typed private attachments, user-reported price-protection outcomes, and authenticated iCalendar deadline export.
 - Membership has enforceable quotas plus owner-scoped billing orders and immutable price snapshots. Until an approved payment provider is configured, orders remain `pending_external_payment` and never activate Pro or claim a successful charge.
 - Customer support now tracks a 24-hour SLA, first response, assignment, closure/reopen state, and 1-5 satisfaction feedback; customer and administrator permissions are enforced separately.
+- Product records now retain immutable change versions with source confidence. Price observations need a three-point baseline before extreme deviations are queued for administrator review and audit instead of silently contaminating trusted history.
 
 | Area | Status | Notes |
 | --- | --- | --- |

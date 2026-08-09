@@ -263,6 +263,17 @@ class ShoppingStore:
                 PRIMARY KEY(product_ref,user_id)
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_product_record_family ON shopping_product_record(user_id,family_key,updated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_product_version(
+                version_id TEXT PRIMARY KEY,product_ref TEXT NOT NULL,user_id TEXT NOT NULL,version INTEGER NOT NULL,
+                product_json TEXT NOT NULL,source TEXT NOT NULL,source_confidence REAL NOT NULL,created_at TEXT NOT NULL,
+                UNIQUE(product_ref,user_id,version)
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_price_anomaly(
+                anomaly_id TEXT PRIMARY KEY,snapshot_id TEXT NOT NULL UNIQUE,user_id TEXT NOT NULL,product_url TEXT NOT NULL,
+                observed_price REAL NOT NULL,baseline_price REAL NOT NULL,deviation_ratio REAL NOT NULL,source TEXT NOT NULL,
+                source_confidence REAL NOT NULL,status TEXT NOT NULL,reviewed_by TEXT,review_note TEXT NOT NULL,
+                created_at TEXT NOT NULL,reviewed_at TEXT
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_review_report(
                 report_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,product_ref TEXT NOT NULL,product_json TEXT NOT NULL,
                 report_json TEXT NOT NULL,sources_json TEXT NOT NULL,created_at TEXT NOT NULL
@@ -361,6 +372,7 @@ class ShoppingStore:
             "source": source, "captured_at": captured_at or utc_now_iso(),
         }
         with self._session() as conn:
+            prior = [float(row["final_price"]) for row in conn.execute("SELECT final_price FROM shopping_price_snapshot WHERE user_id=? AND product_url=? AND final_price>0 ORDER BY captured_at DESC LIMIT 30", (user_id, record["product_url"])).fetchall()]
             conn.execute(
                 """INSERT INTO shopping_price_snapshot(
                     snapshot_id,user_id,product_url,platform,title,price,final_price,region,
@@ -371,10 +383,18 @@ class ShoppingStore:
                  record["membership"], json.dumps(record["conditions"], ensure_ascii=False),
                  record["source"], record["captured_at"]),
             )
+            if len(prior) >= 3 and record["final_price"] > 0:
+                ordered = sorted(prior)
+                middle = len(ordered) // 2
+                baseline = ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+                ratio = record["final_price"] / baseline if baseline else 1.0
+                if ratio < 0.4 or ratio > 2.5:
+                    confidence = _source_confidence(source)
+                    conn.execute("INSERT INTO shopping_price_anomaly VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (f"anomaly_{uuid4().hex}", record["snapshot_id"], user_id, record["product_url"], record["final_price"], round(baseline, 2), round(ratio, 4), source, confidence, "pending", None, "", record["captured_at"], None))
         return record
 
     def price_history(self, product_url: str, user_id: str | None = None, limit: int = 365) -> dict[str, Any]:
-        query = "SELECT * FROM shopping_price_snapshot WHERE product_url = ?"
+        query = "SELECT * FROM shopping_price_snapshot WHERE product_url = ? AND NOT EXISTS (SELECT 1 FROM shopping_price_anomaly a WHERE a.snapshot_id=shopping_price_snapshot.snapshot_id AND a.status IN ('pending','dismissed'))"
         params: list[Any] = [product_url]
         if user_id:
             query += " AND user_id = ?"
@@ -640,7 +660,7 @@ class ShoppingStore:
     def price_calendar(self, user_id: str, days: int = 90) -> list[dict[str, Any]]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
         with self._session() as conn:
-            rows = conn.execute("SELECT substr(captured_at,1,10) AS day,COUNT(*) AS observations,MIN(final_price) AS lowest_price,AVG(final_price) AS average_price FROM shopping_price_snapshot WHERE user_id=? AND captured_at>=? GROUP BY substr(captured_at,1,10) ORDER BY day", (user_id, cutoff)).fetchall()
+            rows = conn.execute("SELECT substr(captured_at,1,10) AS day,COUNT(*) AS observations,MIN(final_price) AS lowest_price,AVG(final_price) AS average_price FROM shopping_price_snapshot WHERE user_id=? AND captured_at>=? AND NOT EXISTS (SELECT 1 FROM shopping_price_anomaly a WHERE a.snapshot_id=shopping_price_snapshot.snapshot_id AND a.status IN ('pending','dismissed')) GROUP BY substr(captured_at,1,10) ORDER BY day", (user_id, cutoff)).fetchall()
         return [dict(row) for row in rows]
 
     def get_monitor(self, monitor_id: str) -> dict[str, Any] | None:
@@ -1216,12 +1236,35 @@ class ShoppingStore:
         canonical, family = self._product_keys(product)
         now = utc_now_iso()
         with self._session() as conn:
-            old = conn.execute("SELECT created_at FROM shopping_product_record WHERE product_ref=? AND user_id=?", (product_ref, user_id)).fetchone()
+            old = conn.execute("SELECT created_at,product_json FROM shopping_product_record WHERE product_ref=? AND user_id=?", (product_ref, user_id)).fetchone()
+            serialized = json.dumps(product, ensure_ascii=False, sort_keys=True)
+            old_serialized = json.dumps(json.loads(old["product_json"]), ensure_ascii=False, sort_keys=True) if old else None
+            if serialized != old_serialized:
+                row = conn.execute("SELECT COALESCE(MAX(version),0) AS version FROM shopping_product_version WHERE product_ref=? AND user_id=?", (product_ref, user_id)).fetchone()
+                version = int(row["version"] or 0) + 1
+                source = str(product.get("source") or product.get("_source") or "user_input")[:80]
+                conn.execute("INSERT INTO shopping_product_version VALUES(?,?,?,?,?,?,?,?)", (f"pver_{uuid4().hex}", product_ref, user_id, version, serialized, source, _source_confidence(source), now))
             conn.execute("""INSERT INTO shopping_product_record(product_ref,user_id,canonical_key,family_key,product_json,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,?) ON CONFLICT(product_ref,user_id) DO UPDATE SET canonical_key=excluded.canonical_key,
                 family_key=excluded.family_key,product_json=excluded.product_json,updated_at=excluded.updated_at""",
                 (product_ref, user_id, canonical, family, json.dumps(product, ensure_ascii=False), old["created_at"] if old else now, now))
         return product_ref
+
+    def list_price_anomalies(self, status: str | None = None) -> list[dict[str, Any]]:
+        query, params = "SELECT * FROM shopping_price_anomaly", []
+        if status:
+            query += " WHERE status=?"; params.append(status)
+        query += " ORDER BY created_at DESC LIMIT 500"
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+    def review_price_anomaly(self, anomaly_id: str, actor_id: str, status: str, note: str = "") -> dict[str, Any] | None:
+        if status not in {"accepted", "dismissed"}:
+            raise ValueError("invalid anomaly review status")
+        with self._session() as conn:
+            conn.execute("UPDATE shopping_price_anomaly SET status=?,reviewed_by=?,review_note=?,reviewed_at=? WHERE anomaly_id=? AND status='pending'", (status, actor_id, note[:500], utc_now_iso(), anomaly_id))
+            row = conn.execute("SELECT * FROM shopping_price_anomaly WHERE anomaly_id=?", (anomaly_id,)).fetchone()
+        return dict(row) if row else None
 
     def product_detail(self, user_id: str, product_ref: str) -> dict[str, Any] | None:
         with self._session() as conn:
@@ -1244,7 +1287,9 @@ class ShoppingStore:
         history = self.price_history(str(product.get("url") or ""), user_id=user_id, limit=365) if str(product.get("url") or "").startswith(("http://", "https://")) else {"points": []}
         history["snapshots"] = history.get("points", [])
         review_evidence = _decode_json_columns(review, {"product_json": "product", "report_json": "report", "sources_json": "sources"}) if review else None
-        return {"product_ref": product_ref, "product": product, "offers": offers[:20], "alternatives": alternatives[:8], "price_history": history, "review_evidence": review_evidence, "updated_at": row["updated_at"]}
+        with self._session() as conn:
+            versions = [dict(item) for item in conn.execute("SELECT version,source,source_confidence,created_at FROM shopping_product_version WHERE product_ref=? AND user_id=? ORDER BY version DESC LIMIT 20", (product_ref, user_id)).fetchall()]
+        return {"product_ref": product_ref, "product": product, "offers": offers[:20], "alternatives": alternatives[:8], "price_history": history, "review_evidence": review_evidence, "versions": versions, "updated_at": row["updated_at"]}
 
     def save_review_report(self, user_id: str, product: dict[str, Any], report: dict[str, Any], sources: list[str]) -> dict[str, Any]:
         product_ref = self.upsert_product_record(user_id, product)
@@ -1723,6 +1768,19 @@ def _notification_target(kind: str) -> str:
     if kind in {"price_protection", "return_deadline", "warranty_deadline", "after_sales"}:
         return "/?view=purchases"
     return "/?view=messages"
+
+
+def _source_confidence(source: str) -> float:
+    value = source.strip().lower()
+    if any(token in value for token in ("official_api", "open_platform", "affiliate_api")):
+        return 0.98
+    if "extension" in value:
+        return 0.85
+    if any(token in value for token in ("ocr", "image", "upload")):
+        return 0.65
+    if any(token in value for token in ("manual", "user_input", "user")):
+        return 0.55
+    return 0.5
 
 
 shopping_store = ShoppingStore()
