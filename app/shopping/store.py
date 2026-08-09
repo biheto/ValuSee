@@ -104,6 +104,20 @@ class ShoppingStore:
                 content TEXT NOT NULL,created_at TEXT NOT NULL
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_support_ticket_owner ON shopping_support_ticket(user_id,updated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_campaign(
+                campaign_id TEXT PRIMARY KEY,name TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,
+                placement TEXT NOT NULL,target_url TEXT,status TEXT NOT NULL,starts_at TEXT,ends_at TEXT,
+                created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_risk_rule(
+                rule_id TEXT PRIMARY KEY,code TEXT NOT NULL UNIQUE,name TEXT NOT NULL,field_name TEXT NOT NULL,
+                pattern TEXT NOT NULL,severity TEXT NOT NULL,action TEXT NOT NULL,enabled INTEGER NOT NULL,
+                created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_admin_audit(
+                audit_id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,target_type TEXT NOT NULL,
+                target_id TEXT,metadata_json TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS shopping_extension_capture (
@@ -782,6 +796,99 @@ class ShoppingStore:
             conn.execute("INSERT INTO shopping_support_message VALUES(?,?,?,?,?,?)", (f"msg_{uuid4().hex}", ticket_id, actor_id, "admin" if admin else "user", content.strip()[:5000], now))
             conn.execute("UPDATE shopping_support_ticket SET status=?,updated_at=? WHERE ticket_id=?", (next_status, now, ticket_id))
         return self.get_support_ticket(actor_id, ticket_id, admin=admin) or {}
+
+    def save_campaign(self, payload: dict[str, Any], campaign_id: str | None = None) -> dict[str, Any]:
+        now, campaign_id = utc_now_iso(), campaign_id or f"campaign_{uuid4().hex}"
+        name, title = str(payload.get("name") or "").strip()[:120], str(payload.get("title") or "").strip()[:160]
+        if not name or not title:
+            raise ValueError("campaign name and title are required")
+        status = str(payload.get("status") or "draft")
+        if status not in {"draft", "scheduled", "published", "paused", "ended"}:
+            raise ValueError("invalid campaign status")
+        placement = str(payload.get("placement") or "discover")
+        if placement not in {"discover", "category", "savings"}:
+            raise ValueError("invalid campaign placement")
+        target_url = str(payload.get("target_url") or "").strip()[:1000]
+        if target_url and not target_url.startswith(("/", "https://", "http://")):
+            raise ValueError("campaign target must be an internal path or http/https URL")
+        with self._session() as conn:
+            old = conn.execute("SELECT created_at FROM shopping_campaign WHERE campaign_id=?", (campaign_id,)).fetchone()
+            created_at = old["created_at"] if old else now
+            conn.execute("""INSERT INTO shopping_campaign VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(campaign_id) DO UPDATE SET name=excluded.name,title=excluded.title,summary=excluded.summary,placement=excluded.placement,target_url=excluded.target_url,status=excluded.status,starts_at=excluded.starts_at,ends_at=excluded.ends_at,updated_at=excluded.updated_at""", (campaign_id, name, title, str(payload.get("summary") or "").strip()[:500], placement, target_url or None, status, payload.get("starts_at"), payload.get("ends_at"), created_at, now))
+            row = conn.execute("SELECT * FROM shopping_campaign WHERE campaign_id=?", (campaign_id,)).fetchone()
+        return dict(row)
+
+    def list_campaigns(self, public_only: bool = False) -> list[dict[str, Any]]:
+        now = utc_now_iso()
+        query, params = "SELECT * FROM shopping_campaign", []
+        if public_only:
+            query += " WHERE status='published' AND (starts_at IS NULL OR starts_at<=?) AND (ends_at IS NULL OR ends_at>?)"; params.extend([now, now])
+        query += " ORDER BY updated_at DESC LIMIT 200"
+        with self._session() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_campaign(self, campaign_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("DELETE FROM shopping_campaign WHERE campaign_id=?", (campaign_id,)).rowcount > 0
+
+    def save_risk_rule(self, payload: dict[str, Any], rule_id: str | None = None) -> dict[str, Any]:
+        field_name, severity, action = str(payload.get("field_name") or "title"), str(payload.get("severity") or "medium"), str(payload.get("action") or "warn")
+        if field_name not in {"title", "platform", "condition", "notes", "model"} or severity not in {"low", "medium", "high"} or action not in {"warn", "block"}:
+            raise ValueError("invalid risk rule")
+        pattern = str(payload.get("pattern") or "").strip().lower()[:120]
+        if not pattern:
+            raise ValueError("risk pattern is required")
+        now, rule_id = utc_now_iso(), rule_id or f"rule_{uuid4().hex}"
+        code = str(payload.get("code") or rule_id)[:80]
+        with self._session() as conn:
+            old = conn.execute("SELECT created_at FROM shopping_risk_rule WHERE rule_id=?", (rule_id,)).fetchone()
+            conflict = conn.execute("SELECT rule_id FROM shopping_risk_rule WHERE code=? AND rule_id<>?", (code, rule_id)).fetchone()
+            if conflict:
+                raise ValueError("risk rule code already exists")
+            created_at = old["created_at"] if old else now
+            conn.execute("""INSERT INTO shopping_risk_rule VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(rule_id) DO UPDATE SET code=excluded.code,name=excluded.name,field_name=excluded.field_name,pattern=excluded.pattern,severity=excluded.severity,action=excluded.action,enabled=excluded.enabled,updated_at=excluded.updated_at""", (rule_id, code, str(payload.get("name") or "风控规则")[:120], field_name, pattern, severity, action, 1 if payload.get("enabled", True) else 0, created_at, now))
+            row = conn.execute("SELECT * FROM shopping_risk_rule WHERE rule_id=?", (rule_id,)).fetchone()
+        return dict(row)
+
+    def list_risk_rules(self) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_risk_rule ORDER BY updated_at DESC LIMIT 500").fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_risk_rule(self, rule_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("DELETE FROM shopping_risk_rule WHERE rule_id=?", (rule_id,)).rowcount > 0
+
+    def evaluate_risk_rules(self, product: dict[str, Any]) -> list[dict[str, Any]]:
+        matches = []
+        for rule in self.list_risk_rules():
+            if not rule["enabled"]:
+                continue
+            value = str(product.get(str(rule["field_name"])) or "").lower()
+            if str(rule["pattern"]) in value:
+                matches.append({"rule_id": rule["rule_id"], "code": rule["code"], "name": rule["name"], "severity": rule["severity"], "action": rule["action"]})
+        return matches
+
+    def record_admin_audit(self, actor_id: str, action: str, target_type: str, target_id: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        record = {"audit_id": f"audit_{uuid4().hex}", "actor_id": actor_id, "action": action, "target_type": target_type, "target_id": target_id, "metadata": metadata or {}, "created_at": utc_now_iso()}
+        with self._session() as conn:
+            conn.execute("INSERT INTO shopping_admin_audit VALUES(?,?,?,?,?,?,?)", (record["audit_id"], actor_id, action, target_type, target_id, json.dumps(record["metadata"], ensure_ascii=False), record["created_at"]))
+        return record
+
+    def list_admin_audits(self, limit: int = 500) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_admin_audit ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 1000)),)).fetchall()
+        return [_decode_json_columns(row, {"metadata_json": "metadata"}) for row in rows]
+
+    def list_all_shares(self) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT share_id,user_id,share_type,title,status,created_at,expires_at,revoked_at FROM shopping_share ORDER BY created_at DESC LIMIT 500").fetchall()
+        return [dict(row) for row in rows]
+
+    def admin_revoke_share(self, share_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("UPDATE shopping_share SET status='revoked',revoked_at=? WHERE share_id=? AND status='active'", (utc_now_iso(), share_id)).rowcount > 0
 
     def save_profile(self, user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()

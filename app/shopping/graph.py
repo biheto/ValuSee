@@ -141,6 +141,8 @@ def _calculate_prices(state: ShoppingState) -> ShoppingState:
 
 
 def _analyze_risks(state: ShoppingState) -> ShoppingState:
+    from app.shopping.store import shopping_store
+
     profile = state.get("profile", {})
     budget = float(profile.get("budget") or 0.0)
     risks = []
@@ -176,6 +178,11 @@ def _analyze_risks(state: ShoppingState) -> ShoppingState:
         after_sales_level = "low" if warranty_months >= 12 else "medium"
         if warranty_months < 12:
             reasons.append("保修期短于 12 个月")
+
+        governed_matches = shopping_store.evaluate_risk_rules(item)
+        for match in governed_matches:
+            reasons.append(f"命中风控规则：{match['name']}")
+            spec_level = _max_level(spec_level, str(match["severity"]))
 
         overall = _max_level(price_level, spec_level, store_level, after_sales_level)
         if specs:

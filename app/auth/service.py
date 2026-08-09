@@ -114,6 +114,35 @@ class AuthStore:
             row = conn.execute("SELECT * FROM valuesee_user WHERE email=? AND status='active'", (email.strip().lower(),)).fetchone()
         return _public_user(row) if row else None
 
+    def list_users(self, limit: int = 500) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT user_id,email,display_name,status,email_verified,created_at FROM valuesee_user ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 1000)),)).fetchall()
+        return [{**dict(row), "email_verified": bool(row["email_verified"])} for row in rows]
+
+    def update_user_status(self, user_id: str, status: str) -> dict[str, Any] | None:
+        if status not in {"active", "suspended"}:
+            raise ValueError("invalid user status")
+        with self._session() as conn:
+            if not conn.execute("SELECT 1 FROM valuesee_user WHERE user_id=?", (user_id,)).fetchone():
+                return None
+            conn.execute("UPDATE valuesee_user SET status=? WHERE user_id=?", (status, user_id))
+            if status == "suspended":
+                conn.execute("UPDATE valuesee_session SET status='revoked',revoked_at=? WHERE user_id=? AND status='active'", (utc_now_iso(), user_id))
+        return self.get_user(user_id)
+
+    def list_upgrade_requests(self) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT r.*,u.email,u.display_name FROM valuesee_upgrade_request r JOIN valuesee_user u ON u.user_id=r.user_id ORDER BY r.updated_at DESC LIMIT 500").fetchall()
+        return [dict(row) for row in rows]
+
+    def update_upgrade_request(self, request_id: str, status: str) -> dict[str, Any] | None:
+        if status not in {"pending", "contacted", "rejected"}:
+            raise ValueError("invalid upgrade request status")
+        with self._session() as conn:
+            conn.execute("UPDATE valuesee_upgrade_request SET status=?,updated_at=? WHERE request_id=?", (status, utc_now_iso(), request_id))
+            row = conn.execute("SELECT * FROM valuesee_upgrade_request WHERE request_id=?", (request_id,)).fetchone()
+        return dict(row) if row else None
+
     def create_action_token(self, user_id: str, purpose: str, ttl_minutes: int = 30) -> str:
         raw = secrets.token_urlsafe(32)
         digest = hashlib.sha256(raw.encode()).hexdigest()
@@ -432,7 +461,7 @@ def verify_token(token: str) -> str:
         body = json.loads(_unb64(payload))
         if int(body["exp"]) < int(time.time()):
             raise ValueError("expired")
-        if body.get("sid") and not auth_store.validate_session(str(body["sid"]), token):
+        if not body.get("sid") or not auth_store.validate_session(str(body["sid"]), token):
             raise ValueError("revoked session")
         return str(body["sub"])
     except Exception as exc:

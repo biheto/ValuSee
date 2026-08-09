@@ -562,6 +562,119 @@ def admin_tasks(limit: int = 100, authorization: str | None = Header(default=Non
     return {"tasks": task_store.list_tasks()[:max(1, min(limit, 500))]}
 
 
+@router.get("/admin/users", tags=["Admin Operations"])
+def admin_users(limit: int = 500, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"users": auth_store.list_users(limit)}
+
+
+@router.patch("/admin/users/{user_id}", tags=["Admin Operations"])
+def admin_update_user(user_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    if actor_id == user_id:
+        raise HTTPException(status_code=422, detail="不能在当前会话中停用自己的管理员账户")
+    try:
+        user = auth_store.update_user_status(user_id, str(payload.get("status") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    shopping_store.record_admin_audit(actor_id, "user.status.update", "user", user_id, {"status": user["status"]})
+    return {"user": user}
+
+
+@router.get("/admin/membership/upgrade-requests", tags=["Admin Operations"])
+def admin_upgrade_requests(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"requests": auth_store.list_upgrade_requests()}
+
+
+@router.patch("/admin/membership/upgrade-requests/{request_id}", tags=["Admin Operations"])
+def admin_update_upgrade_request(request_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        record = auth_store.update_upgrade_request(request_id, str(payload.get("status") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not record:
+        raise HTTPException(status_code=404, detail="升级申请不存在")
+    shopping_store.record_admin_audit(actor_id, "membership.request.update", "upgrade_request", request_id, {"status": record["status"]})
+    return {"request": record}
+
+
+@router.get("/admin/campaigns", tags=["Admin Operations"])
+def admin_campaigns(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"items": shopping_store.list_campaigns()}
+
+
+@router.post("/admin/campaigns", tags=["Admin Operations"])
+def admin_save_campaign(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        campaign = shopping_store.save_campaign(payload, str(payload.get("campaign_id") or "") or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    shopping_store.record_admin_audit(actor_id, "campaign.save", "campaign", campaign["campaign_id"], {"status": campaign["status"]})
+    return {"campaign": campaign}
+
+
+@router.delete("/admin/campaigns/{campaign_id}", tags=["Admin Operations"])
+def admin_delete_campaign(campaign_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    if not shopping_store.delete_campaign(campaign_id):
+        raise HTTPException(status_code=404, detail="活动不存在")
+    shopping_store.record_admin_audit(actor_id, "campaign.delete", "campaign", campaign_id)
+    return {"deleted": True}
+
+
+@router.get("/admin/risk-rules", tags=["Admin Operations"])
+def admin_risk_rules(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"rules": shopping_store.list_risk_rules()}
+
+
+@router.post("/admin/risk-rules", tags=["Admin Operations"])
+def admin_save_risk_rule(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        rule = shopping_store.save_risk_rule(payload, str(payload.get("rule_id") or "") or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    shopping_store.record_admin_audit(actor_id, "risk_rule.save", "risk_rule", rule["rule_id"], {"enabled": bool(rule["enabled"])})
+    return {"rule": rule}
+
+
+@router.delete("/admin/risk-rules/{rule_id}", tags=["Admin Operations"])
+def admin_delete_risk_rule(rule_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    if not shopping_store.delete_risk_rule(rule_id):
+        raise HTTPException(status_code=404, detail="风控规则不存在")
+    shopping_store.record_admin_audit(actor_id, "risk_rule.delete", "risk_rule", rule_id)
+    return {"deleted": True}
+
+
+@router.get("/admin/shares", tags=["Admin Operations"])
+def admin_shares(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"shares": shopping_store.list_all_shares()}
+
+
+@router.delete("/admin/shares/{share_id}", tags=["Admin Operations"])
+def admin_revoke_share(share_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    if not shopping_store.admin_revoke_share(share_id):
+        raise HTTPException(status_code=404, detail="分享不存在或已撤销")
+    shopping_store.record_admin_audit(actor_id, "share.revoke", "share", share_id)
+    return {"revoked": True}
+
+
+@router.get("/admin/audits", tags=["Admin Operations"])
+def admin_audits(limit: int = 500, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"audits": shopping_store.list_admin_audits(limit)}
+
+
 @router.get("/admin/traces", tags=["Admin Console"])
 def admin_traces(limit: int = 100, agent: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
@@ -847,6 +960,11 @@ def get_shopping_profile(authorization: str | None = Header(default=None)) -> di
 @router.get("/shopping/content", tags=["Shopping Discovery"])
 def list_shopping_content(category: str | None = None, limit: int = 100) -> dict[str, object]:
     return {"items": shopping_store.list_content(category=category, limit=limit)}
+
+
+@router.get("/shopping/campaigns", tags=["Shopping Discovery"])
+def list_public_campaigns() -> dict[str, object]:
+    return {"items": shopping_store.list_campaigns(public_only=True)}
 
 
 @router.put("/shopping/profile", tags=["Shopping Account"])
