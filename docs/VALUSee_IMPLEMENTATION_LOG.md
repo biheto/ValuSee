@@ -37,6 +37,7 @@ The first release focuses on digital products and small appliances. The system m
 - Added provider health checks that call the configured adapter's authenticated `/health` endpoint and return only status/error type, never credentials. Added protected admin endpoints for prompt version listing/saving/activation and benchmark run listing.
 - Added an interactive Business Governance tab to `/admin`: operators can create/delete canonical products, inspect SKU counts, publish and activate Prompt versions, pause/resume/retry price monitors, and inspect Benchmark runs without calling APIs manually.
 - Business Governance now supports creating/deleting concrete SKU variants under a canonical product and launching MCP, LLM, RAG, Workflow, or Collaboration benchmarks from the console. Runs are persisted and immediately appear in the results list.
+- The default RAG release benchmark now seeds an isolated, deterministic fixture collection when no managed Gold Set exists. A clean installation therefore tests actual ingest/retrieval behavior instead of failing because user knowledge has not been created yet; configured Gold Sets still take precedence.
 - Added explicit JD, Taobao/Tmall, and Pinduoduo authorization slots in both the consumer search area and admin source view. They remain visibly pending until a real provider is configured and never fall back to invented listings.
 
 ### Consumer decision workbench

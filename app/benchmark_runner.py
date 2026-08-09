@@ -126,9 +126,9 @@ def run_llm_benchmark(payload: dict[str, Any]) -> dict[str, Any]:
 def default_rag_benchmark_cases() -> list[dict[str, Any]]:
     return [
         {
-            "case_id": "project_memory_workflow",
+            "case_id": "fixture_workflow_governance",
             "arguments": {
-                "collection": "project-memory",
+                "collection": "benchmark-fixture",
                 "question": "workflow runtime human review resume",
                 "expected_keywords": ["workflow", "review", "resume"],
                 "limit": 5,
@@ -136,9 +136,9 @@ def default_rag_benchmark_cases() -> list[dict[str, Any]]:
             "enabled": True,
         },
         {
-            "case_id": "default_project_structure",
+            "case_id": "fixture_project_structure",
             "arguments": {
-                "collection": "default",
+                "collection": "benchmark-fixture",
                 "question": "project structure FastAPI LangGraph agents",
                 "expected_keywords": ["FastAPI", "LangGraph", "Agent"],
                 "limit": 5,
@@ -149,6 +149,9 @@ def default_rag_benchmark_cases() -> list[dict[str, Any]]:
 
 
 def run_rag_benchmark(payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload.get("cases") and not _rag_gold_cases_for_benchmark(payload):
+        rag_store.add_note("benchmark-fixture", "fixture/workflow.md", "workflow runtime supports human review and resume through persisted checkpoints")
+        rag_store.add_note("benchmark-fixture", "fixture/project.md", "FastAPI LangGraph agents organize the project structure")
     raw_cases = payload.get("cases") or _rag_gold_cases_for_benchmark(payload) or default_rag_benchmark_cases()
     cases = [case for case in raw_cases if case.get("enabled", True)]
     return _run_generic_benchmark(payload, "rag", cases, _run_single_rag_case, _summarize_rag_benchmark)
