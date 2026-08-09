@@ -57,7 +57,7 @@ from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.core.config import settings
 from app.core.infrastructure import publish_monitor_event
-from app.core.object_storage import create_download_url, persist_upload
+from app.core.object_storage import create_download_url, delete_stored_object, persist_upload
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -375,6 +375,73 @@ def export_account_data(authorization: str | None = Header(default=None)) -> dic
     if user_id == "local-user":
         raise HTTPException(status_code=401, detail="请先登录后导出账户数据")
     return auth_store.export_account(user_id)
+
+
+@router.get("/auth/profile", tags=["Account"])
+def get_account_profile(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.account_profile(_request_user(authorization))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/auth/profile", tags=["Account"])
+def update_account_profile(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.update_account_profile(_request_user(authorization), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/auth/profile/avatar", tags=["Account"])
+async def upload_account_avatar(file: UploadFile = File(...), authorization: str | None = Header(default=None)) -> dict[str, object]:
+    allowed = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    content_type = (file.content_type or "").lower()
+    if content_type not in allowed:
+        raise HTTPException(status_code=415, detail="头像仅支持 JPEG、PNG 和 WebP")
+    content = await file.read(2 * 1024 * 1024 + 1)
+    signatures = {"image/jpeg": content.startswith(b"\xff\xd8\xff"), "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"), "image/webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP"}
+    if not content or len(content) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="头像不能为空且不能超过 2MB")
+    if not signatures[content_type]:
+        raise HTTPException(status_code=415, detail="头像内容与声明类型不一致")
+    user_id = _request_user(authorization)
+    if not auth_store.get_user(user_id):
+        raise HTTPException(status_code=401, detail="请先登录后上传头像")
+    upload_dir = Path.cwd() / "data" / "attachments"; upload_dir.mkdir(parents=True, exist_ok=True)
+    path = upload_dir / f"avatar-{uuid4().hex}{allowed[content_type]}"; path.write_bytes(content)
+    storage = persist_upload(path, content_type, prefix="account-avatars")
+    if storage["backend"] == "s3":
+        path.unlink(missing_ok=True)
+    profile = auth_store.set_account_avatar(user_id, {**storage, "content_type": content_type, "sha256": hashlib.sha256(content).hexdigest()})
+    old_key = profile.pop("old_key", None)
+    old_backend = profile.pop("old_backend", None)
+    if old_key:
+        delete_stored_object(str(old_backend or ""), str(old_key))
+    return profile
+
+
+@router.get("/auth/profile/avatar", tags=["Account"])
+def get_account_avatar(authorization: str | None = Header(default=None)):
+    avatar = auth_store.account_avatar(_request_user(authorization))
+    if not avatar:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    target = create_download_url(str(avatar["avatar_backend"]), str(avatar["avatar_key"]))
+    if not target:
+        raise HTTPException(status_code=404, detail="Avatar file unavailable")
+    if avatar["avatar_backend"] == "s3":
+        return RedirectResponse(target, status_code=307)
+    return FileResponse(target, media_type=str(avatar["avatar_content_type"]))
+
+
+@router.get("/auth/bindings", tags=["Account"])
+def get_account_bindings(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"bindings": auth_store.account_bindings(_request_user(authorization))}
+
+
+@router.get("/auth/audits", tags=["Account"])
+def get_account_audits(limit: int = 100, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"items": auth_store.list_user_audits(_request_user(authorization), limit)}
 
 
 @router.delete("/auth/account", tags=["Account"])

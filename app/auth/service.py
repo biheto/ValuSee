@@ -84,6 +84,13 @@ class AuthStore:
                 request_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,plan_code TEXT NOT NULL,
                 status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_user_profile(
+                user_id TEXT PRIMARY KEY,bio TEXT NOT NULL,locale TEXT NOT NULL,currency TEXT NOT NULL,
+                avatar_backend TEXT,avatar_key TEXT,avatar_content_type TEXT,avatar_sha256 TEXT,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_user_audit(
+                audit_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,action TEXT NOT NULL,metadata_json TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
             if conn.backend == "postgresql":
                 conn.execute("ALTER TABLE valuesee_user ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0")
             else:
@@ -126,6 +133,67 @@ class AuthStore:
         with self._session() as conn:
             row = conn.execute("SELECT * FROM valuesee_user WHERE email=? AND status='active'", (email.strip().lower(),)).fetchone()
         return _public_user(row) if row else None
+
+    def account_profile(self, user_id: str) -> dict[str, Any]:
+        user = self.get_user(user_id)
+        if not user:
+            raise ValueError("user not found")
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_user_profile WHERE user_id=?", (user_id,)).fetchone()
+        profile = dict(row) if row else {"user_id": user_id, "bio": "", "locale": "zh-CN", "currency": "CNY", "avatar_backend": None, "avatar_key": None, "avatar_content_type": None, "avatar_sha256": None, "updated_at": None}
+        profile["display_name"] = user["display_name"]
+        profile["email"] = user["email"]
+        profile["email_verified"] = user["email_verified"]
+        profile["avatar_url"] = "/api/v1/auth/profile/avatar" if profile["avatar_key"] else None
+        for key in ("avatar_backend", "avatar_key", "avatar_sha256"):
+            profile.pop(key, None)
+        return profile
+
+    def update_account_profile(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        display_name = str(payload.get("display_name") or "").strip()[:60]
+        bio = str(payload.get("bio") or "").strip()[:300]
+        locale = str(payload.get("locale") or "zh-CN")
+        currency = str(payload.get("currency") or "CNY").upper()
+        if not display_name or locale not in {"zh-CN", "en-US"} or currency not in {"CNY", "USD", "EUR", "JPY"}:
+            raise ValueError("invalid account profile")
+        now = utc_now_iso()
+        with self._session() as conn:
+            if not conn.execute("SELECT 1 FROM valuesee_user WHERE user_id=?", (user_id,)).fetchone():
+                raise ValueError("user not found")
+            conn.execute("UPDATE valuesee_user SET display_name=? WHERE user_id=?", (display_name, user_id))
+            old = conn.execute("SELECT avatar_backend,avatar_key,avatar_content_type,avatar_sha256 FROM valuesee_user_profile WHERE user_id=?", (user_id,)).fetchone()
+            avatar = tuple(old[key] for key in ("avatar_backend", "avatar_key", "avatar_content_type", "avatar_sha256")) if old else (None, None, None, None)
+            conn.execute("INSERT INTO valuesee_user_profile(user_id,bio,locale,currency,avatar_backend,avatar_key,avatar_content_type,avatar_sha256,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET bio=excluded.bio,locale=excluded.locale,currency=excluded.currency,updated_at=excluded.updated_at", (user_id, bio, locale, currency, *avatar, now))
+        self.record_user_audit(user_id, "profile.updated", {"locale": locale, "currency": currency})
+        return self.account_profile(user_id)
+
+    def set_account_avatar(self, user_id: str, metadata: dict[str, str]) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self._session() as conn:
+            old = conn.execute("SELECT avatar_backend,avatar_key FROM valuesee_user_profile WHERE user_id=?", (user_id,)).fetchone()
+            profile = conn.execute("SELECT bio,locale,currency FROM valuesee_user_profile WHERE user_id=?", (user_id,)).fetchone()
+            base = (profile["bio"], profile["locale"], profile["currency"]) if profile else ("", "zh-CN", "CNY")
+            conn.execute("INSERT INTO valuesee_user_profile(user_id,bio,locale,currency,avatar_backend,avatar_key,avatar_content_type,avatar_sha256,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET avatar_backend=excluded.avatar_backend,avatar_key=excluded.avatar_key,avatar_content_type=excluded.avatar_content_type,avatar_sha256=excluded.avatar_sha256,updated_at=excluded.updated_at", (user_id, *base, metadata["backend"], metadata["key"], metadata["content_type"], metadata["sha256"], now))
+        self.record_user_audit(user_id, "avatar.updated", {"content_type": metadata["content_type"]})
+        return {"old_backend": old["avatar_backend"] if old else None, "old_key": old["avatar_key"] if old else None, **self.account_profile(user_id)}
+
+    def account_avatar(self, user_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT avatar_backend,avatar_key,avatar_content_type FROM valuesee_user_profile WHERE user_id=? AND avatar_key IS NOT NULL", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+    def account_bindings(self, user_id: str) -> list[dict[str, Any]]:
+        user = self.get_user(user_id)
+        return [{"provider": "email", "account_hint": user["email"] if user else "", "status": "verified" if user and user["email_verified"] else "pending"}]
+
+    def record_user_audit(self, user_id: str, action: str, metadata: dict[str, Any] | None = None) -> None:
+        with self._session() as conn:
+            conn.execute("INSERT INTO valuesee_user_audit(audit_id,user_id,action,metadata_json,created_at) VALUES(?,?,?,?,?)", (f"uaudit_{uuid4().hex}", user_id, action, json.dumps(metadata or {}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()))
+
+    def list_user_audits(self, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT audit_id,action,metadata_json,created_at FROM valuesee_user_audit WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (user_id, max(1, min(limit, 200)))).fetchall()
+        return [{**dict(row), "metadata": json.loads(row["metadata_json"])} for row in rows]
 
     def list_users(self, limit: int = 500) -> list[dict[str, Any]]:
         with self._session() as conn:
@@ -449,6 +517,8 @@ class AuthStore:
             "sessions": ("valuesee_session", "user_id"),
             "subscriptions": ("valuesee_subscription", "user_id"),
             "upgrade_requests": ("valuesee_upgrade_request", "user_id"),
+            "account_profile": ("valuesee_user_profile", "user_id"),
+            "account_audits": ("valuesee_user_audit", "user_id"),
         }
         with self._session() as conn:
             result = {"user": self.get_user(user_id), "families": [], "family_assets": [], "family_budgets": [], "family_invitations": [], "support_messages": [], **{key: [] for key in tables}}
@@ -493,6 +563,7 @@ class AuthStore:
             "shopping_share",
             "shopping_purchase_attachment", "shopping_support_ticket",
             "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request",
+            "valuesee_user_profile", "valuesee_user_audit",
         )
         attachment_objects: list[tuple[str, str]] = []
         with self._session() as conn:
@@ -500,6 +571,13 @@ class AuthStore:
             user_row = conn.execute("SELECT email FROM valuesee_user WHERE user_id=?", (user_id,)).fetchone()
             try:
                 attachment_objects = [(str(row["storage_backend"]), str(row["storage_key"])) for row in conn.execute("SELECT storage_backend,storage_key FROM shopping_purchase_attachment WHERE user_id=?", (user_id,)).fetchall()]
+            except Exception as exc:
+                if exc.__class__.__name__ != "OperationalError":
+                    raise
+            try:
+                avatar = conn.execute("SELECT avatar_backend,avatar_key FROM valuesee_user_profile WHERE user_id=? AND avatar_key IS NOT NULL", (user_id,)).fetchone()
+                if avatar:
+                    attachment_objects.append((str(avatar["avatar_backend"]), str(avatar["avatar_key"])))
             except Exception as exc:
                 if exc.__class__.__name__ != "OperationalError":
                     raise

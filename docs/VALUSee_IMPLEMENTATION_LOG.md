@@ -65,6 +65,8 @@ The first release focuses on digital products and small appliances. The system m
 - Family membership now uses seven-day pending invitations that only the matching registered account can accept or decline. Guessing an invitation ID, accepting from another account, reusing a response, or accepting after expiry is rejected.
 - Family workspaces include shared item/device records and monthly/annual budgets. Members are read-only, editors can maintain assets and budgets, and only owners can invite, promote, demote, or remove members.
 - Family assets, budgets, and relevant invitations are included in account export. Deleting a family owner removes the owned workspace records; deleting a member removes only that account's membership/invitations and does not erase shared family data.
+- The account center now supports display name, short bio, locale, default currency, private avatar upload, real binding status, and user-visible audit history. Avatar uploads are limited to 2MB JPEG/PNG/WebP with MIME signatures verified before storage; SVG/HTML and mismatched files are rejected.
+- Private avatars are fetched with the user's bearer session and rendered through a temporary browser Blob URL. Replacing or deleting an account removes the prior local/S3 object, while account exports include profile and audit records without exposing password/session token hashes.
 
 ### Brand assets
 
