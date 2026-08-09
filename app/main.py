@@ -94,3 +94,8 @@ if web_dist.exists():
     @app.get("/admin", include_in_schema=False)
     def admin_index() -> FileResponse:
         return FileResponse(web_dist / "index.html")
+
+    @app.get("/share/{share_token}", include_in_schema=False)
+    def shared_decision_index(share_token: str) -> FileResponse:
+        del share_token
+        return FileResponse(web_dist / "index.html")

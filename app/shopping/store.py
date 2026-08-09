@@ -176,6 +176,12 @@ class ShoppingStore:
                 created_at TEXT NOT NULL,updated_at TEXT NOT NULL,published_at TEXT
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_shopping_content_status ON shopping_content(status,updated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_share(
+                share_id TEXT PRIMARY KEY,share_token TEXT NOT NULL UNIQUE,user_id TEXT NOT NULL,share_type TEXT NOT NULL,
+                title TEXT NOT NULL,payload_json TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,revoked_at TEXT
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_shopping_share_owner ON shopping_share(user_id,created_at)")
 
     def create_extension_capture(
         self,
@@ -782,6 +788,35 @@ class ShoppingStore:
         with self._session() as conn:
             return conn.execute("DELETE FROM shopping_content WHERE content_id=?", (content_id,)).rowcount > 0
 
+    def create_share(self, user_id: str, share_type: str, title: str, payload: dict[str, Any], expires_days: int = 30) -> dict[str, Any]:
+        if share_type not in {"comparison", "report", "product"}:
+            raise ValueError("invalid share type")
+        if not isinstance(payload, dict) or not payload:
+            raise ValueError("share payload is required")
+        now = datetime.now(timezone.utc)
+        record = {"share_id": f"share_{uuid4().hex}", "share_token": uuid4().hex, "user_id": user_id, "share_type": share_type, "title": title.strip()[:120] or "ValuSee 分享", "payload": _public_share_payload(payload), "status": "active", "created_at": now.isoformat(), "expires_at": (now + timedelta(days=max(1, min(expires_days, 365)))).isoformat(), "revoked_at": None}
+        with self._session() as conn:
+            conn.execute("INSERT INTO shopping_share(share_id,share_token,user_id,share_type,title,payload_json,status,created_at,expires_at,revoked_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (record["share_id"], record["share_token"], user_id, share_type, record["title"], json.dumps(record["payload"], ensure_ascii=False), record["status"], record["created_at"], record["expires_at"], None))
+        return record
+
+    def get_share(self, share_token: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_share WHERE share_token=?", (share_token,)).fetchone()
+        if not row or row["status"] != "active" or _parse_or_now(row["expires_at"]) <= datetime.now(timezone.utc):
+            return None
+        result = _decode_json_columns(row, {"payload_json": "payload"})
+        result.pop("user_id", None)
+        return result
+
+    def list_shares(self, user_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_share WHERE user_id=? ORDER BY created_at DESC LIMIT 200", (user_id,)).fetchall()
+        return [_decode_json_columns(row, {"payload_json": "payload"}) for row in rows]
+
+    def revoke_share(self, user_id: str, share_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("UPDATE shopping_share SET status='revoked',revoked_at=? WHERE share_id=? AND user_id=? AND status='active'", (utc_now_iso(), share_id, user_id)).rowcount > 0
+
     def save_comparison(self, user_id: str, name: str, products: list[dict[str, Any]], comparison_id: str | None = None) -> dict[str, Any]:
         now, comparison_id = utc_now_iso(), comparison_id or f"cmp_{uuid4().hex}"
         with self._session() as conn:
@@ -938,6 +973,25 @@ def _decode_json_columns(row: Any, mapping: dict[str, str]) -> dict[str, Any]:
         raw = result.pop(source, None)
         result[target] = json.loads(raw) if raw else ([] if target == "products" else {})
     return result
+
+
+def _public_share_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    blocked = {"user_id", "email", "password", "access_token", "verification_token", "reset_token", "notes"}
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): clean(item) for key, item in value.items() if str(key).lower() not in blocked}
+        if isinstance(value, list):
+            return [clean(item) for item in value[:100]]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
+    cleaned = clean(payload)
+    encoded = json.dumps(cleaned, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > 512_000:
+        raise ValueError("share payload is too large")
+    return cleaned
 
 
 def final_price_from_breakdown(payload: dict[str, Any]) -> dict[str, float]:

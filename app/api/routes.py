@@ -847,6 +847,35 @@ def delete_shopping_comparison(comparison_id: str, authorization: str | None = H
     return {"deleted": True, "comparison_id": comparison_id}
 
 
+@router.post("/shopping/shares", tags=["Shopping Sharing"])
+def create_shopping_share(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        share = shopping_store.create_share(_request_user(authorization), str(payload.get("share_type") or "comparison"), str(payload.get("title") or "ValuSee 分享"), payload.get("payload") if isinstance(payload.get("payload"), dict) else {}, int(payload.get("expires_days") or 30))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**share, "share_url": f"/share/{share['share_token']}"}
+
+
+@router.get("/shopping/shares", tags=["Shopping Sharing"])
+def list_shopping_shares(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_shares(_request_user(authorization))
+
+
+@router.delete("/shopping/shares/{share_id}", tags=["Shopping Sharing"])
+def revoke_shopping_share(share_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not shopping_store.revoke_share(_request_user(authorization), share_id):
+        raise HTTPException(status_code=404, detail="Share not found")
+    return {"revoked": True, "share_id": share_id}
+
+
+@router.get("/public/shares/{share_token}", tags=["Shopping Sharing"])
+def get_public_shopping_share(share_token: str) -> dict[str, object]:
+    share = shopping_store.get_share(share_token)
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found or expired")
+    return share
+
+
 @router.get("/shopping/reports", tags=["Shopping Decision"])
 def list_shopping_reports(limit: int = 100, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
     return shopping_store.list_reports(_request_user(authorization), limit)

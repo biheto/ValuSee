@@ -66,4 +66,12 @@ export function MobileNav({ view, onChange }: { view: string; onChange: (view: s
   return <nav className="mobile-nav">{items.map(([key, label, Icon]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => onChange(key)}><Icon size={19} /><span>{label}</span></button>)}</nav>;
 }
 
+export function SharedDecisionPage({ share }: { share: { title: string; share_type: string; payload: Record<string, unknown>; expires_at: string } | null | undefined }) {
+  if (share === undefined) return <main className="shared-page"><div className="panel"><div className="consumer-empty" role="status" aria-live="polite"><i><Clock3 /></i><strong>正在读取分享</strong><span>正在校验链接和有效期，请稍候。</span></div></div></main>;
+  if (!share) return <main className="shared-page"><div className="panel"><EmptyState icon={<Clock3 />} title="分享不存在或已失效" text="请向分享者获取新的 ValuSee 链接。" /></div></main>;
+  const products = Array.isArray(share.payload.products) ? share.payload.products as ConsumerProduct[] : [];
+  const result = share.payload.result as Record<string, unknown> | undefined;
+  return <main className="shared-page"><header><a href="/">ValuSee</a><span>公开只读分享</span></header><section className="shared-hero"><span>{share.share_type === 'report' ? '购买决策报告' : '商品对比清单'}</span><h1>{share.title}</h1><p>此页面仅展示分享时的快照，不会随商品页面自动更新。有效期至 {day(share.expires_at)}。</p></section>{result && <section className="panel shared-summary"><h2>{String(result.summary || '决策摘要')}</h2><p>{String(result.recommendation_reason || '')}</p></section>}<section className="shared-products">{products.map((product, index) => <article className="panel" key={`${product.url}-${index}`}><div className="product-placeholder"><Laptop size={28} /></div><span>候选 {index + 1} · {product.platform || '来源待确认'}</span><h3>{product.title}</h3><b>{product.price ? money(product.price) : '价格待确认'}</b><small>{product.brand} {product.model}</small>{product.url && <a href={product.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />查看来源</a>}</article>)}</section><footer>ValuSee 不保证分享快照中的价格仍然有效，下单前请回到原平台核验。</footer></main>;
+}
+
 function EmptyState({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) { return <div className="consumer-empty"><i>{icon}</i><strong>{title}</strong><span>{text}</span></div>; }

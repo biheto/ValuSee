@@ -155,3 +155,63 @@ def test_discovery_content_requires_published_status():
         assert [item["content_id"] for item in visible] == [published["content_id"]]
         assert len(store.list_content(status="all")) == 2
         assert store.delete_content(draft["content_id"]) is True
+
+
+def test_public_shares_are_sanitized_scoped_and_revocable():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        share = store.create_share(
+            "u1",
+            "comparison",
+            "Monitor shortlist",
+            {
+                "products": [{"title": "Monitor", "notes": "private", "email": "buyer@example.com"}],
+                "profile": {"user_id": "u1", "budget": 2000},
+                "access_token": "secret",
+            },
+            expires_days=30,
+        )
+
+        public = store.get_share(share["share_token"])
+        assert public is not None
+        assert "user_id" not in public
+        assert "access_token" not in public["payload"]
+        assert "email" not in public["payload"]["products"][0]
+        assert "notes" not in public["payload"]["products"][0]
+        assert "user_id" not in public["payload"]["profile"]
+        assert store.list_shares("u2") == []
+        assert store.revoke_share("u2", share["share_id"]) is False
+        assert store.revoke_share("u1", share["share_id"]) is True
+        assert store.get_share(share["share_token"]) is None
+
+
+def test_public_share_limits_payload_and_expiry():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        try:
+            store.create_share("u1", "comparison", "Too large", {"body": "x" * 513_000})
+        except ValueError as exc:
+            assert "too large" in str(exc)
+        else:
+            raise AssertionError("oversized public snapshots must be rejected")
+
+        share = store.create_share("u1", "report", "Decision", {"products": [_product()]}, expires_days=0)
+        assert store.get_share(share["share_token"]) is not None
+        with store._session() as conn:
+            conn.execute("UPDATE shopping_share SET expires_at=? WHERE share_id=?", ("2000-01-01T00:00:00+00:00", share["share_id"]))
+        assert store.get_share(share["share_token"]) is None
+
+
+def test_account_export_and_delete_include_public_shares():
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "account-share.db"
+        shopping = ShoppingStore(path)
+        auth = AuthStore(path)
+        user = auth.register("share@example.com", "password-123", "Sharer")
+        share = shopping.create_share(user["user_id"], "product", "A product", {"products": [_product()]})
+
+        exported = auth.export_account(user["user_id"])
+        assert exported["shares"][0]["share_id"] == share["share_id"]
+        auth.delete_account(user["user_id"])
+        assert shopping.list_shares(user["user_id"]) == []
+        assert shopping.get_share(share["share_token"]) is None
