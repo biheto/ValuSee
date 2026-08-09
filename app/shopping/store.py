@@ -140,6 +140,25 @@ class ShoppingStore:
                 )"""
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_monitor_action_monitor ON shopping_monitor_action(monitor_id, created_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_user_profile(
+                user_id TEXT PRIMARY KEY,profile_json TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_comparison_list(
+                comparison_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,products_json TEXT NOT NULL,
+                status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_decision_report(
+                report_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,task_id TEXT NOT NULL,goal TEXT NOT NULL,
+                products_json TEXT NOT NULL,result_json TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_feedback(
+                feedback_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,feedback_type TEXT NOT NULL,target_type TEXT NOT NULL,
+                target_id TEXT,content TEXT NOT NULL,evidence_json TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_notification_preference(
+                user_id TEXT PRIMARY KEY,email_enabled INTEGER NOT NULL,in_app_enabled INTEGER NOT NULL,
+                quiet_start TEXT,quiet_end TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
 
     def create_extension_capture(
         self,
@@ -323,10 +342,12 @@ class ShoppingStore:
                 if is_integrity_error(exc):
                     return None
                 raise
-        record["delivery"] = deliver_notification(record)
+        record["delivery"] = deliver_notification(record, self.get_notification_preference(user_id))
         return record
 
     def list_notifications(self, user_id: str, unread_only: bool = False) -> list[dict[str, Any]]:
+        if not self.get_notification_preference(user_id)["in_app_enabled"]:
+            return []
         query = "SELECT * FROM shopping_notification WHERE user_id=?"
         params: list[Any] = [user_id]
         if unread_only:
@@ -629,6 +650,120 @@ class ShoppingStore:
         with self._session() as conn:
             rows = conn.execute(query, params).fetchall()
         return [_row_to_purchase(row) for row in rows]
+
+    def save_profile(self, user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self._session() as conn:
+            existing = conn.execute("SELECT created_at FROM shopping_user_profile WHERE user_id=?", (user_id,)).fetchone()
+            created = existing["created_at"] if existing else now
+            conn.execute("""INSERT INTO shopping_user_profile(user_id,profile_json,created_at,updated_at) VALUES(?,?,?,?)
+                ON CONFLICT(user_id) DO UPDATE SET profile_json=excluded.profile_json,updated_at=excluded.updated_at""",
+                (user_id, json.dumps(profile, ensure_ascii=False), created, now))
+        return {"user_id": user_id, "profile": profile, "created_at": created, "updated_at": now}
+
+    def get_profile(self, user_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_user_profile WHERE user_id=?", (user_id,)).fetchone()
+        return {"user_id": user_id, "profile": json.loads(row["profile_json"]), "created_at": row["created_at"], "updated_at": row["updated_at"]} if row else {"user_id": user_id, "profile": {}}
+
+    def save_comparison(self, user_id: str, name: str, products: list[dict[str, Any]], comparison_id: str | None = None) -> dict[str, Any]:
+        now, comparison_id = utc_now_iso(), comparison_id or f"cmp_{uuid4().hex}"
+        with self._session() as conn:
+            owner = conn.execute("SELECT user_id,created_at FROM shopping_comparison_list WHERE comparison_id=?", (comparison_id,)).fetchone()
+            if owner and owner["user_id"] != user_id:
+                raise ValueError("comparison does not belong to this user")
+            existing = owner
+            created = existing["created_at"] if existing else now
+            conn.execute("""INSERT INTO shopping_comparison_list(comparison_id,user_id,name,products_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)
+                ON CONFLICT(comparison_id) DO UPDATE SET name=excluded.name,products_json=excluded.products_json,status=excluded.status,updated_at=excluded.updated_at""",
+                (comparison_id, user_id, name.strip() or "未命名对比", json.dumps(products, ensure_ascii=False), "active", created, now))
+        return {"comparison_id": comparison_id, "user_id": user_id, "name": name.strip() or "未命名对比", "products": products, "status": "active", "created_at": created, "updated_at": now}
+
+    def list_comparisons(self, user_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_comparison_list WHERE user_id=? ORDER BY updated_at DESC", (user_id,)).fetchall()
+        return [_decode_json_columns(row, {"products_json": "products"}) for row in rows]
+
+    def delete_comparison(self, user_id: str, comparison_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("DELETE FROM shopping_comparison_list WHERE comparison_id=? AND user_id=?", (comparison_id, user_id)).rowcount > 0
+
+    def save_report(self, user_id: str, task_id: str, goal: str, products: list[dict[str, Any]], result: dict[str, Any]) -> dict[str, Any]:
+        record = {"report_id": f"report_{uuid4().hex}", "user_id": user_id, "task_id": task_id, "goal": goal, "products": products, "result": result, "created_at": utc_now_iso()}
+        with self._session() as conn:
+            conn.execute("INSERT INTO shopping_decision_report(report_id,user_id,task_id,goal,products_json,result_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                (record["report_id"], user_id, task_id, goal, json.dumps(products, ensure_ascii=False), json.dumps(result, ensure_ascii=False), record["created_at"]))
+        return record
+
+    def list_reports(self, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_decision_report WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (user_id, max(1, min(limit, 500)))).fetchall()
+        return [_decode_json_columns(row, {"products_json": "products", "result_json": "result"}) for row in rows]
+
+    def create_feedback(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now_iso()
+        record = {"feedback_id": f"feedback_{uuid4().hex}", "user_id": user_id, "feedback_type": str(payload.get("feedback_type") or "other"), "target_type": str(payload.get("target_type") or "report"), "target_id": str(payload.get("target_id") or "") or None, "content": str(payload.get("content") or "").strip(), "evidence": payload.get("evidence") or {}, "status": "open", "created_at": now, "updated_at": now}
+        if not record["content"]:
+            raise ValueError("feedback content is required")
+        with self._session() as conn:
+            conn.execute("INSERT INTO shopping_feedback(feedback_id,user_id,feedback_type,target_type,target_id,content,evidence_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (record["feedback_id"], user_id, record["feedback_type"], record["target_type"], record["target_id"], record["content"], json.dumps(record["evidence"], ensure_ascii=False), record["status"], now, now))
+        return record
+
+    def list_feedback(self, user_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        sql, params = "SELECT * FROM shopping_feedback", []
+        if user_id:
+            sql += " WHERE user_id=?"; params.append(user_id)
+        sql += " ORDER BY created_at DESC LIMIT ?"; params.append(max(1, min(limit, 1000)))
+        with self._session() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return [_decode_json_columns(row, {"evidence_json": "evidence"}) for row in rows]
+
+    def save_notification_preference(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now_iso()
+        record = {"user_id": user_id, "email_enabled": bool(payload.get("email_enabled", True)), "in_app_enabled": bool(payload.get("in_app_enabled", True)), "quiet_start": str(payload.get("quiet_start") or "") or None, "quiet_end": str(payload.get("quiet_end") or "") or None, "updated_at": now}
+        with self._session() as conn:
+            old = conn.execute("SELECT created_at FROM shopping_notification_preference WHERE user_id=?", (user_id,)).fetchone()
+            created = old["created_at"] if old else now
+            conn.execute("""INSERT INTO shopping_notification_preference(user_id,email_enabled,in_app_enabled,quiet_start,quiet_end,created_at,updated_at) VALUES(?,?,?,?,?,?,?)
+                ON CONFLICT(user_id) DO UPDATE SET email_enabled=excluded.email_enabled,in_app_enabled=excluded.in_app_enabled,quiet_start=excluded.quiet_start,quiet_end=excluded.quiet_end,updated_at=excluded.updated_at""",
+                (user_id, 1 if record["email_enabled"] else 0, 1 if record["in_app_enabled"] else 0, record["quiet_start"], record["quiet_end"], created, now))
+        return {**record, "created_at": created}
+
+    def get_notification_preference(self, user_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_notification_preference WHERE user_id=?", (user_id,)).fetchone()
+        return {**dict(row), "email_enabled": bool(row["email_enabled"]), "in_app_enabled": bool(row["in_app_enabled"])} if row else {"user_id": user_id, "email_enabled": True, "in_app_enabled": True, "quiet_start": None, "quiet_end": None}
+
+    def update_user_monitor(self, user_id: str, monitor_id: str, *, target_price: float | None = None, status: str | None = None) -> dict[str, Any] | None:
+        monitor = self.get_monitor(monitor_id)
+        if not monitor or monitor["user_id"] != user_id:
+            return None
+        if status and status not in {"watching", "paused"}:
+            raise ValueError("status must be watching or paused")
+        target = round(float(target_price), 2) if target_price is not None else monitor["target_price"]
+        if target <= 0:
+            raise ValueError("target_price must be greater than zero")
+        next_status = status or monitor["status"]
+        with self._session() as conn:
+            conn.execute("UPDATE shopping_price_monitor SET target_price=?,status=?,updated_at=?,last_message=? WHERE monitor_id=? AND user_id=?",
+                (target, next_status, utc_now_iso(), _monitor_message(monitor["current_final_price"], target), monitor_id, user_id))
+        return self.get_monitor(monitor_id)
+
+    def delete_user_monitor(self, user_id: str, monitor_id: str) -> bool:
+        with self._session() as conn:
+            found = conn.execute("SELECT 1 FROM shopping_price_monitor WHERE monitor_id=? AND user_id=?", (monitor_id, user_id)).fetchone()
+            if not found: return False
+            conn.execute("DELETE FROM shopping_price_check WHERE monitor_id=?", (monitor_id,))
+            return conn.execute("DELETE FROM shopping_price_monitor WHERE monitor_id=? AND user_id=?", (monitor_id, user_id)).rowcount > 0
+
+
+def _decode_json_columns(row: Any, mapping: dict[str, str]) -> dict[str, Any]:
+    result = dict(row)
+    for source, target in mapping.items():
+        raw = result.pop(source, None)
+        result[target] = json.loads(raw) if raw else ([] if target == "products" else {})
+    return result
 
 
 def final_price_from_breakdown(payload: dict[str, Any]) -> dict[str, float]:

@@ -695,7 +695,7 @@ async def run_business_scenario_stream(request: BusinessScenarioRequest) -> Stre
 
 
 @router.post("/shopping/decide", response_model=TaskRunResponse, tags=["Shopping Decision"])
-def run_shopping_decision(request: ShoppingDecisionRequest) -> TaskRunResponse:
+def run_shopping_decision(request: ShoppingDecisionRequest, authorization: str | None = Header(default=None)) -> TaskRunResponse:
     goal = request.goal or "为商品候选生成购买决策"
     context = harness_runtime.create_context(goal=goal, variables={"shopping": True})
     try:
@@ -706,14 +706,19 @@ def run_shopping_decision(request: ShoppingDecisionRequest) -> TaskRunResponse:
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return TaskRunResponse(**result)
+    response = TaskRunResponse(**result)
+    shopping_store.save_report(_request_user(authorization), response.task_id, goal, [item.model_dump() for item in request.products], response.result)
+    return response
 
 
 @router.post("/shopping/decide/stream", tags=["Shopping Decision"])
-async def run_shopping_decision_stream(request: ShoppingDecisionRequest) -> StreamingResponse:
+async def run_shopping_decision_stream(
+    request: ShoppingDecisionRequest,
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
         try:
-            response = run_shopping_decision(request)
+            response = run_shopping_decision(request, authorization)
             for event in response.events:
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             payload = {"type": "task_result", "task_id": response.task_id, "status": response.status, **response.result}
@@ -747,16 +752,95 @@ def list_price_monitors(user_id: str | None = None, authorization: str | None = 
     return [PriceMonitorResponse(**item) for item in shopping_store.list_monitors(user_id=_request_user(authorization))]
 
 
+@router.patch("/shopping/monitors/{monitor_id}", tags=["Shopping Monitor"])
+def update_price_monitor(monitor_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        monitor = shopping_store.update_user_monitor(_request_user(authorization), monitor_id, target_price=float(payload["target_price"]) if payload.get("target_price") is not None else None, status=str(payload["status"]) if payload.get("status") else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not monitor: raise HTTPException(status_code=404, detail="Monitor not found")
+    return monitor
+
+
+@router.delete("/shopping/monitors/{monitor_id}", tags=["Shopping Monitor"])
+def delete_price_monitor(monitor_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not shopping_store.delete_user_monitor(_request_user(authorization), monitor_id): raise HTTPException(status_code=404, detail="Monitor not found")
+    return {"deleted": True, "monitor_id": monitor_id}
+
+
+@router.get("/shopping/profile", tags=["Shopping Account"])
+def get_shopping_profile(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.get_profile(_request_user(authorization))
+
+
+@router.put("/shopping/profile", tags=["Shopping Account"])
+def save_shopping_profile(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.save_profile(_request_user(authorization), payload)
+
+
+@router.get("/shopping/comparisons", tags=["Shopping Decision"])
+def list_shopping_comparisons(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_comparisons(_request_user(authorization))
+
+
+@router.post("/shopping/comparisons", tags=["Shopping Decision"])
+def save_shopping_comparison(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    products = payload.get("products") if isinstance(payload.get("products"), list) else []
+    try:
+        return shopping_store.save_comparison(_request_user(authorization), str(payload.get("name") or "购物对比"), products, str(payload.get("comparison_id") or "") or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.delete("/shopping/comparisons/{comparison_id}", tags=["Shopping Decision"])
+def delete_shopping_comparison(comparison_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not shopping_store.delete_comparison(_request_user(authorization), comparison_id): raise HTTPException(status_code=404, detail="Comparison not found")
+    return {"deleted": True, "comparison_id": comparison_id}
+
+
+@router.get("/shopping/reports", tags=["Shopping Decision"])
+def list_shopping_reports(limit: int = 100, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_reports(_request_user(authorization), limit)
+
+
+@router.post("/shopping/feedback", tags=["Shopping Feedback"])
+def create_shopping_feedback(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try: return shopping_store.create_feedback(_request_user(authorization), payload)
+    except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/shopping/feedback", tags=["Shopping Feedback"])
+def list_user_feedback(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_feedback(_request_user(authorization))
+
+
+@router.get("/shopping/notification-preferences", tags=["Shopping Account"])
+def get_notification_preferences(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.get_notification_preference(_request_user(authorization))
+
+
+@router.put("/shopping/notification-preferences", tags=["Shopping Account"])
+def save_notification_preferences(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.save_notification_preference(_request_user(authorization), payload)
+
+
+@router.get("/admin/feedback", tags=["Admin Console"])
+def admin_feedback(limit: int = 200, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"feedback": shopping_store.list_feedback(limit=limit)}
+
+
 @router.get("/shopping/monitors/{monitor_id}/checks", tags=["Shopping Monitor"])
-def list_price_monitor_checks(monitor_id: str) -> dict[str, object]:
+def list_price_monitor_checks(monitor_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
     monitor = shopping_store.get_monitor(monitor_id)
-    if not monitor:
+    if not monitor or monitor["user_id"] != _request_user(authorization):
         raise HTTPException(status_code=404, detail="Monitor not found")
     return {"monitor": monitor, "checks": shopping_store.list_price_checks(monitor_id)}
 
 
 @router.post("/shopping/monitors/{monitor_id}/checks", response_model=PriceMonitorCheckResponse, tags=["Shopping Monitor"])
-def record_price_monitor_check(monitor_id: str, request: PriceMonitorCheckRequest) -> PriceMonitorCheckResponse:
+def record_price_monitor_check(monitor_id: str, request: PriceMonitorCheckRequest, authorization: str | None = Header(default=None)) -> PriceMonitorCheckResponse:
+    _require_admin(authorization)
     breakdown = final_price_from_breakdown(request.model_dump())
     try:
         check = shopping_store.record_price_check(

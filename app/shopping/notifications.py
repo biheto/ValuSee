@@ -7,17 +7,27 @@ import os
 import smtplib
 import ssl
 from email.message import EmailMessage
+from datetime import datetime
 from urllib.request import Request, urlopen
 
 
-def deliver_notification(notification: dict[str, object]) -> str:
+def deliver_notification(
+    notification: dict[str, object],
+    preferences: dict[str, object] | None = None,
+) -> str:
     """Deliver configured channels; durable in-app storage remains canonical."""
-    deliveries = ["in_app"]
-    if _deliver_email(notification):
+    preferences = preferences or {}
+    deliveries: list[str] = []
+    if bool(preferences.get("in_app_enabled", True)):
+        deliveries.append("in_app")
+    quiet = _is_quiet_time(preferences)
+    if not quiet and bool(preferences.get("email_enabled", True)) and _deliver_email(notification):
         deliveries.append("email")
+    if quiet:
+        deliveries.append("quiet_deferred")
     endpoint = os.getenv("VALUSee_NOTIFICATION_WEBHOOK_URL", "").strip()
-    if not endpoint:
-        return "+".join(deliveries)
+    if not endpoint or quiet:
+        return "+".join(deliveries) or "audit_only"
     body = json.dumps(notification, ensure_ascii=False).encode("utf-8")
     secret = os.getenv("VALUSee_NOTIFICATION_WEBHOOK_SECRET", "").encode("utf-8")
     signature = hmac.new(secret, body, hashlib.sha256).hexdigest() if secret else ""
@@ -30,7 +40,21 @@ def deliver_notification(notification: dict[str, object]) -> str:
                 deliveries.append("webhook")
     except Exception:
         pass
-    return "+".join(deliveries)
+    return "+".join(deliveries) or "audit_only"
+
+
+def _is_quiet_time(preferences: dict[str, object], now: datetime | None = None) -> bool:
+    start = str(preferences.get("quiet_start") or "").strip()
+    end = str(preferences.get("quiet_end") or "").strip()
+    if not start or not end or start == end:
+        return False
+    try:
+        current = (now or datetime.now().astimezone()).strftime("%H:%M")
+        datetime.strptime(start, "%H:%M")
+        datetime.strptime(end, "%H:%M")
+    except ValueError:
+        return False
+    return start <= current < end if start < end else current >= start or current < end
 
 
 def _deliver_email(notification: dict[str, object]) -> bool:

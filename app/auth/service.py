@@ -213,6 +213,11 @@ class AuthStore:
             "captures": ("shopping_extension_capture", "user_id"),
             "price_snapshots": ("shopping_price_snapshot", "user_id"),
             "notifications": ("shopping_notification", "user_id"),
+            "profile": ("shopping_user_profile", "user_id"),
+            "comparisons": ("shopping_comparison_list", "user_id"),
+            "reports": ("shopping_decision_report", "user_id"),
+            "feedback": ("shopping_feedback", "user_id"),
+            "notification_preferences": ("shopping_notification_preference", "user_id"),
         }
         with self._session() as conn:
             result = {"user": self.get_user(user_id), "families": [], **{key: [] for key in tables}}
@@ -230,7 +235,12 @@ class AuthStore:
     def delete_account(self, user_id: str) -> None:
         if user_id == "local-user":
             raise ValueError("本地演示账户不能执行删除")
-        tables = ("shopping_price_check", "shopping_price_monitor", "shopping_purchase_record", "shopping_extension_capture", "shopping_price_snapshot", "shopping_notification")
+        tables = (
+            "shopping_price_check", "shopping_monitor_action", "shopping_price_monitor",
+            "shopping_purchase_record", "shopping_extension_capture", "shopping_price_snapshot",
+            "shopping_notification", "shopping_user_profile", "shopping_comparison_list",
+            "shopping_decision_report", "shopping_feedback", "shopping_notification_preference",
+        )
         with self._session() as conn:
             try:
                 monitor_ids = [row["monitor_id"] for row in conn.execute("SELECT monitor_id FROM shopping_price_monitor WHERE user_id=?", (user_id,)).fetchall()]
@@ -239,7 +249,7 @@ class AuthStore:
                     raise
                 monitor_ids = []
             for table in tables:
-                if table == "shopping_price_check":
+                if table in {"shopping_price_check", "shopping_monitor_action"}:
                     for monitor_id in monitor_ids:
                         try:
                             conn.execute("DELETE FROM shopping_price_check WHERE monitor_id=?", (monitor_id,))
