@@ -3,6 +3,8 @@
 .python/
 .cache/
 dev_agent_studio.egg-info/
+valuesee.egg-info/
+.test-tmp/
 data/*.db
 data/*.log
 data/*.jsonl
@@ -12,5 +14,7 @@ web/node_modules/
 node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
+web/playwright-report/
+web/test-results/
 __pycache__/
 *.pyc

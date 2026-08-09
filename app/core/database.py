@@ -34,7 +34,7 @@ def connect_database(sqlite_path: str | Path) -> ConnectionAdapter:
         connection = psycopg.connect(database_url, row_factory=dict_row)
         return ConnectionAdapter(connection, "postgresql")
 
-    path = Path(sqlite_path)
+    path = Path(os.getenv("VALUSee_SQLITE_PATH", "").strip() or sqlite_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=30)
     connection.row_factory = sqlite3.Row

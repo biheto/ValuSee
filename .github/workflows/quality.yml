@@ -27,6 +27,10 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: npm run test:e2e
+        working-directory: web
       - run: npm audit --audit-level=high
         working-directory: web
       - run: pip install pip-audit && pip-audit

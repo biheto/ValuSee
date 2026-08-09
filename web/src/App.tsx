@@ -216,7 +216,11 @@ const analyticsSession = sessionStorage.getItem("valuesee-analytics-session") ||
 sessionStorage.setItem("valuesee-analytics-session", analyticsSession);
 
 export function App() {
-  const [view, setView] = useState<View>("discover");
+  const [view, setView] = useState<View>(() => {
+    const requested = new URLSearchParams(window.location.search).get("view");
+    const valid: View[] = ["discover", "analyze", "monitors", "purchases", "saved", "messages", "account", "profile", "history", "family", "settings", "security", "membership"];
+    return valid.includes(requested as View) ? (requested as View) : "discover";
+  });
   const [goal, setGoal] = useState("想买一副适合 iPhone 的降噪耳机，预算 1800 元以内");
   const [budget, setBudget] = useState(1800);
   const [products, setProducts] = useState<Product[]>([]);
@@ -298,6 +302,14 @@ export function App() {
     void refreshRecords();
   }, []);
   useEffect(() => {
+    if (window.location.pathname !== "/") return;
+    const params = new URLSearchParams(window.location.search);
+    if (view === "discover") params.delete("view");
+    else params.set("view", view);
+    const query = params.toString();
+    window.history.replaceState({}, "", query ? `/?${query}` : "/");
+  }, [view]);
+  useEffect(() => {
     void request<{ variant: string }>("/api/v1/shopping/experiments/navigation-density")
       .then((item) => setNavigationVariant(item.variant))
       .catch(() => setNavigationVariant("control"));
@@ -332,6 +344,10 @@ export function App() {
       setDetailRef(nextDetailRef);
       setContentId(nextContentId);
       if (!nextDetailRef) setDetailProduct(null);
+      if (window.location.pathname === "/") {
+        const nextView = new URLSearchParams(window.location.search).get("view");
+        if (nextView) setView(nextView as View);
+      }
     };
     window.addEventListener("popstate", syncRoute);
     return () => window.removeEventListener("popstate", syncRoute);

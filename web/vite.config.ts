@@ -5,8 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8100',
-      '/health': 'http://127.0.0.1:8100',
+      '/api': process.env.VALUSee_API_TARGET || 'http://127.0.0.1:8100',
+      '/health': process.env.VALUSee_API_TARGET || 'http://127.0.0.1:8100',
     },
   },
   build: {
