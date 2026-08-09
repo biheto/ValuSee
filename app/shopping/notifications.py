@@ -34,9 +34,6 @@ def deliver_notification(notification: dict[str, object]) -> str:
 
 
 def _deliver_email(notification: dict[str, object]) -> bool:
-    host = os.getenv("VALUSee_SMTP_HOST", "").strip()
-    if not host:
-        return False
     try:
         from app.auth.service import auth_store
 
@@ -44,6 +41,16 @@ def _deliver_email(notification: dict[str, object]) -> bool:
         recipient = str((user or {}).get("email") or "").strip()
         if not recipient:
             return False
+        return send_transactional_email(recipient, str(notification.get("title") or "ValuSee 提醒"), str(notification.get("message") or ""))
+    except Exception:
+        return False
+
+
+def send_transactional_email(recipient: str, subject: str, content: str) -> bool:
+    host = os.getenv("VALUSee_SMTP_HOST", "").strip()
+    if not host or not recipient:
+        return False
+    try:
         port = int(os.getenv("VALUSee_SMTP_PORT", "465"))
         username = os.getenv("VALUSee_SMTP_USERNAME", "").strip()
         password = os.getenv("VALUSee_SMTP_PASSWORD", "")
@@ -51,10 +58,10 @@ def _deliver_email(notification: dict[str, object]) -> bool:
         if not sender:
             return False
         message = EmailMessage()
-        message["Subject"] = str(notification.get("title") or "ValuSee 提醒")
+        message["Subject"] = subject
         message["From"] = sender
         message["To"] = recipient
-        message.set_content(str(notification.get("message") or ""))
+        message.set_content(content)
         use_ssl = os.getenv("VALUSee_SMTP_SSL", "true").lower() not in {"0", "false", "no"}
         if use_ssl:
             with smtplib.SMTP_SSL(host, port, timeout=8, context=ssl.create_default_context()) as client:

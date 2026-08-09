@@ -236,6 +236,19 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=254)
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=500)
+    new_password: str = Field(..., min_length=8, max_length=200)
+
+
+class EmailVerifyConfirmRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=500)
+
+
 class FamilyCreateRequest(BaseModel):
     name: str = Field(default="我的家庭", max_length=80)
 

@@ -30,6 +30,7 @@ from app.shopping.graph import shopping_decision_graph_runner
 from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
+from app.shopping.notifications import send_transactional_email
 from app.shopping.providers import configured_providers
 from app.shopping.catalog import commerce_catalog
 from app.graphs.collaboration_runner import run_collaboration_task
@@ -62,6 +63,9 @@ from app.schemas.shopping import (
     PurchaseResponse,
     RegisterRequest,
     LoginRequest,
+    PasswordResetRequest,
+    PasswordResetConfirmRequest,
+    EmailVerifyConfirmRequest,
     FamilyCreateRequest,
     FamilyInviteRequest,
     ReviewAnalysisRequest,
@@ -160,7 +164,13 @@ def register_account(request: RegisterRequest) -> dict[str, object]:
         user = auth_store.register(request.email, request.password, request.display_name)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+    verify_token = auth_store.create_action_token(user["user_id"], "verify_email", ttl_minutes=1440)
+    base_url = os.getenv("VALUSee_PUBLIC_BASE_URL", "http://127.0.0.1:8200").rstrip("/")
+    send_transactional_email(user["email"], "验证你的 ValuSee 邮箱", f"请在 24 小时内打开：{base_url}/?verify_token={verify_token}")
+    response: dict[str, object] = {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+    if settings.app_env.lower() not in {"prod", "production"}:
+        response["verification_token"] = verify_token
+    return response
 
 
 @router.post("/auth/login", tags=["Account"])
@@ -169,6 +179,50 @@ def login_account(request: LoginRequest) -> dict[str, object]:
     if not user:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
     return {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+
+
+@router.post("/auth/email/verify/request", tags=["Account"])
+def request_email_verification(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _request_user(authorization)
+    user = auth_store.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="账户不存在")
+    token = auth_store.create_action_token(user_id, "verify_email", ttl_minutes=1440)
+    base_url = os.getenv("VALUSee_PUBLIC_BASE_URL", "http://127.0.0.1:8200").rstrip("/")
+    send_transactional_email(user["email"], "验证你的 ValuSee 邮箱", f"请在 24 小时内打开：{base_url}/?verify_token={token}")
+    return {"accepted": True, **({"verification_token": token} if settings.app_env.lower() not in {"prod", "production"} else {})}
+
+
+@router.post("/auth/email/verify/confirm", tags=["Account"])
+def confirm_email_verification(request: EmailVerifyConfirmRequest) -> dict[str, object]:
+    user = auth_store.verify_email(request.token)
+    if not user:
+        raise HTTPException(status_code=422, detail="验证链接无效或已过期")
+    return {"verified": True, "user": user}
+
+
+@router.post("/auth/password/reset/request", tags=["Account"])
+def request_password_reset(request: PasswordResetRequest) -> dict[str, object]:
+    user = auth_store.get_user_by_email(request.email)
+    response: dict[str, object] = {"accepted": True, "message": "如果该邮箱已注册，重置邮件将发送到该邮箱。"}
+    if user:
+        token = auth_store.create_action_token(user["user_id"], "reset_password", ttl_minutes=30)
+        base_url = os.getenv("VALUSee_PUBLIC_BASE_URL", "http://127.0.0.1:8200").rstrip("/")
+        send_transactional_email(user["email"], "重置 ValuSee 密码", f"请在 30 分钟内打开：{base_url}/?reset_token={token}")
+        if settings.app_env.lower() not in {"prod", "production"}:
+            response["reset_token"] = token
+    return response
+
+
+@router.post("/auth/password/reset/confirm", tags=["Account"])
+def confirm_password_reset(request: PasswordResetConfirmRequest) -> dict[str, object]:
+    try:
+        updated = auth_store.reset_password(request.token, request.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=422, detail="重置链接无效或已过期")
+    return {"updated": True}
 
 
 @router.get("/auth/me", tags=["Account"])

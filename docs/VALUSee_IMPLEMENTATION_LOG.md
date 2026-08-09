@@ -23,6 +23,7 @@ The first release focuses on digital products and small appliances. The system m
 - Configurable official/affiliate commerce provider adapters and signed notification webhook delivery are available without pretending that unapproved platform credentials exist.
 - Account export, account deletion, family member invitation, privacy policy, and service terms endpoints are available.
 - Release and deployment acceptance criteria are recorded in `docs/VALUSee_PRODUCTION_RELEASE.md`.
+- Account security now includes single-use, expiring, SHA-256-hashed email-verification and password-reset tokens. Production sends links only by email; development may return a test token. Password-reset requests use a uniform response to prevent email-account enumeration.
 
 ### Product search and operations console
 

@@ -8,6 +8,7 @@ import os
 import secrets
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
@@ -52,6 +53,16 @@ class AuthStore:
                 family_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,
                 PRIMARY KEY(family_id,user_id)
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_auth_token(
+                token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,purpose TEXT NOT NULL,
+                expires_at TEXT NOT NULL,used_at TEXT,created_at TEXT NOT NULL
+            )""")
+            if conn.backend == "postgresql":
+                conn.execute("ALTER TABLE valuesee_user ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0")
+            else:
+                columns = [row["name"] for row in conn.execute("PRAGMA table_info(valuesee_user)").fetchall()]
+                if "email_verified" not in columns:
+                    conn.execute("ALTER TABLE valuesee_user ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
 
     def register(self, email: str, password: str, display_name: str) -> dict[str, Any]:
         normalized = email.strip().lower()
@@ -63,8 +74,8 @@ class AuthStore:
         with self._session() as conn:
             try:
                 conn.execute(
-                    "INSERT INTO valuesee_user VALUES(?,?,?,?,?,?)",
-                    (user_id, normalized, hash_password(password), display_name.strip() or normalized.split("@")[0], "active", now),
+                    "INSERT INTO valuesee_user(user_id,email,password_hash,display_name,status,created_at,email_verified) VALUES(?,?,?,?,?,?,?)",
+                    (user_id, normalized, hash_password(password), display_name.strip() or normalized.split("@")[0], "active", now, 0),
                 )
             except Exception as exc:
                 if is_integrity_error(exc):
@@ -83,6 +94,52 @@ class AuthStore:
         with self._session() as conn:
             row = conn.execute("SELECT * FROM valuesee_user WHERE user_id = ?", (user_id,)).fetchone()
         return _public_user(row) if row else None
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_user WHERE email=? AND status='active'", (email.strip().lower(),)).fetchone()
+        return _public_user(row) if row else None
+
+    def create_action_token(self, user_id: str, purpose: str, ttl_minutes: int = 30) -> str:
+        raw = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(minutes=max(5, min(ttl_minutes, 1440)))
+        with self._session() as conn:
+            conn.execute("DELETE FROM valuesee_auth_token WHERE user_id=? AND purpose=? AND used_at IS NULL", (user_id, purpose))
+            conn.execute(
+                "INSERT INTO valuesee_auth_token(token_hash,user_id,purpose,expires_at,used_at,created_at) VALUES(?,?,?,?,?,?)",
+                (digest, user_id, purpose, expires.replace(microsecond=0).isoformat().replace("+00:00", "Z"), None, utc_now_iso()),
+            )
+        return raw
+
+    def consume_action_token(self, raw: str, purpose: str) -> str | None:
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        now = datetime.now(timezone.utc)
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_auth_token WHERE token_hash=? AND purpose=? AND used_at IS NULL", (digest, purpose)).fetchone()
+            if not row or _parse_utc(row["expires_at"]) < now:
+                return None
+            conn.execute("UPDATE valuesee_auth_token SET used_at=? WHERE token_hash=?", (utc_now_iso(), digest))
+            return str(row["user_id"])
+
+    def verify_email(self, raw: str) -> dict[str, Any] | None:
+        user_id = self.consume_action_token(raw, "verify_email")
+        if not user_id:
+            return None
+        with self._session() as conn:
+            conn.execute("UPDATE valuesee_user SET email_verified=1 WHERE user_id=?", (user_id,))
+        return self.get_user(user_id)
+
+    def reset_password(self, raw: str, password: str) -> bool:
+        if len(password) < 8:
+            raise ValueError("密码至少需要 8 个字符")
+        user_id = self.consume_action_token(raw, "reset_password")
+        if not user_id:
+            return False
+        with self._session() as conn:
+            conn.execute("UPDATE valuesee_user SET password_hash=? WHERE user_id=?", (hash_password(password), user_id))
+        return True
 
     def create_family(self, owner_id: str, name: str) -> dict[str, Any]:
         family_id, now = f"fam_{uuid4().hex}", utc_now_iso()
@@ -218,7 +275,12 @@ def _jwt_secret() -> bytes:
 
 
 def _public_user(row: Any) -> dict[str, Any]:
-    return {"user_id": row["user_id"], "email": row["email"], "display_name": row["display_name"], "status": row["status"], "created_at": row["created_at"]}
+    keys = set(row.keys())
+    return {"user_id": row["user_id"], "email": row["email"], "display_name": row["display_name"], "status": row["status"], "email_verified": bool(row["email_verified"]) if "email_verified" in keys else False, "created_at": row["created_at"]}
+
+
+def _parse_utc(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
 auth_store = AuthStore()
