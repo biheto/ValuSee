@@ -34,6 +34,8 @@ The first release focuses on digital products and small appliances. The system m
 - Added protected monitor operations for administrators: pause, resume, retry, expire, and delete. Each action validates the monitor state transition and writes an immutable action record with actor, reason, previous status, next status, and timestamp. This gives operations a recovery path when a commerce source or scheduled check fails.
 - Added an admin-owned canonical commerce catalog with product and SKU CRUD. Product records store normalized brand/model/category/specifications; SKU records store variants, source URLs, and status so matching can be corrected without changing raw marketplace observations.
 - Added provider health checks that call the configured adapter's authenticated `/health` endpoint and return only status/error type, never credentials. Added protected admin endpoints for prompt version listing/saving/activation and benchmark run listing.
+- Added an interactive Business Governance tab to `/admin`: operators can create/delete canonical products, inspect SKU counts, publish and activate Prompt versions, pause/resume/retry price monitors, and inspect Benchmark runs without calling APIs manually.
+- Added explicit JD, Taobao/Tmall, and Pinduoduo authorization slots in both the consumer search area and admin source view. They remain visibly pending until a real provider is configured and never fall back to invented listings.
 
 ### Consumer decision workbench
 
@@ -76,7 +78,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | Review risk analysis | MVP complete | Source-bearing reviews are weighted by verified purchase and rating, clustered into defect groups, and returned with evidence and confidence. |
 | Observability | Foundation present | Health/readiness probes, structured Worker logs, durable task records, idempotency keys, and source evidence are present; external metrics/alerting wiring remains deployment-specific. |
 | Monitor operations | MVP complete | Admin API supports stateful pause/resume/retry/expire/delete actions with audit records; a dedicated UI control surface remains the next console refinement. |
-| Product/SKU governance | MVP complete | Admin CRUD and normalized records are persisted; marketplace credentials and product ingestion remain external release prerequisites. |
+| Product/SKU governance | MVP complete | Admin CRUD, normalized persistence, and the first operational UI are implemented; marketplace credentials and product ingestion remain external release prerequisites. |
 | Provider diagnostics | MVP complete | Configured providers can be health-checked through a protected admin endpoint; no provider is represented as live without credentials. |
 
 ## Next implementation order
