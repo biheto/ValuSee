@@ -68,6 +68,7 @@ from app.schemas.shopping import (
     EmailVerifyConfirmRequest,
     FamilyCreateRequest,
     FamilyInviteRequest,
+    FamilyMemberRoleRequest,
     ReviewAnalysisRequest,
     ShoppingDecisionRequest,
     ShoppingExtensionCaptureRequest,
@@ -248,6 +249,31 @@ def invite_family_member(request: FamilyInviteRequest, authorization: str | None
         return auth_store.invite_family_member(_request_user(authorization), request.family_id, request.email)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/families/{family_id}/members", tags=["Account"])
+def list_family_members(family_id: str, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    try:
+        return auth_store.list_family_members(_request_user(authorization), family_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/families/{family_id}/members/{user_id}", tags=["Account"])
+def update_family_member_role(family_id: str, user_id: str, request: FamilyMemberRoleRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.set_family_member_role(_request_user(authorization), family_id, user_id, request.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/families/{family_id}/members/{user_id}", tags=["Account"])
+def delete_family_member(family_id: str, user_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        removed = auth_store.remove_family_member(_request_user(authorization), family_id, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"removed": removed, "user_id": user_id}
 
 
 @router.get("/auth/export", tags=["Account"])

@@ -258,6 +258,10 @@ class FamilyInviteRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=254)
 
 
+class FamilyMemberRoleRequest(BaseModel):
+    role: str = Field(..., pattern="^(member|editor)$")
+
+
 class ProductReviewInput(BaseModel):
     rating: float = Field(default=3, ge=1, le=5)
     content: str = Field(..., min_length=1, max_length=5000)

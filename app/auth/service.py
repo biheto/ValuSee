@@ -172,6 +172,40 @@ class AuthStore:
                 raise
         return {"family_id": family_id, "user_id": member["user_id"], "email": normalized, "role": "member", "created_at": now}
 
+    def list_family_members(self, actor_id: str, family_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            allowed = conn.execute("SELECT 1 FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, actor_id)).fetchone()
+            if not allowed:
+                raise ValueError("无权查看该家庭")
+            rows = conn.execute("""SELECT m.family_id,m.user_id,m.role,m.created_at,u.email,u.display_name
+                FROM valuesee_family_member m JOIN valuesee_user u ON u.user_id=m.user_id
+                WHERE m.family_id=? ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END,m.created_at""", (family_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_family_member_role(self, owner_id: str, family_id: str, user_id: str, role: str) -> dict[str, Any]:
+        if role not in {"member", "editor"}:
+            raise ValueError("role must be member or editor")
+        with self._session() as conn:
+            family = conn.execute("SELECT 1 FROM valuesee_family WHERE family_id=? AND owner_id=?", (family_id, owner_id)).fetchone()
+            member = conn.execute("SELECT role FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, user_id)).fetchone()
+            if not family:
+                raise ValueError("只有家庭所有者可以管理成员")
+            if not member or member["role"] == "owner":
+                raise ValueError("成员不存在或不能修改所有者角色")
+            conn.execute("UPDATE valuesee_family_member SET role=? WHERE family_id=? AND user_id=?", (role, family_id, user_id))
+        return next(item for item in self.list_family_members(owner_id, family_id) if item["user_id"] == user_id)
+
+    def remove_family_member(self, owner_id: str, family_id: str, user_id: str) -> bool:
+        with self._session() as conn:
+            family = conn.execute("SELECT 1 FROM valuesee_family WHERE family_id=? AND owner_id=?", (family_id, owner_id)).fetchone()
+            member = conn.execute("SELECT role FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, user_id)).fetchone()
+            if not family:
+                raise ValueError("只有家庭所有者可以管理成员")
+            if not member or member["role"] == "owner":
+                raise ValueError("成员不存在或不能移除家庭所有者")
+            cursor = conn.execute("DELETE FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, user_id))
+            return cursor.rowcount > 0
+
     def export_account(self, user_id: str) -> dict[str, Any]:
         tables = {
             "monitors": ("shopping_price_monitor", "user_id"),

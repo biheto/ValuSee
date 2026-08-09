@@ -23,3 +23,21 @@ def test_password_reset_replaces_password_and_consumes_token():
         assert store.authenticate("buyer@example.com", "old-password") is None
         assert store.authenticate("buyer@example.com", "new-password") is not None
         assert store.reset_password(token, "another-password") is False
+
+
+def test_family_owner_can_manage_member_role_and_members_cannot():
+    with TemporaryDirectory() as tmp:
+        store = AuthStore(Path(tmp) / "auth.db")
+        owner = store.register("owner@example.com", "owner-password", "Owner")
+        member = store.register("member@example.com", "member-password", "Member")
+        family = store.create_family(owner["user_id"], "家庭")
+        store.invite_family_member(owner["user_id"], family["family_id"], member["email"])
+        updated = store.set_family_member_role(owner["user_id"], family["family_id"], member["user_id"], "editor")
+        assert updated["role"] == "editor"
+        assert len(store.list_family_members(member["user_id"], family["family_id"])) == 2
+        try:
+            store.remove_family_member(member["user_id"], family["family_id"], owner["user_id"])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("non-owner must not manage family members")

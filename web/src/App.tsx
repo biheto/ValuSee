@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Users,
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { BrandMark, BrandWordmark, ValueMascot } from './BrandArt';
@@ -38,7 +39,7 @@ type Purchase = { purchase_id: string; product: Product; paid_price: number; pla
 type Capture = { capture_id: string; status: string; product: Product; source: string; captured_at: string };
 type Notification = { notification_id: string; title: string; message: string; status: string; created_at: string };
 type ProductSearchResult = { provider: string; kind: string; product: Product };
-type View = 'analyze' | 'monitors' | 'purchases' | 'history';
+type View = 'analyze' | 'monitors' | 'purchases' | 'history' | 'family';
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
 const sample: Product[] = [
@@ -129,7 +130,7 @@ export function App() {
   function logout() { localStorage.removeItem('valuesee-token'); localStorage.removeItem('valuesee-account-name'); setAccountName('本地账户'); setAccountOpen(false); void refreshRecords(); }
 
   const best = useMemo(() => result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index], [result]);
-  const nav: Array<[View, string, typeof Search]> = [['analyze', '分析商品', Search], ['monitors', '降价监控', Bell], ['purchases', '我的购买', Receipt], ['history', '历史报告', History]];
+  const nav: Array<[View, string, typeof Search]> = [['analyze', '分析商品', Search], ['monitors', '降价监控', Bell], ['purchases', '我的购买', Receipt], ['family', '我的家庭', Users], ['history', '历史报告', History]];
   return <main className="valuesee-app">
     {view === 'analyze' && <ProductSearchPanel onAdd={(product) => setProducts((items) => items.some((item) => item.url === product.url) ? items : [...items, product])} />}
     {view === 'analyze' && result && <DecisionEvidence events={result.events} />}
@@ -146,7 +147,31 @@ export function App() {
     {view === 'monitors' && <section className="page-section"><PageTitle icon={<Bell size={22} />} title="降价监控" subtitle="把“等等再买”交给 ValuSee，达到目标价再提醒你。" />{notifications.length > 0 && <div className="notification-list">{notifications.map((item) => <article key={item.notification_id}><Bell size={17} /><div><strong>{item.title}</strong><span>{item.message}</span></div><small>{date(item.created_at)}</small></article>)}</div>}<div className="management-grid"><form className="panel compact-form" onSubmit={createMonitor}><h3>新建监控</h3><label>商品<select value={monitorProduct} onChange={(e) => setMonitorProduct(Number(e.target.value))}>{products.map((p, i) => <option key={i} value={i}>{p.title}</option>)}</select></label><label>目标到手价<input type="number" min={0} value={targetPrice} onChange={(e) => setTargetPrice(Number(e.target.value))} /></label><button className="primary-button"><Bell size={17} />创建监控</button></form><div className="panel list-panel"><h3>正在关注的商品 <span>{monitors.length}</span></h3>{monitors.length ? monitors.map((item) => <article className="record-row" key={item.monitor_id}><div><strong>{item.product.title}</strong><span>{item.product.platform} · 当前 {money(item.current_final_price)} · 目标 {money(item.target_price)}</span></div><b className={item.status === 'target_reached' ? 'status-good' : ''}>{item.status === 'target_reached' ? '已到目标价' : '监控中'}</b><small>至 {date(item.expires_at)}</small></article>) : <Empty text="还没有价格监控" />}</div></div></section>}
     {view === 'purchases' && <section className="page-section"><PageTitle icon={<Receipt size={22} />} title="我的购买" subtitle="记录实际支付价格，及时抓住保价、退货和保修节点。" /><div className="management-grid"><form className="panel compact-form" onSubmit={createPurchase}><h3>记录一笔购买</h3><label>商品<select value={purchaseProduct} onChange={(e) => setPurchaseProduct(Number(e.target.value))}>{products.map((p, i) => <option key={i} value={i}>{p.title}</option>)}</select></label><label>实际支付<input type="number" min={0} value={paidPrice || products[purchaseProduct]?.price || 0} onChange={(e) => setPaidPrice(Number(e.target.value))} /></label><button className="primary-button"><Receipt size={17} />保存购买</button></form><div className="panel list-panel"><h3>购买记录 <span>{purchases.length}</span></h3>{purchases.length ? purchases.map((item) => <article className="purchase-card" key={item.purchase_id}><div className="purchase-head"><strong>{item.product.title}</strong><b>{money(item.paid_price)}</b></div><span>{item.platform || '平台待确认'} · 购买于 {date(item.purchased_at)}</span><div className="deadline-row"><i>保价至 {date(item.price_protection_deadline)}</i><i>退货至 {date(item.return_deadline)}</i><i>保修至 {date(item.warranty_deadline)}</i></div></article>) : <Empty text="还没有购买记录" />}</div></div></section>}
     {view === 'history' && <section className="page-section"><PageTitle icon={<History size={22} />} title="历史报告" subtitle="每次分析都会留在本机，方便回看你的购买判断。" /><div className="panel history-panel">{result ? <article className="history-card"><div><strong>{result.result.summary}</strong><span>任务 {result.task_id}</span></div><button className="soft-button" onClick={() => setView('analyze')}>打开报告 <ChevronRight size={16} /></button></article> : <Empty text="完成一次分析后，这里会出现你的报告" />}</div></section>}
+    {view === 'family' && <FamilyPanel />}
   </main>;
+}
+function FamilyPanel() {
+  const [families, setFamilies] = useState<Array<Record<string, unknown>>>([]);
+  const [members, setMembers] = useState<Array<Record<string, unknown>>>([]);
+  const [selected, setSelected] = useState('');
+  const [name, setName] = useState('我的家庭');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [notice, setNotice] = useState('');
+  async function load() {
+    if (!localStorage.getItem('valuesee-token')) return;
+    const rows = await request<Array<Record<string, unknown>>>('/api/v1/families');
+    setFamilies(rows);
+    const id = selected || String(rows[0]?.family_id || '');
+    setSelected(id);
+    if (id) setMembers(await request<Array<Record<string, unknown>>>(`/api/v1/families/${encodeURIComponent(id)}/members`));
+  }
+  useEffect(() => { void load(); }, []);
+  async function create(event: FormEvent) { event.preventDefault(); await request('/api/v1/families', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); setNotice('家庭已创建。'); await load(); }
+  async function invite(event: FormEvent) { event.preventDefault(); await request('/api/v1/families/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ family_id: selected, email: inviteEmail }) }); setInviteEmail(''); setNotice('成员已加入家庭。'); await load(); }
+  async function role(userId: string, nextRole: string) { await request(`/api/v1/families/${encodeURIComponent(selected)}/members/${encodeURIComponent(userId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: nextRole }) }); await load(); }
+  async function remove(userId: string) { await request(`/api/v1/families/${encodeURIComponent(selected)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }); await load(); }
+  if (!localStorage.getItem('valuesee-token')) return <section className="page-section"><PageTitle icon={<Users size={22} />} title="我的家庭" subtitle="登录后可与家庭成员共享设备档案和购买提醒。" /><div className="panel"><Empty text="请先登录账户" /></div></section>;
+  return <section className="page-section"><PageTitle icon={<Users size={22} />} title="我的家庭" subtitle="管理家庭商品、设备档案和成员权限。" />{notice && <div className="toast"><CheckCircle2 size={16} />{notice}</div>}<div className="management-grid"><section className="panel"><div className="section-heading"><div><span>家庭空间</span><h2>创建或选择家庭</h2></div></div><form className="family-form" onSubmit={create}><input required value={name} onChange={(e) => setName(e.target.value)} /><button className="primary-button">创建家庭</button></form><div className="family-list">{families.map((item) => <button key={String(item.family_id)} className={selected === String(item.family_id) ? 'active' : ''} onClick={async () => { const id = String(item.family_id); setSelected(id); setMembers(await request(`/api/v1/families/${encodeURIComponent(id)}/members`)); }}><strong>{String(item.name)}</strong><span>{String(item.role)}</span></button>)}</div></section><section className="panel"><div className="section-heading"><div><span>成员权限</span><h2>家庭成员</h2></div></div>{selected && <form className="family-form" onSubmit={invite}><input type="email" required placeholder="已注册成员邮箱" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} /><button className="primary-button">添加成员</button></form>}<div className="family-members">{members.map((item) => <article key={String(item.user_id)}><div><strong>{String(item.display_name)}</strong><span>{String(item.email)} · {String(item.role)}</span></div>{item.role !== 'owner' && <div><button onClick={() => void role(String(item.user_id), item.role === 'editor' ? 'member' : 'editor')}>{item.role === 'editor' ? '设为成员' : '允许编辑'}</button><button className="danger" onClick={() => void remove(String(item.user_id))}>移除</button></div>}</article>)}</div></section></div></section>;
 }
 function AccountDialog({ mode, email, password, displayName, onEmail, onPassword, onDisplayName, onMode, onSubmit, onClose, onLogout }: { mode: 'login' | 'register' | 'forgot' | 'reset'; email: string; password: string; displayName: string; onEmail: (value: string) => void; onPassword: (value: string) => void; onDisplayName: (value: string) => void; onMode: (mode: 'login' | 'register' | 'forgot' | 'reset') => void; onSubmit: (event: FormEvent) => void; onClose: () => void; onLogout: () => void }) {
   const title = mode === 'login' ? '登录 ValuSee' : mode === 'register' ? '创建账户' : mode === 'forgot' ? '找回密码' : '设置新密码';

@@ -178,6 +178,17 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .admin-inline-form button,.admin-row-buttons button { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 8px; color: #fff; background: #398f7c; }
 .admin-row-buttons { display: flex; gap: 6px; flex: 0 0 auto; }
 .admin-row-buttons button { width: 30px; height: 30px; color: #317e70; background: #e6f7f0; }
+.family-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 10px 0 14px; }
+.family-form input { min-width: 0; width: 100%; }
+.family-list,.family-members { display: grid; gap: 8px; }
+.family-list > button { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 13px; border: 1px solid #e3ebe6; border-radius: 9px; color: #53645d; background: rgba(255,255,255,.65); text-align: left; }
+.family-list > button.active { border-color: rgba(57,143,124,.45); background: #e9f7f2; }
+.family-list strong,.family-list span,.family-members strong,.family-members span { display: block; }
+.family-list span,.family-members span { margin-top: 3px; color: #89948f; font-size: 11px; }
+.family-members article { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 10px 0; border-top: 1px solid #edf1ed; }
+.family-members article > div:last-child { display: flex; gap: 6px; }
+.family-members button { min-height: 30px; padding: 0 9px; border-radius: 7px; color: #317e70; background: #e6f7f0; font-size: 11px; font-weight: 800; }
+.family-members button.danger { color: #a64651; background: #ffe9e9; }
 @media (max-width: 760px) { .admin-header { align-items: flex-start; flex-direction: column; } .admin-kpis { grid-template-columns: repeat(2,1fr); } .admin-grid { grid-template-columns: 1fr; } .admin-inline-form { grid-template-columns: 1fr; } .admin-inline-form button { width: 100%; } }
 @media (max-width: 940px) { .hero, .workspace-grid, .management-grid, .capture-inbox { grid-template-columns: 1fr; } .hero { padding: 38px 28px; } .hero-aside { display: none; } .product-search-panel, .agent-timeline { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .valuesee-app { width: calc(100vw - 20px); padding-top: 8px; } .app-header { min-width: 0; align-items: flex-start; flex-wrap: wrap; } .app-header nav { order: 3; width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; } .app-header nav button { flex: 0 0 auto; justify-content: center; white-space: nowrap; } .profile-button { display: none; } .hero { width: 100%; min-width: 0; max-width: 100%; min-height: 0; padding: 28px 17px; border-radius: 22px; } .hero h1 { width: 100%; max-width: 100%; font-size: 38px; line-height: 1.12; word-break: break-all; } .hero p, .decision-box, .decision-box textarea { min-width: 0; max-width: 100%; word-break: break-all; } .decision-controls, .url-form, .product-search-form { min-width: 0; align-items: stretch; flex-direction: column; } .decision-controls button, .product-search-form button { width: 100%; } .url-form input { min-height: 37px; } .product-search-result { align-items: flex-start; flex-direction: column; } .product-search-actions { width: 100%; justify-content: flex-end; } .quick-strip, .risk-grid, .field-grid { grid-template-columns: 1fr; } .record-row { grid-template-columns: 1fr; gap: 5px; } }
