@@ -1,0 +1,38 @@
+groups:
+  - name: valuesee-api
+    rules:
+      - alert: ValuSeeApiHighErrorRate
+        expr: sum(rate(valuesee_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(valuesee_http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ValuSee API 5xx rate is above 5%"
+      - alert: ValuSeeApiP95LatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(valuesee_http_request_duration_seconds_bucket{route=~"/api/.*"}[10m]))) > 2.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ValuSee API P95 latency is above 2.5 seconds"
+      - alert: ValuSeeDependencyUnavailable
+        expr: valuesee_dependency_up == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ValuSee dependency {{ $labels.dependency }} is unavailable"
+      - alert: ValuSeeDeadLetterQueueNotEmpty
+        expr: valuesee_queue_messages{state="dead"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ValuSee monitor dead-letter queue contains messages"
+      - alert: ValuSeeMonitorQueueBacklog
+        expr: valuesee_queue_messages{state=~"ready|retry"} > 1000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ValuSee monitor queue backlog exceeds 1000 messages"

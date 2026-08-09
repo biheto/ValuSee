@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import yaml
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -61,14 +62,33 @@ def test_experiment_assignment_is_stable_and_inactive_falls_back():
 
 def test_metrics_are_exposed_in_development_and_protected_in_production(monkeypatch):
     client = TestClient(app)
+    client.get("/health")
     response = client.get("/metrics")
     assert response.status_code == 200
     assert "valuesee_http_requests_total" in response.text
+    assert "valuesee_http_request_duration_seconds_bucket" in response.text
+    assert "valuesee_dependency_up" in response.text
 
     monkeypatch.setattr("app.main.settings.app_env", "production")
     monkeypatch.setenv("VALUSee_METRICS_TOKEN", "metrics-secret")
     assert client.get("/metrics").status_code == 403
     assert client.get("/metrics", headers={"X-Metrics-Token": "metrics-secret"}).status_code == 200
+
+
+def test_request_id_is_generated_or_preserved_without_echoing_unsafe_values():
+    client = TestClient(app)
+    generated = client.get("/health")
+    assert len(generated.headers["X-Request-ID"]) == 32
+    preserved = client.get("/health", headers={"X-Request-ID": "release-check-123"})
+    assert preserved.headers["X-Request-ID"] == "release-check-123"
+    unsafe = client.get("/health", headers={"X-Request-ID": "bad value"})
+    assert unsafe.headers["X-Request-ID"] != "bad value"
+
+
+def test_prometheus_alert_rules_are_parseable_and_cover_core_failures():
+    document = yaml.safe_load(Path("ops/prometheus-alerts.yml").read_text(encoding="utf-8"))
+    alerts = {rule["alert"] for group in document["groups"] for rule in group["rules"]}
+    assert {"ValuSeeApiHighErrorRate", "ValuSeeApiP95LatencyHigh", "ValuSeeDependencyUnavailable", "ValuSeeDeadLetterQueueNotEmpty"} <= alerts
 
 
 def test_event_metadata_is_allowlisted(monkeypatch):

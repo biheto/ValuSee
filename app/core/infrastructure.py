@@ -68,10 +68,13 @@ class RateLimiter:
 
 
 class HttpMetrics:
+    BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._requests: dict[tuple[str, str, int], int] = defaultdict(int)
         self._duration: dict[tuple[str, str], tuple[int, float]] = {}
+        self._buckets: dict[tuple[str, str, float], int] = defaultdict(int)
 
     def observe(self, method: str, route: str, status: int, duration_seconds: float) -> None:
         route = route if route.startswith("/") else "unmatched"
@@ -79,18 +82,37 @@ class HttpMetrics:
             self._requests[(method, route, status)] += 1
             count, total = self._duration.get((method, route), (0, 0.0))
             self._duration[(method, route)] = (count + 1, total + duration_seconds)
+            for bucket in self.BUCKETS:
+                if duration_seconds <= bucket:
+                    self._buckets[(method, route, bucket)] += 1
 
     def prometheus(self) -> str:
         lines = ["# HELP valuesee_http_requests_total HTTP requests by route and status", "# TYPE valuesee_http_requests_total counter"]
         with self._lock:
             for (method, route, status), value in sorted(self._requests.items()):
                 lines.append(f'valuesee_http_requests_total{{method="{method}",route="{route}",status="{status}"}} {value}')
-            lines.extend(["# HELP valuesee_http_request_duration_seconds_sum Total HTTP request duration", "# TYPE valuesee_http_request_duration_seconds_sum counter"])
+            lines.extend(["# HELP valuesee_http_request_duration_seconds Request duration histogram", "# TYPE valuesee_http_request_duration_seconds histogram"])
             for (method, route), (count, total) in sorted(self._duration.items()):
                 labels = f'method="{method}",route="{route}"'
+                for bucket in self.BUCKETS:
+                    value = self._buckets.get((method, route, bucket), 0)
+                    lines.append(f'valuesee_http_request_duration_seconds_bucket{{{labels},le="{bucket:g}"}} {value}')
+                lines.append(f'valuesee_http_request_duration_seconds_bucket{{{labels},le="+Inf"}} {count}')
                 lines.append(f"valuesee_http_request_duration_seconds_sum{{{labels}}} {total:.6f}")
                 lines.append(f"valuesee_http_request_duration_seconds_count{{{labels}}} {count}")
         return "\n".join(lines) + "\n"
+
+
+def infrastructure_prometheus() -> str:
+    checks = infrastructure_health()
+    lines = ["# HELP valuesee_dependency_up Whether a configured dependency is healthy", "# TYPE valuesee_dependency_up gauge"]
+    for name, detail in sorted(checks.items()):
+        lines.append(f'valuesee_dependency_up{{dependency="{name}"}} {1 if detail.get("status") == "ok" else 0}')
+    rabbitmq = checks.get("rabbitmq", {})
+    lines.extend(["# HELP valuesee_queue_messages RabbitMQ messages by queue state", "# TYPE valuesee_queue_messages gauge"])
+    for state, key in (("ready", "queue_depth"), ("retry", "retry_depth"), ("dead", "dead_letter_depth")):
+        lines.append(f'valuesee_queue_messages{{state="{state}"}} {int(rabbitmq.get(key, 0))}')
+    return "\n".join(lines) + "\n"
 
 
 def publish_monitor_event(payload: dict[str, Any]) -> bool:

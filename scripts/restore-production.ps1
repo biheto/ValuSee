@@ -1,21 +1,16 @@
 param(
     [Parameter(Mandatory = $true)][string]$BackupDirectory,
-    [Parameter(Mandatory = $true)][string]$ConfirmRestore,
-    [string]$ComposeFile = "docker-compose.production.yml"
+    [string]$ConfirmRestore = "",
+    [string]$ComposeFile = "docker-compose.production.yml",
+    [switch]$VerifyOnly
 )
 
 $ErrorActionPreference = "Stop"
-if ($ConfirmRestore -ne "RESTORE-ValuSee") { throw "Refusing restore: pass -ConfirmRestore RESTORE-ValuSee" }
 $backup = Resolve-Path -LiteralPath $BackupDirectory
-$manifestPath = Join-Path $backup "manifest.json"
-if (!(Test-Path -LiteralPath $manifestPath)) { throw "Backup manifest is missing" }
-$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-foreach ($item in $manifest) {
-    $file = Join-Path $backup $item.file
-    if (!(Test-Path -LiteralPath $file)) { throw "Backup file missing: $($item.file)" }
-    $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -ne $item.sha256) { throw "Checksum mismatch: $($item.file)" }
-}
+& python scripts/verify_backup.py $backup
+if ($LASTEXITCODE -ne 0) { throw "Backup verification failed" }
+if ($VerifyOnly) { Write-Host "Backup verification completed without restore."; exit 0 }
+if ($ConfirmRestore -ne "RESTORE-ValuSee") { throw "Refusing restore: pass -ConfirmRestore RESTORE-ValuSee" }
 
 & docker compose -f $ComposeFile stop api monitor-worker
 Get-Content -LiteralPath (Join-Path $backup "postgres.sql") -Raw | & docker compose -f $ComposeFile exec -T postgres psql -v ON_ERROR_STOP=1 -U valuesee -d valuesee

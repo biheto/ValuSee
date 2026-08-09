@@ -19,9 +19,16 @@ if ($LASTEXITCODE -ne 0) { throw "MinIO backup failed" }
 & docker run --rm -v "valuesee_attachment-cache:/source:ro" -v "${destination}:/backup" alpine:3.22 tar czf /backup/attachments.tgz -C /source .
 if ($LASTEXITCODE -ne 0) { throw "Attachment backup failed" }
 
-$manifest = Get-ChildItem -LiteralPath $destination -File | ForEach-Object {
+$files = Get-ChildItem -LiteralPath $destination -File | ForEach-Object {
     $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
     [pscustomobject]@{ file = $_.Name; bytes = $_.Length; sha256 = $hash.Hash.ToLowerInvariant() }
 }
-$manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destination "manifest.json") -Encoding utf8
+$manifest = [pscustomobject]@{
+    version = 1
+    created_at = (Get-Date).ToUniversalTime().ToString("o")
+    files = @($files)
+}
+$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $destination "manifest.json") -Encoding utf8
+& python scripts/verify_backup.py $destination | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Backup verification failed" }
 Write-Host "Backup completed: $destination"

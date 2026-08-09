@@ -18,6 +18,14 @@ jobs:
       # This release gate catches invalid Python and undefined names. The
       # existing style backlog is tracked separately from release correctness.
       - run: ruff check app tests --select E9,F63,F7,F82 --no-cache
+      - name: Validate PowerShell release scripts
+        shell: pwsh
+        run: |
+          $errors = $null
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
+            if ($errors) { $errors | Out-String | Write-Error }
+          }
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

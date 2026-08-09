@@ -1,8 +1,12 @@
 import html
+import json
+import logging
 import os
+import re
 import secrets
 import time
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -14,11 +18,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.routes import router as project_router
 from app.core.config import settings, validate_production_config
 from app.core.database import database_health
-from app.core.infrastructure import http_metrics, infrastructure_health, rate_limiter
+from app.core.infrastructure import http_metrics, infrastructure_health, infrastructure_prometheus, rate_limiter
 from app.shopping.store import shopping_store
 
 validate_production_config()
 app = FastAPI(title=settings.app_name, version="0.1.0")
+request_logger = logging.getLogger("valuesee.http")
 
 allowed_origins = [item.strip() for item in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if item.strip()]
 app.add_middleware(
@@ -36,6 +41,8 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 async def protect_api(request: Request, call_next):
     started = time.perf_counter()
     status_code = 500
+    supplied_request_id = request.headers.get("x-request-id", "")
+    request_id = supplied_request_id if re.fullmatch(r"[A-Za-z0-9._-]{8,64}", supplied_request_id) else uuid4().hex
     try:
         if request.url.path.startswith("/api/"):
             # Uvicorn normalizes request.client only for explicitly trusted proxies.
@@ -53,12 +60,18 @@ async def protect_api(request: Request, call_next):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+        response.headers["X-Request-ID"] = request_id
         return response
     finally:
         route = request.scope.get("route")
         fallback = request.url.path if not request.url.path.startswith("/api/") else "/api/unmatched"
         route_path = getattr(route, "path", fallback)
-        http_metrics.observe(request.method, route_path, status_code, time.perf_counter() - started)
+        duration = time.perf_counter() - started
+        http_metrics.observe(request.method, route_path, status_code, duration)
+        request_logger.info(json.dumps({
+            "event": "http_request", "request_id": request_id, "method": request.method,
+            "route": route_path, "status": status_code, "duration_ms": round(duration * 1000, 2),
+        }, separators=(",", ":")))
 
 
 @app.get("/health")
@@ -71,7 +84,7 @@ def metrics(request: Request) -> PlainTextResponse:
     expected = os.getenv("VALUSee_METRICS_TOKEN", "")
     if settings.app_env.lower() in {"prod", "production"} and (not expected or not secrets.compare_digest(request.headers.get("x-metrics-token", ""), expected)):
         return PlainTextResponse("forbidden\n", status_code=403)
-    return PlainTextResponse(http_metrics.prometheus(), media_type="text/plain; version=0.0.4")
+    return PlainTextResponse(http_metrics.prometheus() + infrastructure_prometheus(), media_type="text/plain; version=0.0.4")
 
 
 @app.get("/privacy", include_in_schema=False)

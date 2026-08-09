@@ -25,6 +25,8 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 - The monitor worker writes a cycle heartbeat. Its container health check fails when the worker remains alive but stops completing queue/scan cycles.
 - `/api/v1/admin/metrics` exposes business outcomes for the latest reporting window: analysis completion, recommendation acceptance, monitor conversion, feedback resolution, estimated savings, and analysis P95 latency.
 - `/metrics` exposes bounded-cardinality Prometheus HTTP counters and duration aggregates. Production requires `X-Metrics-Token` matching `VALUSee_METRICS_TOKEN`; do not expose this endpoint anonymously.
+- Every response has a validated/generated `X-Request-ID`; JSON request logs contain route, status and latency but omit query strings, credentials and client IP addresses. Prometheus latency histograms support P95 alerts. Dependency and RabbitMQ ready/retry/dead-letter gauges are included.
+- Load `ops/prometheus-alerts.yml` into Prometheus and route critical alerts to an actual on-call receiver before launch.
 - First-party experiments use deterministic account assignment and an allowlisted analytics payload. Experiment creation and status changes remain administrator-only.
 
 ## Start For Release
@@ -36,6 +38,7 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
    Set `FORWARDED_ALLOW_IPS` to the exact reverse-proxy addresses; wildcard proxy trust is intentionally disabled.
 5. Verify `/health`, `/ready`, registration/login, screenshot upload, a price snapshot, a monitor cycle, and account export/deletion in staging before switching DNS.
 6. Run `scripts/verify-release.ps1` against the TLS origin. Schedule `scripts/backup-production.ps1`, copy encrypted backups off host, and perform a quarterly restore drill with `scripts/restore-production.ps1` in an isolated environment.
+   Run `scripts/restore-production.ps1 -BackupDirectory <path> -VerifyOnly` daily to verify checksums and archive safety without modifying production.
 
 ## External Credentials Required
 

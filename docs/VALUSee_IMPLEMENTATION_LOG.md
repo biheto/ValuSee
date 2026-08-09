@@ -28,6 +28,7 @@ The first release focuses on digital products and small appliances. The system m
 - First-party product analytics accepts only an explicit event and metadata allowlist. Stable SHA-256 experiment assignment supports draft, scheduled running, paused, and completed experiments without collecting arbitrary client payloads.
 - The Web release includes SEO metadata, share-specific escaped Open Graph titles, a React error boundary, skip navigation, visible keyboard focus, reduced-motion support, and semantic alert states.
 - Production backup and restore scripts cover PostgreSQL, MinIO, and local attachment volumes with SHA-256 manifests. Restore requires an explicit confirmation phrase and release verification checks health, readiness, metrics authorization, and the public Web shell.
+- Backups now use a versioned manifest and a non-destructive verifier for required files, sizes, SHA-256 checksums and safe tar members. Request IDs, JSON access logs, latency histograms, dependency/queue gauges and loadable Prometheus alert rules close the local observability loop.
 - GitHub Actions now runs the Python suite, a correctness-focused Ruff gate, the production Web build, and Python/npm dependency audits. The broader historical style backlog is deliberately not misrepresented as a release failure.
 
 ### Product search and operations console
