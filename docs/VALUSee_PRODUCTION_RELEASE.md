@@ -82,7 +82,7 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
 - Consumer expansion acceptance passed favorite/recent persistence, dashboard aggregation, purchase status changes, governed content publication/visibility, frontend response, and test-data cleanup.
 - PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
-- Automated release quality passed with 55 Python tests, the production Vite build, the correctness Ruff gate, PowerShell backup/restore/release script parsing, zero npm audit findings, and no known auditable Python dependency vulnerabilities.
+- Automated release quality passed with 89 Python tests, the production Vite build, desktop/mobile Playwright consumer journeys, the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
 See `docs/VALUSee_IMPLEMENTATION_LOG.md` for the feature-by-feature history and commit record.
