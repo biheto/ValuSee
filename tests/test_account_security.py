@@ -1,7 +1,10 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from app.auth.service import AuthStore
+from fastapi.testclient import TestClient
+
+from app.auth.service import AuthStore, _totp
+from app.main import app
 
 
 def test_email_verification_token_is_single_use():
@@ -90,6 +93,45 @@ def test_billing_order_never_implies_payment_without_provider():
         cancelled = store.cancel_billing_order(user["user_id"], first["order_id"])
         assert cancelled and cancelled["status"] == "cancelled"
         assert store.list_billing_orders("another-user") == []
+
+
+def test_admin_totp_enrollment_revokes_old_sessions_and_recovery_codes_are_single_use():
+    with TemporaryDirectory() as tmp:
+        store = AuthStore(Path(tmp) / "auth.db")
+        user = store.register("admin@example.com", "strong-password", "Admin")
+        old_token = store.create_session(user["user_id"])
+        setup = store.setup_admin_mfa(user["user_id"], user["email"])
+        assert setup["secret"] not in (Path(tmp) / "auth.db").read_bytes().decode("latin1")
+        assert store.confirm_admin_mfa(user["user_id"], _totp(setup["secret"])) is True
+        old_session = store.list_sessions(user["user_id"])[0]
+        assert store.validate_session(old_session["session_id"], old_token) is False
+        assert store.admin_mfa_status(user["user_id"])["enabled"] is True
+
+        recovery = setup["recovery_codes"][0]
+        assert store.verify_admin_mfa(user["user_id"], recovery) is True
+        assert store.verify_admin_mfa(user["user_id"], recovery) is False
+
+
+def test_admin_api_requires_mfa_after_enrollment(monkeypatch, tmp_path):
+    store = AuthStore(tmp_path / "admin-mfa.db")
+    user = store.register("mfa-admin@example.com", "strong-password", "MFA Admin")
+    token = store.create_session(user["user_id"])
+    monkeypatch.setenv("VALUSee_ADMIN_EMAILS", user["email"])
+    monkeypatch.setattr("app.api.routes.auth_store", store)
+    monkeypatch.setattr("app.auth.service.auth_store", store)
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    setup = client.post("/api/v1/admin/security/mfa/setup", headers=headers).json()
+    confirmed = client.post("/api/v1/admin/security/mfa/confirm", headers=headers, json={"code": _totp(setup["secret"])})
+    assert confirmed.status_code == 200
+    verified_token = confirmed.json()["access_token"]
+    assert client.get("/api/v1/admin/overview", headers=headers).status_code == 401
+    assert client.get("/api/v1/admin/overview", headers={"Authorization": f"Bearer {verified_token}"}).status_code == 200
+
+    assert client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password"}).status_code == 401
+    login = client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password", "mfa_code": _totp(setup["secret"])})
+    assert login.status_code == 200 and login.json()["mfa_verified"] is True
 
 
 def test_free_plan_entitlements_are_enforced_against_real_usage():

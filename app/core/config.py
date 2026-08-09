@@ -1,4 +1,5 @@
 import os
+import base64
 from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,11 +23,18 @@ def validate_production_config() -> None:
     required_secrets = {
         "VALUSee_JWT_SECRET": 32,
         "VALUSee_METRICS_TOKEN": 24,
+        "VALUSee_MFA_ENCRYPTION_KEY": 43,
     }
     for name, minimum in required_secrets.items():
         value = os.getenv(name, "").strip()
         if len(value) < minimum or "replace-with" in value.lower() or "change-this" in value.lower():
             raise RuntimeError(f"production requires a strong {name} ({minimum}+ characters)")
+        if name == "VALUSee_MFA_ENCRYPTION_KEY":
+            try:
+                if len(base64.urlsafe_b64decode(value.encode("ascii"))) != 32:
+                    raise ValueError
+            except (ValueError, UnicodeError) as exc:
+                raise RuntimeError("VALUSee_MFA_ENCRYPTION_KEY must be a generated Fernet key") from exc
     if not os.getenv("VALUSee_ADMIN_EMAILS", "").strip():
         raise RuntimeError("production requires VALUSee_ADMIN_EMAILS")
     hosts = {item.strip() for item in os.getenv("ALLOWED_HOSTS", "").split(",") if item.strip()}

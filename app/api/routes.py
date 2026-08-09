@@ -160,6 +160,9 @@ def _require_admin(authorization: str | None) -> str:
     allowed = {item.strip().lower() for item in os.getenv("VALUSee_ADMIN_EMAILS", "").split(",") if item.strip()}
     if not user or user.get("email", "").lower() not in allowed:
         raise HTTPException(status_code=403, detail="需要管理员账户")
+    token = _raw_bearer(authorization)
+    if auth_store.admin_mfa_status(subject)["enabled"] and (not token or not auth_store.session_mfa_verified(token)):
+        raise HTTPException(status_code=403, detail="管理员会话需要双因素验证")
     return subject
 
 
@@ -193,8 +196,12 @@ def login_account(request_body: LoginRequest, request: Request) -> dict[str, obj
     user = auth_store.authenticate(request_body.email, request_body.password)
     if not user:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
+    allowed = {item.strip().lower() for item in os.getenv("VALUSee_ADMIN_EMAILS", "").split(",") if item.strip()}
+    mfa_required = str(user["email"]).lower() in allowed and auth_store.admin_mfa_status(str(user["user_id"]))["enabled"]
+    if mfa_required and not auth_store.verify_admin_mfa(str(user["user_id"]), request_body.mfa_code):
+        raise HTTPException(status_code=401, detail="请输入有效的管理员动态验证码或恢复码")
     device, ip_address = _session_context(request)
-    return {"user": user, "access_token": auth_store.create_session(user["user_id"], device, ip_address), "token_type": "bearer"}
+    return {"user": user, "access_token": auth_store.create_session(user["user_id"], device, ip_address, mfa_verified=mfa_required), "token_type": "bearer", "mfa_verified": mfa_required}
 
 
 @router.post("/auth/email/verify/request", tags=["Account"])
@@ -720,6 +727,38 @@ def admin_overview(authorization: str | None = Header(default=None)) -> dict[str
         "mcp": mcp_provider.status(),
         "commerce_providers": [{"name": item.name, "kind": item.kind} for item in configured_providers().values()],
     }
+
+
+@router.get("/admin/security/mfa", tags=["Admin Security"])
+def admin_mfa_status(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return auth_store.admin_mfa_status(_require_admin(authorization))
+
+
+@router.post("/admin/security/mfa/setup", tags=["Admin Security"])
+def admin_mfa_setup(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _require_admin(authorization)
+    user = auth_store.get_user(user_id)
+    return auth_store.setup_admin_mfa(user_id, str(user["email"]))
+
+
+@router.post("/admin/security/mfa/confirm", tags=["Admin Security"])
+def admin_mfa_confirm(payload: dict[str, object], request: Request, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _require_admin(authorization)
+    if not auth_store.confirm_admin_mfa(user_id, str(payload.get("code") or "")):
+        raise HTTPException(status_code=422, detail="动态验证码无效")
+    device, ip_address = _session_context(request)
+    token = auth_store.create_session(user_id, device, ip_address, mfa_verified=True)
+    shopping_store.record_admin_audit(user_id, "admin.mfa.enabled", "user", user_id, {})
+    return {"enabled": True, "access_token": token}
+
+
+@router.delete("/admin/security/mfa", tags=["Admin Security"])
+def admin_mfa_disable(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _require_admin(authorization)
+    if not auth_store.disable_admin_mfa(user_id, str(payload.get("code") or "")):
+        raise HTTPException(status_code=422, detail="动态验证码或恢复码无效")
+    shopping_store.record_admin_audit(user_id, "admin.mfa.disabled", "user", user_id, {})
+    return {"enabled": False}
 
 
 @router.get("/admin/tasks", tags=["Admin Console"])

@@ -25,10 +25,11 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function AdminConsole() {
   const [data, setData] = useState<Overview | null>(null);
-  const [tab, setTab] = useState<'overview' | 'tasks' | 'traces' | 'sources' | 'governance'>('overview');
+  const [tab, setTab] = useState<'overview' | 'tasks' | 'traces' | 'sources' | 'governance' | 'security'>('overview');
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -43,16 +44,29 @@ export function AdminConsole() {
   async function login(event: FormEvent) {
     event.preventDefault(); setLoggingIn(true); setError('');
     try {
-      const result = await adminRequest<{ access_token: string }>('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+      const result = await adminRequest<{ access_token: string }>('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, mfa_code: mfaCode }) });
       localStorage.setItem('valuesee-token', result.access_token); await load();
     } catch (err) { setError(err instanceof Error ? err.message : '登录失败'); }
     finally { setLoggingIn(false); }
   }
 
-  if (!data) return <main className="admin-app"><div className="admin-login"><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>管理端登录</h1><p>查看商品来源、Agent 任务、模型调用和运行状态。</p><form onSubmit={login}><input type="email" required placeholder="管理员邮箱" value={email} onChange={(event) => setEmail(event.target.value)} /><input type="password" required placeholder="密码" value={password} onChange={(event) => setPassword(event.target.value)} /><button className="admin-primary" disabled={loggingIn}>{loggingIn ? '登录中…' : '进入管理端'}</button></form>{error && <div className="admin-error">{error}</div>}<a className="admin-back" href="/">返回用户端</a></div></main>;
+  if (!data) return <main className="admin-app"><div className="admin-login"><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>管理端登录</h1><p>查看商品来源、Agent 任务、模型调用和运行状态。</p><form onSubmit={login}><input type="email" required placeholder="管理员邮箱" value={email} onChange={(event) => setEmail(event.target.value)} /><input type="password" required placeholder="密码" value={password} onChange={(event) => setPassword(event.target.value)} /><input inputMode="numeric" autoComplete="one-time-code" placeholder="动态验证码或恢复码（启用后必填）" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} /><button className="admin-primary" disabled={loggingIn}>{loggingIn ? '登录中…' : '进入管理端'}</button></form>{error && <div className="admin-error">{error}</div>}<a className="admin-back" href="/">返回用户端</a></div></main>;
 
-  const tabs = [['overview', '总览', BarChart3], ['governance', '业务治理', ShieldCheck], ['tasks', 'Agent 任务', Workflow], ['traces', 'LLM Trace', Activity], ['sources', '商品来源', ShoppingBag]] as const;
-  return <main className="admin-app"><header className="admin-header"><div><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>运营与 Agent 控制台</h1><p>商品来源、决策任务、模型调用和系统健康状态集中管理。</p></div><div className="admin-header-actions"><button className="admin-icon-button" title="刷新数据" onClick={() => void load()}><RefreshCw size={17} className={loading ? 'spin' : ''} /></button><a href="/" className="admin-back">用户端</a></div></header><nav className="admin-tabs">{tabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={16} />{label}</button>)}</nav>{error && <div className="admin-error">{error}</div>}{tab === 'overview' && <OverviewTab data={data} />}{tab === 'governance' && <AdminGovernance />}{tab === 'tasks' && <TaskTab tasks={data.tasks} />}{tab === 'traces' && <TraceTab traces={data.traces} usage={data.llm_usage} />}{tab === 'sources' && <SourceTab providers={data.commerce_providers} mcp={data.mcp} />}</main>;
+  const tabs = [['overview', '总览', BarChart3], ['governance', '业务治理', ShieldCheck], ['tasks', 'Agent 任务', Workflow], ['traces', 'LLM Trace', Activity], ['sources', '商品来源', ShoppingBag], ['security', '账户安全', ShieldCheck]] as const;
+  return <main className="admin-app"><header className="admin-header"><div><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>运营与 Agent 控制台</h1><p>商品来源、决策任务、模型调用和系统健康状态集中管理。</p></div><div className="admin-header-actions"><button className="admin-icon-button" title="刷新数据" onClick={() => void load()}><RefreshCw size={17} className={loading ? 'spin' : ''} /></button><a href="/" className="admin-back">用户端</a></div></header><nav className="admin-tabs">{tabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={16} />{label}</button>)}</nav>{error && <div className="admin-error">{error}</div>}{tab === 'overview' && <OverviewTab data={data} />}{tab === 'governance' && <AdminGovernance />}{tab === 'tasks' && <TaskTab tasks={data.tasks} />}{tab === 'traces' && <TraceTab traces={data.traces} usage={data.llm_usage} />}{tab === 'sources' && <SourceTab providers={data.commerce_providers} mcp={data.mcp} />}{tab === 'security' && <AdminSecurity />}</main>;
+}
+
+function AdminSecurity() {
+  const [status, setStatus] = useState<{ configured: boolean; enabled: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ secret: string; otpauth_uri: string; recovery_codes: string[] } | null>(null);
+  const [code, setCode] = useState('');
+  const [notice, setNotice] = useState('');
+  async function loadStatus() { setStatus(await adminRequest<{ configured: boolean; enabled: boolean }>('/api/v1/admin/security/mfa')); }
+  useEffect(() => { void loadStatus().catch((err) => setNotice(err instanceof Error ? err.message : '安全状态读取失败')); }, []);
+  async function begin() { try { setSetup(await adminRequest<{ secret: string; otpauth_uri: string; recovery_codes: string[] }>('/api/v1/admin/security/mfa/setup', { method: 'POST' })); setNotice('请将密钥添加到身份验证器，并妥善保存恢复码。'); } catch (err) { setNotice(err instanceof Error ? err.message : '绑定失败'); } }
+  async function confirm() { try { const result = await adminRequest<{ access_token: string }>('/api/v1/admin/security/mfa/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }); localStorage.setItem('valuesee-token', result.access_token); setSetup(null); setCode(''); setNotice('双因素验证已启用，旧会话已撤销。'); await loadStatus(); } catch (err) { setNotice(err instanceof Error ? err.message : '验证码确认失败'); } }
+  async function disable() { try { await adminRequest('/api/v1/admin/security/mfa', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }); setCode(''); setNotice('双因素验证已停用。'); await loadStatus(); } catch (err) { setNotice(err instanceof Error ? err.message : '停用失败'); } }
+  return <section className="admin-content"><section className="admin-panel admin-security"><div className="admin-panel-title"><h2>管理员双因素验证</h2><span>{status?.enabled ? '已启用' : '未启用'}</span></div><p>TOTP 动态验证码用于保护管理端；恢复码每个只能使用一次。</p>{!status?.enabled && !setup && <button className="admin-primary" onClick={() => void begin()}>开始绑定身份验证器</button>}{setup && <div className="admin-mfa-setup"><label>身份验证器密钥<input readOnly value={setup.secret} /></label><small>{setup.otpauth_uri}</small><div className="admin-recovery-codes">{setup.recovery_codes.map((item) => <code key={item}>{item}</code>)}</div></div>}{(setup || status?.enabled) && <div className="admin-security-form"><input inputMode="numeric" autoComplete="one-time-code" placeholder={status?.enabled ? '动态验证码或恢复码' : '6 位动态验证码'} value={code} onChange={(event) => setCode(event.target.value)} />{setup ? <button className="admin-primary" onClick={() => void confirm()}>确认启用</button> : <button className="admin-close" onClick={() => void disable()}>停用双因素验证</button>}</div>}{notice && <div className="admin-error">{notice}</div>}</section></section>;
 }
 
 function OverviewTab({ data }: { data: Overview }) {

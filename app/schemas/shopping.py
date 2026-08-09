@@ -234,6 +234,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    mfa_code: str = Field(default="", max_length=32)
 
 
 class PasswordResetRequest(BaseModel):

@@ -54,6 +54,7 @@ The optional `VALUSee_NOTIFICATION_WEBHOOK_URL` delivers signed server-to-server
 
 - Production requires a non-default `VALUSee_JWT_SECRET` and bearer authentication for user data.
 - Production startup fails on weak JWT/metrics secrets, wildcard hosts/origins, a non-HTTPS public URL, or a missing administrator allowlist.
+- Administrators can bind TOTP MFA in the account-security tab. Enabling MFA revokes old sessions; subsequent admin logins require a dynamic code or single-use recovery code. TOTP secrets are encrypted with the independently rotatable `VALUSee_MFA_ENCRYPTION_KEY`.
 - Marketplace preview/install/uninstall is administrator-only. Production rejects local package paths, non-GitHub remote hosts, private network targets, unsafe redirects, oversized downloads and archive path traversal.
 - Passwords use PBKDF2-HMAC-SHA256 with per-user salts.
 - User IDs are derived from the verified token; request-body `user_id` values cannot cross account boundaries.

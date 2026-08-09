@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import secrets
+import struct
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -90,6 +91,10 @@ class AuthStore:
                 external_reference TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_billing_order_owner ON valuesee_billing_order(user_id,created_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_admin_mfa(
+                user_id TEXT PRIMARY KEY,encrypted_secret TEXT NOT NULL,enabled INTEGER NOT NULL,
+                recovery_codes_json TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_user_profile(
                 user_id TEXT PRIMARY KEY,bio TEXT NOT NULL,locale TEXT NOT NULL,currency TEXT NOT NULL,
                 avatar_backend TEXT,avatar_key TEXT,avatar_content_type TEXT,avatar_sha256 TEXT,updated_at TEXT NOT NULL
@@ -99,10 +104,14 @@ class AuthStore:
             )""")
             if conn.backend == "postgresql":
                 conn.execute("ALTER TABLE valuesee_user ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0")
+                conn.execute("ALTER TABLE valuesee_session ADD COLUMN IF NOT EXISTS mfa_verified INTEGER NOT NULL DEFAULT 0")
             else:
                 columns = [row["name"] for row in conn.execute("PRAGMA table_info(valuesee_user)").fetchall()]
                 if "email_verified" not in columns:
                     conn.execute("ALTER TABLE valuesee_user ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+                session_columns = [row["name"] for row in conn.execute("PRAGMA table_info(valuesee_session)").fetchall()]
+                if "mfa_verified" not in session_columns:
+                    conn.execute("ALTER TABLE valuesee_session ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 0")
 
     def register(self, email: str, password: str, display_name: str) -> dict[str, Any]:
         normalized = email.strip().lower()
@@ -272,17 +281,76 @@ class AuthStore:
             conn.execute("UPDATE valuesee_session SET status='revoked',revoked_at=? WHERE user_id=? AND status='active'", (utc_now_iso(), user_id))
         return True
 
-    def create_session(self, user_id: str, device_name: str = "浏览器", ip_address: str | None = None, expires_seconds: int = 86_400) -> str:
+    def create_session(self, user_id: str, device_name: str = "浏览器", ip_address: str | None = None, expires_seconds: int = 86_400, mfa_verified: bool = False) -> str:
         session_id = f"ses_{uuid4().hex}"
         token = issue_token(user_id, expires_seconds=expires_seconds, session_id=session_id)
         now = datetime.now(timezone.utc)
         expires_at = (now + timedelta(seconds=expires_seconds)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         with self._session() as conn:
             conn.execute(
-                "INSERT INTO valuesee_session(session_id,user_id,token_hash,device_name,ip_address,status,created_at,last_seen_at,expires_at,revoked_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (session_id, user_id, hashlib.sha256(token.encode()).hexdigest(), device_name.strip()[:160] or "浏览器", ip_address, "active", utc_now_iso(), utc_now_iso(), expires_at, None),
+                "INSERT INTO valuesee_session(session_id,user_id,token_hash,device_name,ip_address,status,created_at,last_seen_at,expires_at,revoked_at,mfa_verified) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (session_id, user_id, hashlib.sha256(token.encode()).hexdigest(), device_name.strip()[:160] or "浏览器", ip_address, "active", utc_now_iso(), utc_now_iso(), expires_at, None, 1 if mfa_verified else 0),
             )
         return token
+
+    def admin_mfa_status(self, user_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            row = conn.execute("SELECT enabled,created_at,updated_at FROM valuesee_admin_mfa WHERE user_id=?", (user_id,)).fetchone()
+        return {"configured": bool(row), "enabled": bool(row["enabled"]) if row else False, "created_at": row["created_at"] if row else None, "updated_at": row["updated_at"] if row else None}
+
+    def setup_admin_mfa(self, user_id: str, email: str) -> dict[str, Any]:
+        secret = base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+        recovery_codes = [f"{secrets.token_hex(4)}-{secrets.token_hex(4)}" for _ in range(8)]
+        hashes = [_recovery_hash(code) for code in recovery_codes]
+        now = utc_now_iso()
+        with self._session() as conn:
+            conn.execute("INSERT INTO valuesee_admin_mfa(user_id,encrypted_secret,enabled,recovery_codes_json,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET encrypted_secret=excluded.encrypted_secret,enabled=0,recovery_codes_json=excluded.recovery_codes_json,updated_at=excluded.updated_at", (user_id, _encrypt_mfa_secret(secret), 0, json.dumps(hashes), now, now))
+        issuer = "ValuSee"
+        label = f"{issuer}:{email}"
+        return {"secret": secret, "otpauth_uri": f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits=6&period=30", "recovery_codes": recovery_codes, "enabled": False}
+
+    def confirm_admin_mfa(self, user_id: str, code: str) -> bool:
+        if not self._verify_admin_mfa(user_id, code, allow_recovery=False):
+            return False
+        with self._session() as conn:
+            conn.execute("UPDATE valuesee_admin_mfa SET enabled=1,updated_at=? WHERE user_id=?", (utc_now_iso(), user_id))
+            conn.execute("UPDATE valuesee_session SET status='revoked',revoked_at=? WHERE user_id=? AND status='active'", (utc_now_iso(), user_id))
+        return True
+
+    def verify_admin_mfa(self, user_id: str, code: str) -> bool:
+        status = self.admin_mfa_status(user_id)
+        return not status["enabled"] or self._verify_admin_mfa(user_id, code, allow_recovery=True)
+
+    def _verify_admin_mfa(self, user_id: str, code: str, *, allow_recovery: bool) -> bool:
+        value = code.strip().replace(" ", "")
+        with self._session() as conn:
+            row = conn.execute("SELECT encrypted_secret,recovery_codes_json FROM valuesee_admin_mfa WHERE user_id=?", (user_id,)).fetchone()
+            if not row:
+                return False
+            secret = _decrypt_mfa_secret(str(row["encrypted_secret"]))
+            if _verify_totp(secret, value):
+                return True
+            if allow_recovery:
+                digest = _recovery_hash(value)
+                hashes = json.loads(row["recovery_codes_json"])
+                if digest in hashes:
+                    hashes.remove(digest)
+                    conn.execute("UPDATE valuesee_admin_mfa SET recovery_codes_json=?,updated_at=? WHERE user_id=?", (json.dumps(hashes), utc_now_iso(), user_id))
+                    return True
+        return False
+
+    def disable_admin_mfa(self, user_id: str, code: str) -> bool:
+        if not self._verify_admin_mfa(user_id, code, allow_recovery=True):
+            return False
+        with self._session() as conn:
+            conn.execute("DELETE FROM valuesee_admin_mfa WHERE user_id=?", (user_id,))
+        return True
+
+    def session_mfa_verified(self, token: str) -> bool:
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with self._session() as conn:
+            row = conn.execute("SELECT mfa_verified,status FROM valuesee_session WHERE token_hash=?", (digest,)).fetchone()
+        return bool(row and row["status"] == "active" and row["mfa_verified"])
 
     def validate_session(self, session_id: str, token: str) -> bool:
         digest = hashlib.sha256(token.encode()).hexdigest()
@@ -606,7 +674,7 @@ class AuthStore:
             "shopping_share",
             "shopping_purchase_attachment", "shopping_price_protection_claim", "shopping_support_ticket",
             "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request", "valuesee_billing_order",
-            "valuesee_user_profile", "valuesee_user_audit",
+            "valuesee_user_profile", "valuesee_user_audit", "valuesee_admin_mfa",
             "shopping_monitor_preference", "shopping_budget_pool", "shopping_savings_ledger",
         )
         attachment_objects: list[tuple[str, str]] = []
@@ -680,6 +748,43 @@ def verify_password(password: str, encoded: str) -> bool:
         return hmac.compare_digest(_b64(digest), expected)
     except (TypeError, ValueError):
         return False
+
+
+def _mfa_cipher():
+    from cryptography.fernet import Fernet
+
+    configured = os.getenv("VALUSee_MFA_ENCRYPTION_KEY", "").strip()
+    key = configured.encode("ascii") if configured else base64.urlsafe_b64encode(hashlib.sha256(_jwt_secret() + b":admin-mfa").digest())
+    return Fernet(key)
+
+
+def _encrypt_mfa_secret(secret: str) -> str:
+    return _mfa_cipher().encrypt(secret.encode("ascii")).decode("ascii")
+
+
+def _decrypt_mfa_secret(encrypted: str) -> str:
+    return _mfa_cipher().decrypt(encrypted.encode("ascii")).decode("ascii")
+
+
+def _totp(secret: str, at: int | None = None) -> str:
+    padded = secret + "=" * (-len(secret) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    counter = int(at if at is not None else time.time()) // 30
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF) % 1_000_000
+    return f"{value:06d}"
+
+
+def _verify_totp(secret: str, code: str, at: int | None = None) -> bool:
+    if len(code) != 6 or not code.isdigit():
+        return False
+    current = int(at if at is not None else time.time())
+    return any(hmac.compare_digest(_totp(secret, current + offset * 30), code) for offset in (-1, 0, 1))
+
+
+def _recovery_hash(code: str) -> str:
+    return hmac.new(_jwt_secret(), f"recovery:{code.strip().lower()}".encode(), hashlib.sha256).hexdigest()
 
 
 def issue_token(user_id: str, expires_seconds: int = 86_400, session_id: str | None = None) -> str:
