@@ -43,6 +43,7 @@ The first release focuses on digital products and small appliances. The system m
 - Persisted price monitor records and purchase after-sales deadlines in SQLite.
 - Product URL parsing at `POST /api/v1/shopping/parse-url`. The parser identifies common platform domains and returns an editable draft. It deliberately does not invent price or SKU facts.
 - Local report restoration after page refresh.
+- Consumer UI no longer exposes internal Agent execution terminology in the primary journey. The decision timeline is presented as buyer-facing evidence checks, technical controls remain under `/admin`, and the default comparison list no longer loads `example.com` demo listings or implied prices.
 
 ### Brand assets
 
