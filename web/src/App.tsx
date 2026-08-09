@@ -1,4 +1,4 @@
-import { Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
@@ -326,7 +326,13 @@ export function App() {
         .catch(() => setPublicShare(null));
   }, []);
   useEffect(() => {
-    const syncRoute = () => setDetailRef(window.location.pathname.match(/^\/product\/(prd_[a-f0-9]+)$/)?.[1] || "");
+    const syncRoute = () => {
+      const nextDetailRef = window.location.pathname.match(/^\/product\/(prd_[a-f0-9]+)$/)?.[1] || "";
+      const nextContentId = window.location.pathname.match(/^\/content\/(content_[a-f0-9]+)$/)?.[1] || "";
+      setDetailRef(nextDetailRef);
+      setContentId(nextContentId);
+      if (!nextDetailRef) setDetailProduct(null);
+    };
     window.addEventListener("popstate", syncRoute);
     return () => window.removeEventListener("popstate", syncRoute);
   }, []);
@@ -833,6 +839,12 @@ export function App() {
         </div>
       )}
       <div id="primary-view" tabIndex={-1}></div>
+      {(["monitors", "purchases", "saved", "profile", "history", "family", "settings", "security", "membership"] as View[]).includes(view) && (
+        <button className="subpage-back" onClick={() => setView("account")}>
+          <ArrowLeft size={16} />
+          返回我的
+        </button>
+      )}
       {view === "discover" && (
         <DiscoverPage
           dashboard={dashboard}

@@ -99,6 +99,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Membership has enforceable quotas plus owner-scoped billing orders and immutable price snapshots. Until an approved payment provider is configured, orders remain `pending_external_payment` and never activate Pro or claim a successful charge.
 - Customer support now tracks a 24-hour SLA, first response, assignment, closure/reopen state, and 1-5 satisfaction feedback; customer and administrator permissions are enforced separately.
 - Product records now retain immutable change versions with source confidence. Price observations need a three-point baseline before extreme deviations are queued for administrator review and audit instead of silently contaminating trusted history.
+- Account dashboard KPI cards now navigate to savings, reports, favorites, and purchases with mouse and keyboard support. Account-related destination pages expose a consistent back action, and browser history now clears product/content overlays correctly on `popstate`.
 
 | Area | Status | Notes |
 | --- | --- | --- |

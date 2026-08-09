@@ -80,6 +80,35 @@ export function MessagesPage({ notifications, onRead, onReadAll, onDelete, onRet
 
 export function AccountHome({ name, dashboard, onNavigate, onLogin }: { name: string; dashboard: Dashboard; onNavigate: (view: string) => void; onLogin: () => void }) {
   const loggedIn = Boolean(localStorage.getItem('valuesee-token'));
+  useEffect(() => {
+    const container = document.querySelector<HTMLElement>('.profile-kpis');
+    if (!container) return;
+    const targets = ['monitors', 'history', 'saved', 'purchases'];
+    const cards = Array.from(container.querySelectorAll<HTMLElement>('article'));
+    cards.forEach((card, index) => {
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('aria-label', `打开${card.textContent?.trim() || '对应页面'}`);
+      card.dataset.targetView = targets[index];
+    });
+    const activate = (target: EventTarget | null) => {
+      const card = (target as HTMLElement | null)?.closest<HTMLElement>('article[data-target-view]');
+      if (card?.dataset.targetView) onNavigate(card.dataset.targetView);
+    };
+    const click = (event: MouseEvent) => activate(event.target);
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activate(event.target);
+      }
+    };
+    container.addEventListener('click', click);
+    container.addEventListener('keydown', keydown);
+    return () => {
+      container.removeEventListener('click', click);
+      container.removeEventListener('keydown', keydown);
+    };
+  }, [onNavigate]);
   return <section className="page-section"><div className="profile-hero panel"><div className="profile-avatar"><UserRound size={30} /></div><div><span>{loggedIn ? 'ValuSee 用户' : '本地体验账户'}</span><h1>{name}</h1><p>{loggedIn ? '你的购物偏好、报告和提醒已跨设备同步。' : '登录后同步收藏、报告、监控和家庭数据。'}</p></div>{!loggedIn && <button className="primary-button" onClick={onLogin}>登录 / 注册</button>}</div><div className="profile-kpis"><article><strong>{money(dashboard.actual_savings)}</strong><span>累计记录节省</span></article><article><strong>{dashboard.reports || 0}</strong><span>决策报告</span></article><article><strong>{dashboard.favorite || 0}</strong><span>收藏商品</span></article><article><strong>{dashboard.purchases || 0}</strong><span>购买记录</span></article></div><div className="account-menu panel"><MenuRow icon={<UserRound />} title="个人资料" text="头像、昵称、语言、币种与账户绑定" onClick={() => loggedIn ? onNavigate('profile') : onLogin()} /><MenuRow icon={<Crown />} title="会员权益" text="查看当前额度与 Pro 开通状态" onClick={() => onNavigate('membership')} /><MenuRow icon={<UserRound />} title="购物偏好与设备档案" text="预算、品牌、已有设备和风险偏好" onClick={() => onNavigate('settings')} /><MenuRow icon={<History />} title="报告与对比清单" text="回看购买结论，继续未完成的比较" onClick={() => onNavigate('history')} /><MenuRow icon={<PackageCheck />} title="家庭账户" text="共享家庭设备和售后提醒" onClick={() => onNavigate('family')} /><MenuRow icon={<ShieldCheck />} title="账户与数据安全" text="登录设备、邮箱验证、导出和注销" onClick={() => loggedIn ? onNavigate('security') : onLogin()} /></div></section>;
 }
 
