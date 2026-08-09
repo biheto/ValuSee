@@ -164,6 +164,12 @@ class ShoppingStore:
                 value REAL NOT NULL,metadata_json TEXT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_business_event_type_time ON shopping_business_event(event_type,created_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_saved_item(
+                saved_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,item_type TEXT NOT NULL,reference_key TEXT NOT NULL,
+                label TEXT NOT NULL,product_json TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+                UNIQUE(user_id,item_type,reference_key)
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_saved_item_user_type ON shopping_saved_item(user_id,item_type,updated_at)")
 
     def create_extension_capture(
         self,
@@ -362,6 +368,15 @@ class ShoppingStore:
         query += " ORDER BY created_at DESC LIMIT 100"
         with self._session() as conn:
             return [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+
+    def mark_notification_read(self, user_id: str, notification_id: str | None = None) -> int:
+        now = utc_now_iso()
+        with self._session() as conn:
+            if notification_id:
+                cursor = conn.execute("UPDATE shopping_notification SET status='read',read_at=? WHERE notification_id=? AND user_id=?", (now, notification_id, user_id))
+            else:
+                cursor = conn.execute("UPDATE shopping_notification SET status='read',read_at=? WHERE user_id=? AND status='unread'", (now, user_id))
+        return int(cursor.rowcount)
 
     def create_monitor(
         self,
@@ -661,6 +676,19 @@ class ShoppingStore:
             rows = conn.execute(query, params).fetchall()
         return [_row_to_purchase(row) for row in rows]
 
+    def update_purchase(self, user_id: str, purchase_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        allowed_status = {"active", "received", "price_protection", "returning", "returned", "warranty", "completed"}
+        status = str(payload.get("status") or "")
+        if status and status not in allowed_status:
+            raise ValueError("invalid purchase status")
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_purchase_record WHERE purchase_id=? AND user_id=?", (purchase_id, user_id)).fetchone()
+            if not row:
+                return None
+            conn.execute("UPDATE shopping_purchase_record SET status=?,notes=?,updated_at=? WHERE purchase_id=? AND user_id=?", (status or row["status"], str(payload.get("notes")) if payload.get("notes") is not None else row["notes"], utc_now_iso(), purchase_id, user_id))
+            updated = conn.execute("SELECT * FROM shopping_purchase_record WHERE purchase_id=? AND user_id=?", (purchase_id, user_id)).fetchone()
+        return _row_to_purchase(updated)
+
     def save_profile(self, user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()
         with self._session() as conn:
@@ -675,6 +703,45 @@ class ShoppingStore:
         with self._session() as conn:
             row = conn.execute("SELECT * FROM shopping_user_profile WHERE user_id=?", (user_id,)).fetchone()
         return {"user_id": user_id, "profile": json.loads(row["profile_json"]), "created_at": row["created_at"], "updated_at": row["updated_at"]} if row else {"user_id": user_id, "profile": {}}
+
+    def save_item(self, user_id: str, item_type: str, reference_key: str, label: str, product: dict[str, Any] | None = None) -> dict[str, Any]:
+        if item_type not in {"favorite", "recent", "brand"}:
+            raise ValueError("invalid saved item type")
+        reference_key = reference_key.strip()
+        if not reference_key:
+            raise ValueError("reference_key is required")
+        now, saved_id = utc_now_iso(), f"saved_{uuid4().hex}"
+        with self._session() as conn:
+            existing = conn.execute("SELECT saved_id,created_at FROM shopping_saved_item WHERE user_id=? AND item_type=? AND reference_key=?", (user_id, item_type, reference_key)).fetchone()
+            created = existing["created_at"] if existing else now
+            saved_id = existing["saved_id"] if existing else saved_id
+            conn.execute("""INSERT INTO shopping_saved_item(saved_id,user_id,item_type,reference_key,label,product_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(user_id,item_type,reference_key) DO UPDATE SET label=excluded.label,product_json=excluded.product_json,updated_at=excluded.updated_at""", (saved_id, user_id, item_type, reference_key, label.strip() or reference_key, json.dumps(product or {}, ensure_ascii=False), created, now))
+        return {"saved_id": saved_id, "user_id": user_id, "item_type": item_type, "reference_key": reference_key, "label": label.strip() or reference_key, "product": product or {}, "created_at": created, "updated_at": now}
+
+    def list_saved_items(self, user_id: str, item_type: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        sql, params = "SELECT * FROM shopping_saved_item WHERE user_id=?", [user_id]
+        if item_type:
+            sql += " AND item_type=?"; params.append(item_type)
+        sql += " ORDER BY updated_at DESC LIMIT ?"; params.append(max(1, min(limit, 500)))
+        with self._session() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return [_decode_json_columns(row, {"product_json": "product"}) for row in rows]
+
+    def delete_saved_item(self, user_id: str, saved_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("DELETE FROM shopping_saved_item WHERE saved_id=? AND user_id=?", (saved_id, user_id)).rowcount > 0
+
+    def user_dashboard(self, user_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            counts: dict[str, Any] = {}
+            for key, table in (("reports", "shopping_decision_report"), ("monitors", "shopping_price_monitor"), ("purchases", "shopping_purchase_record"), ("unread", "shopping_notification")):
+                suffix = " AND status='unread'" if key == "unread" else ""
+                counts[key] = int(conn.execute(f"SELECT COUNT(*) AS total FROM {table} WHERE user_id=?{suffix}", (user_id,)).fetchone()["total"])
+            saved_rows = conn.execute("SELECT item_type,COUNT(*) AS total FROM shopping_saved_item WHERE user_id=? GROUP BY item_type", (user_id,)).fetchall()
+            savings = conn.execute("SELECT COALESCE(SUM(value),0) AS total FROM shopping_business_event WHERE user_id=? AND event_type='purchase_confirmed'", (user_id,)).fetchone()
+        counts.update({str(row["item_type"]): int(row["total"]) for row in saved_rows})
+        return {**counts, "actual_savings": round(float(savings["total"] or 0), 2)}
 
     def save_comparison(self, user_id: str, name: str, products: list[dict[str, Any]], comparison_id: str | None = None) -> dict[str, Any]:
         now, comparison_id = utc_now_iso(), comparison_id or f"cmp_{uuid4().hex}"

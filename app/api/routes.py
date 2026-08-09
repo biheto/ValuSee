@@ -387,6 +387,19 @@ def list_shopping_notifications(unread_only: bool = False, authorization: str | 
     return shopping_store.list_notifications(_request_user(authorization), unread_only=unread_only)
 
 
+@router.patch("/shopping/notifications/{notification_id}/read", tags=["Shopping Monitor"])
+def read_shopping_notification(notification_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    updated = shopping_store.mark_notification_read(_request_user(authorization), notification_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"updated": updated}
+
+
+@router.post("/shopping/notifications/read-all", tags=["Shopping Monitor"])
+def read_all_shopping_notifications(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"updated": shopping_store.mark_notification_read(_request_user(authorization))}
+
+
 @router.post("/shopping/reviews/analyze", tags=["Shopping Decision"])
 def analyze_product_reviews(request: ReviewAnalysisRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     user_id = _request_user(authorization)
@@ -784,6 +797,31 @@ def save_shopping_profile(payload: dict[str, object], authorization: str | None 
     return shopping_store.save_profile(_request_user(authorization), payload)
 
 
+@router.get("/shopping/dashboard", tags=["Shopping Account"])
+def shopping_dashboard(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.user_dashboard(_request_user(authorization))
+
+
+@router.get("/shopping/saved", tags=["Shopping Account"])
+def list_shopping_saved(item_type: str | None = None, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_saved_items(_request_user(authorization), item_type)
+
+
+@router.post("/shopping/saved", tags=["Shopping Account"])
+def save_shopping_item(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.save_item(_request_user(authorization), str(payload.get("item_type") or "favorite"), str(payload.get("reference_key") or ""), str(payload.get("label") or ""), payload.get("product") if isinstance(payload.get("product"), dict) else {})
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/shopping/saved/{saved_id}", tags=["Shopping Account"])
+def delete_shopping_saved(saved_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not shopping_store.delete_saved_item(_request_user(authorization), saved_id):
+        raise HTTPException(status_code=404, detail="Saved item not found")
+    return {"deleted": True}
+
+
 @router.get("/shopping/comparisons", tags=["Shopping Decision"])
 def list_shopping_comparisons(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
     return shopping_store.list_comparisons(_request_user(authorization))
@@ -917,6 +955,17 @@ def create_purchase_record(request: PurchaseCreateRequest, authorization: str | 
 def list_purchase_records(user_id: str | None = None, authorization: str | None = Header(default=None)) -> list[PurchaseResponse]:
     del user_id
     return [PurchaseResponse(**item) for item in shopping_store.list_purchases(user_id=_request_user(authorization))]
+
+
+@router.patch("/shopping/purchases/{purchase_id}", tags=["Shopping Purchase"])
+def update_purchase_record(purchase_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        purchase = shopping_store.update_purchase(_request_user(authorization), purchase_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    return purchase
 
 
 @router.post("/projects/analyze", response_model=ProjectAnalyzeResponse, tags=["Project Analyzer"])

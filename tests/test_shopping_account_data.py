@@ -112,3 +112,35 @@ def test_business_metrics_track_savings_and_quality_events():
         assert metrics["monitor_conversion_rate"] == 1.0
         assert metrics["actual_savings"] == 88
         assert metrics["analysis_p95_latency_ms"] == 120
+
+
+def test_saved_items_dashboard_and_message_state_are_account_scoped():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        product = _product("Saved monitor")
+        favorite = store.save_item("u1", "favorite", "https://shop.example/item", "Saved monitor", product)
+        store.save_item("u1", "recent", "https://shop.example/item", "Saved monitor", product)
+        store.save_item("u1", "brand", "ValueCup", "ValueCup")
+        store.create_notification(user_id="u1", kind="price", title="Price changed", message="Now lower", idempotency_key="message-1")
+
+        dashboard = store.user_dashboard("u1")
+        assert dashboard["favorite"] == 1 and dashboard["recent"] == 1 and dashboard["brand"] == 1
+        assert dashboard["unread"] == 1
+        assert store.list_saved_items("u2") == []
+        assert store.delete_saved_item("u2", favorite["saved_id"]) is False
+        assert store.mark_notification_read("u2") == 0
+        assert store.mark_notification_read("u1") == 1
+        assert store.user_dashboard("u1")["unread"] == 0
+
+
+def test_purchase_status_update_requires_owner():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        purchase = store.create_purchase(
+            user_id="u1", product=_product(), paid_price=90, platform="manual", store_name="Store",
+            purchased_at=None, price_protection_days=7, return_days=7, warranty_months=12,
+            consumable_cycle_days=None, notes="",
+        )
+        assert store.update_purchase("u2", purchase["purchase_id"], {"status": "received"}) is None
+        updated = store.update_purchase("u1", purchase["purchase_id"], {"status": "received", "notes": "Delivered"})
+        assert updated and updated["status"] == "received" and updated["notes"] == "Delivered"
