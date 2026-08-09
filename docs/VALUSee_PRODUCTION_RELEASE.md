@@ -34,6 +34,8 @@ The Web workbench and Manifest V3 browser extension are included. The extension 
 
 The platform adapter boundary is implemented at `app/shopping/providers.py`. Real JD/Taobao/affiliate use requires an approved provider contract and credentials. Configure authorized providers with `VALUSee_COMMERCE_PROVIDERS` as a JSON array; ValuSee does not claim to provide live platform data without those credentials.
 
+The user search panel and `/admin` console are usable without changing the consumer workflow. Search results are intentionally empty until an approved provider is configured or a user supplies a product URL/extension capture; this is a data-integrity boundary, not a placeholder catalog.
+
 The optional `VALUSee_NOTIFICATION_WEBHOOK_URL` delivers signed server-to-server notifications. In-app notifications are always the canonical durable record. No automatic checkout, payment, refund, or external customer-service action is enabled.
 
 ## Security And Data Controls

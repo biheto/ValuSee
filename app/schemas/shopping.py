@@ -34,6 +34,13 @@ class ShoppingParseUrlRequest(BaseModel):
     title: str = ""
 
 
+class ShoppingSearchRequest(BaseModel):
+    query: str = Field(..., min_length=2, max_length=160)
+    provider: str = ""
+    category: str = ""
+    limit: int = Field(default=12, ge=1, le=50)
+
+
 class ShoppingParseUrlResponse(BaseModel):
     product: ShoppingProductInput
     source: str

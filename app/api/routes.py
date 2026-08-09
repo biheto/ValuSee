@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from uuid import uuid4
 from urllib.parse import urlparse
@@ -69,6 +70,7 @@ from app.schemas.shopping import (
     ShoppingImageResponse,
     ShoppingProductInput,
     ShoppingParseUrlRequest,
+    ShoppingSearchRequest,
     ShoppingParseUrlResponse,
 )
 from app.skills.executor import ensure_builtin_skills_seeded, execute_skill
@@ -138,6 +140,17 @@ def _request_user(authorization: str | None) -> str:
         )
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
+
+
+def _require_admin(authorization: str | None) -> str:
+    subject = _request_user(authorization)
+    if subject == "local-user" and settings.app_env.lower() not in {"prod", "production"}:
+        return subject
+    user = auth_store.get_user(subject)
+    allowed = {item.strip().lower() for item in os.getenv("VALUSee_ADMIN_EMAILS", "").split(",") if item.strip()}
+    if not user or user.get("email", "").lower() not in allowed:
+        raise HTTPException(status_code=403, detail="需要管理员账户")
+    return subject
 
 
 @router.post("/auth/register", tags=["Account"])
@@ -305,6 +318,39 @@ def list_commerce_providers(authorization: str | None = Header(default=None)) ->
     return {"providers": [{"name": item.name, "kind": item.kind} for item in configured_providers().values()]}
 
 
+@router.get("/admin/overview", tags=["Admin Console"])
+def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    tasks = task_store.list_tasks()
+    monitors = shopping_store.list_monitors()
+    traces = task_store.list_llm_traces(limit=20)
+    benchmarks = task_store.list_benchmark_runs(limit=10)
+    usage = llm_provider.usage_dashboard(limit=500)
+    return {
+        "product": "ValuSee / 见值",
+        "health": {"tasks": len(tasks), "running_tasks": sum(1 for item in tasks if item.get("status") in {"running", "queued"}), "monitors": len(monitors), "active_monitors": sum(1 for item in monitors if item.get("status") in {"watching", "target_reached"}), "traces": len(traces), "benchmarks": len(benchmarks)},
+        "tasks": tasks[:20],
+        "monitors": monitors[:20],
+        "traces": traces,
+        "benchmarks": benchmarks,
+        "llm_usage": usage,
+        "mcp": mcp_provider.status(),
+        "commerce_providers": [{"name": item.name, "kind": item.kind} for item in configured_providers().values()],
+    }
+
+
+@router.get("/admin/tasks", tags=["Admin Console"])
+def admin_tasks(limit: int = 100, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"tasks": task_store.list_tasks()[:max(1, min(limit, 500))]}
+
+
+@router.get("/admin/traces", tags=["Admin Console"])
+def admin_traces(limit: int = 100, agent: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"traces": task_store.list_llm_traces(limit=max(1, min(limit, 500)), agent=agent)}
+
+
 @router.post("/shopping/providers/{provider_name}/lookup", tags=["Shopping Integrations"])
 def lookup_commerce_product(provider_name: str, request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     _request_user(authorization)
@@ -317,6 +363,25 @@ def lookup_commerce_product(provider_name: str, request: ShoppingParseUrlRequest
         return provider.lookup(request.url)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"平台数据暂时不可用：{type(exc).__name__}") from exc
+
+
+@router.post("/shopping/search", tags=["Shopping Integrations"])
+def search_commerce_products(request: ShoppingSearchRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _request_user(authorization)
+    providers = configured_providers()
+    selected = [providers[request.provider]] if request.provider in providers else list(providers.values())
+    if not selected:
+        return {"query": request.query, "results": [], "sources": [], "message": "尚未配置已授权的商品搜索来源，请使用商品链接或浏览器扩展采集。"}
+    results: list[dict[str, object]] = []
+    source_status: list[dict[str, object]] = []
+    for provider in selected:
+        try:
+            provider_results = provider.search(request.query, request.category, request.limit)
+            results.extend(provider_results)
+            source_status.append({"provider": provider.name, "status": "ok", "count": len(provider_results)})
+        except Exception as exc:
+            source_status.append({"provider": provider.name, "status": "error", "error": type(exc).__name__})
+    return {"query": request.query, "results": results[:request.limit], "sources": source_status, "message": "结果均来自已授权平台，点击商品链接查看最新页面价格。"}
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])

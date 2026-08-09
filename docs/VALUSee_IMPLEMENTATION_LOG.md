@@ -24,6 +24,13 @@ The first release focuses on digital products and small appliances. The system m
 - Account export, account deletion, family member invitation, privacy policy, and service terms endpoints are available.
 - Release and deployment acceptance criteria are recorded in `docs/VALUSee_PRODUCTION_RELEASE.md`.
 
+### Product search and operations console
+
+- Added `POST /api/v1/shopping/search`: configured official/affiliate adapters return source-bearing product records with platform, price/spec fields, and validated original URLs; no configured provider produces an explicit empty state instead of invented listings.
+- Added a user-facing real-source search panel with loading, source health, empty state, direct product links, and add-to-comparison actions.
+- Added `/admin` as a separate ValuSee Admin Console with protected overview, Agent task list, LLM Trace usage, commerce-source status, MCP status, and refresh controls.
+- Production admin access requires `VALUSee_ADMIN_EMAILS`; development keeps a local preview for verification.
+
 ### Consumer decision workbench
 
 - Four consumer views: product analysis, price monitoring, purchases, and report history.

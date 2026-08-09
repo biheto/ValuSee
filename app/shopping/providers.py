@@ -32,6 +32,29 @@ class CommerceProvider:
             raise ValueError("平台适配器返回的数据缺少商品标题")
         return {"provider": self.name, "kind": self.kind, "product": payload}
 
+    def search(self, query: str, category: str = "", limit: int = 12) -> list[dict[str, object]]:
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "https" and os.getenv("APP_ENV", "dev").lower() in {"prod", "production"}:
+            raise ValueError("生产环境的平台适配器必须使用 HTTPS")
+        endpoint = self.base_url.rstrip("/") + "/v1/products/search"
+        body = json.dumps({"query": query, "category": category, "limit": limit}).encode("utf-8")
+        request = Request(endpoint, data=body, method="POST", headers={
+            "Accept": "application/json", "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        })
+        with urlopen(request, timeout=8) as response:
+            if response.status >= 400:
+                raise RuntimeError(f"commerce provider returned HTTP {response.status}")
+            payload = json.loads(response.read().decode("utf-8"))
+        items = payload.get("products", payload) if isinstance(payload, dict) else payload
+        if not isinstance(items, list):
+            raise ValueError("平台搜索适配器返回格式无效")
+        return [
+            {"provider": self.name, "kind": self.kind, "product": item}
+            for item in items[:limit]
+            if isinstance(item, dict) and item.get("title") and str(item.get("url", "")).startswith(("http://", "https://"))
+        ]
+
 
 def configured_providers() -> dict[str, CommerceProvider]:
     raw = os.getenv("VALUSee_COMMERCE_PROVIDERS", "[]")

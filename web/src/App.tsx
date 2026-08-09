@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Clock3,
   FileText,
+  ExternalLink,
   History,
   Link2,
   Loader2,
@@ -36,6 +37,7 @@ type Monitor = { monitor_id: string; status: string; target_price: number; curre
 type Purchase = { purchase_id: string; product: Product; paid_price: number; platform: string; store_name: string; purchased_at: string; price_protection_deadline?: string; return_deadline?: string; warranty_deadline?: string; status: string; reminders: Array<{ kind: string; deadline: string; label: string }>; notes: string };
 type Capture = { capture_id: string; status: string; product: Product; source: string; captured_at: string };
 type Notification = { notification_id: string; title: string; message: string; status: string; created_at: string };
+type ProductSearchResult = { provider: string; kind: string; product: Product };
 type View = 'analyze' | 'monitors' | 'purchases' | 'history';
 
 const sample: Product[] = [
@@ -116,6 +118,7 @@ export function App() {
   const best = useMemo(() => result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index], [result]);
   const nav: Array<[View, string, typeof Search]> = [['analyze', '分析商品', Search], ['monitors', '降价监控', Bell], ['purchases', '我的购买', Receipt], ['history', '历史报告', History]];
   return <main className="valuesee-app">
+    {view === 'analyze' && <ProductSearchPanel onAdd={(product) => setProducts((items) => items.some((item) => item.url === product.url) ? items : [...items, product])} />}
     <header className="app-header"><div className="brand-lockup"><BrandMark /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button" onClick={() => setAccountOpen(true)}>{accountName}</button></header>
     {accountOpen && <div className="account-backdrop" onClick={() => setAccountOpen(false)}><section className="account-dialog" onClick={(event) => event.stopPropagation()}><BrandWordmark /><h2>{accountMode === 'login' ? '登录 ValuSee' : '创建账户'}</h2><p>你的监控、购买记录和家庭数据会与账户隔离。</p><form onSubmit={submitAccount}>{accountMode === 'register' && <label>昵称<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>}<label>邮箱<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label><label>密码<input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></label><button className="primary-button">{accountMode === 'login' ? '登录' : '注册'}</button></form><button className="account-switch" onClick={() => setAccountMode(accountMode === 'login' ? 'register' : 'login')}>{accountMode === 'login' ? '没有账户？立即注册' : '已有账户？返回登录'}</button>{localStorage.getItem('valuesee-token') && <button className="account-switch danger" onClick={logout}>退出登录</button>}</section></div>}
     {message && <div className="toast"><CheckCircle2 size={16} />{message}<button onClick={() => setMessage('')}>关闭</button></div>}
@@ -131,6 +134,25 @@ export function App() {
     {view === 'history' && <section className="page-section"><PageTitle icon={<History size={22} />} title="历史报告" subtitle="每次分析都会留在本机，方便回看你的购买判断。" /><div className="panel history-panel">{result ? <article className="history-card"><div><strong>{result.result.summary}</strong><span>任务 {result.task_id}</span></div><button className="soft-button" onClick={() => setView('analyze')}>打开报告 <ChevronRight size={16} /></button></article> : <Empty text="完成一次分析后，这里会出现你的报告" />}</div></section>}
   </main>;
 }
+function ProductSearchPanel({ onAdd }: { onAdd: (product: Product) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<ProductSearchResult[]>([]);
+  const [sources, setSources] = useState<Array<{ provider: string; status: string; count?: number; error?: string }>>([]);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (query.trim().length < 2) return;
+    setLoading(true); setMessage('');
+    try {
+      const data = await request<{ results: ProductSearchResult[]; sources: Array<{ provider: string; status: string; count?: number; error?: string }>; message: string }>('/api/v1/shopping/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query.trim(), limit: 12 }) });
+      setResults(data.results); setSources(data.sources); setMessage(data.message);
+    } catch (err) { setResults([]); setMessage(err instanceof Error ? err.message : '商品搜索失败'); }
+    finally { setLoading(false); }
+  }
+  return <section className="product-search-panel"><div className="product-search-copy"><span className="section-kicker">实时商品来源</span><h2>先搜一搜，再让 Agent 帮你选</h2><p>只展示已授权来源返回的商品，保留平台、价格和原始链接，点击即可回到商品详情。</p></div><form className="product-search-form" onSubmit={submit}><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：AirPods Pro 2 USB-C、27 英寸 4K 显示器" /><button disabled={loading}>{loading ? '搜索中…' : '搜索商品'}</button></form>{message && <div className="search-message">{message}</div>}{sources.length > 0 && <div className="source-status">{sources.map((source) => <span key={source.provider} className={source.status === 'ok' ? 'source-ok' : 'source-error'}>{source.provider} · {source.status === 'ok' ? `${source.count ?? 0} 条` : '不可用'}</span>)}</div>}{results.length > 0 && <div className="product-search-results">{results.map((item) => <article className="product-search-result" key={`${item.provider}-${item.product.url}`}><div><strong>{item.product.title}</strong><span>{item.product.platform || item.provider} · {item.product.price ? money(item.product.price) : '价格待确认'} · {item.product.model || '型号待确认'}</span></div><div className="product-search-actions"><a href={item.product.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />打开商品</a><button type="button" onClick={() => onAdd(item.product)}>加入比较</button></div></article>)}</div>}</section>;
+}
+
 function PageTitle({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) { return <div className="page-title"><div className="title-icon">{icon}</div><div><h1>{title}</h1><p>{subtitle}</p></div></div>; }
 function Empty({ text }: { text: string }) { return <div className="empty-list"><ClipboardList size={28} /><span>{text}</span></div>; }
 function TagIcon() { return <div className="empty-icon"><Search size={34} /></div>; }
