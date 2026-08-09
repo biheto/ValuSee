@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
 from app.auth.service import auth_store, bearer_subject
@@ -55,6 +57,7 @@ from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.core.config import settings
 from app.core.infrastructure import publish_monitor_event
+from app.core.object_storage import create_download_url, persist_upload
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -1076,6 +1079,101 @@ def update_purchase_record(purchase_id: str, payload: dict[str, object], authori
     if not purchase:
         raise HTTPException(status_code=404, detail="Purchase not found")
     return purchase
+
+
+@router.post("/shopping/purchases/{purchase_id}/attachments", tags=["Shopping Purchase"])
+async def upload_purchase_attachment(purchase_id: str, file: UploadFile = File(...), attachment_type: str = "evidence", authorization: str | None = Header(default=None)) -> dict[str, object]:
+    allowed = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    content_type = (file.content_type or "").lower()
+    if content_type not in allowed:
+        raise HTTPException(status_code=415, detail="仅支持 PDF、JPEG、PNG 和 WebP")
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="附件不能为空且不能超过 10MB")
+    signatures = {"application/pdf": content.startswith(b"%PDF-"), "image/jpeg": content.startswith(b"\xff\xd8\xff"), "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"), "image/webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP"}
+    if not signatures[content_type]:
+        raise HTTPException(status_code=415, detail="文件内容与声明类型不一致")
+    user_id = _request_user(authorization)
+    upload_dir = Path.cwd() / "data" / "attachments"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = upload_dir / f"{uuid4().hex}{allowed[content_type]}"
+    stored_path.write_bytes(content)
+    storage = persist_upload(stored_path, content_type, prefix="purchase-attachments")
+    try:
+        record = shopping_store.create_purchase_attachment(user_id, purchase_id, {"attachment_type": attachment_type[:40], "original_name": Path(file.filename or "attachment").name[:180], "content_type": content_type, "size_bytes": len(content), "sha256": hashlib.sha256(content).hexdigest(), "storage_backend": storage["backend"], "storage_key": storage["key"]})
+    except ValueError as exc:
+        stored_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if storage["backend"] == "s3":
+        stored_path.unlink(missing_ok=True)
+    for private_key in ("user_id", "storage_backend", "storage_key"):
+        record.pop(private_key, None)
+    return record
+
+
+@router.get("/shopping/purchases/{purchase_id}/attachments", tags=["Shopping Purchase"])
+def list_purchase_attachments(purchase_id: str, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_purchase_attachments(_request_user(authorization), purchase_id)
+
+
+@router.get("/shopping/attachments/{attachment_id}/download", tags=["Shopping Purchase"])
+def download_purchase_attachment(attachment_id: str, authorization: str | None = Header(default=None)):
+    record = shopping_store.get_purchase_attachment(_request_user(authorization), attachment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    target = create_download_url(str(record["storage_backend"]), str(record["storage_key"]))
+    if not target:
+        raise HTTPException(status_code=404, detail="附件文件不可用")
+    if record["storage_backend"] == "s3":
+        return RedirectResponse(target, status_code=307)
+    return FileResponse(target, media_type=str(record["content_type"]), filename=str(record["original_name"]))
+
+
+@router.post("/shopping/support/tickets", tags=["Customer Support"])
+def create_support_ticket(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.create_support_ticket(_request_user(authorization), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/shopping/support/tickets", tags=["Customer Support"])
+def list_support_tickets(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_support_tickets(_request_user(authorization))
+
+
+@router.get("/shopping/support/tickets/{ticket_id}", tags=["Customer Support"])
+def get_support_ticket(ticket_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    ticket = shopping_store.get_support_ticket(_request_user(authorization), ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    return ticket
+
+
+@router.post("/shopping/support/tickets/{ticket_id}/messages", tags=["Customer Support"])
+def reply_support_ticket(ticket_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.reply_support_ticket(_request_user(authorization), ticket_id, str(payload.get("content") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/admin/support/tickets", tags=["Admin Support"])
+def admin_list_support_tickets(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"tickets": shopping_store.list_support_tickets()}
+
+
+@router.post("/admin/support/tickets/{ticket_id}/messages", tags=["Admin Support"])
+def admin_reply_support_ticket(ticket_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        ticket = shopping_store.reply_support_ticket(actor_id, ticket_id, str(payload.get("content") or ""), admin=True, status=str(payload.get("status") or "in_progress"))
+        message_id = str(ticket.get("messages", [{}])[-1].get("message_id") or uuid4().hex)
+        shopping_store.create_notification(user_id=str(ticket["user_id"]), kind="support", title=f"客服回复：{ticket['subject']}", message=str(payload.get("content") or "")[:500], idempotency_key=f"support:{ticket_id}:{message_id}")
+        return ticket
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/projects/analyze", response_model=ProjectAnalyzeResponse, tags=["Project Analyzer"])

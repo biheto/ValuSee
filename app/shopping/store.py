@@ -88,6 +88,22 @@ class ShoppingStore:
                 )
                 """
             )
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_purchase_attachment(
+                attachment_id TEXT PRIMARY KEY,purchase_id TEXT NOT NULL,user_id TEXT NOT NULL,
+                attachment_type TEXT NOT NULL,original_name TEXT NOT NULL,content_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,storage_backend TEXT NOT NULL,
+                storage_key TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_purchase_attachment_owner ON shopping_purchase_attachment(user_id,purchase_id,created_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_support_ticket(
+                ticket_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,purchase_id TEXT,category TEXT NOT NULL,
+                subject TEXT NOT NULL,status TEXT NOT NULL,priority TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_support_message(
+                message_id TEXT PRIMARY KEY,ticket_id TEXT NOT NULL,actor_id TEXT NOT NULL,actor_role TEXT NOT NULL,
+                content TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_support_ticket_owner ON shopping_support_ticket(user_id,updated_at)")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS shopping_extension_capture (
@@ -700,6 +716,72 @@ class ShoppingStore:
             conn.execute("UPDATE shopping_purchase_record SET status=?,notes=?,updated_at=? WHERE purchase_id=? AND user_id=?", (status or row["status"], str(payload.get("notes")) if payload.get("notes") is not None else row["notes"], utc_now_iso(), purchase_id, user_id))
             updated = conn.execute("SELECT * FROM shopping_purchase_record WHERE purchase_id=? AND user_id=?", (purchase_id, user_id)).fetchone()
         return _row_to_purchase(updated)
+
+    def create_purchase_attachment(self, user_id: str, purchase_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        with self._session() as conn:
+            if not conn.execute("SELECT 1 FROM shopping_purchase_record WHERE purchase_id=? AND user_id=?", (purchase_id, user_id)).fetchone():
+                raise ValueError("purchase not found")
+            record = {"attachment_id": f"att_{uuid4().hex}", "purchase_id": purchase_id, "user_id": user_id, **metadata, "created_at": utc_now_iso()}
+            conn.execute("INSERT INTO shopping_purchase_attachment VALUES(?,?,?,?,?,?,?,?,?,?,?)", tuple(record[key] for key in ("attachment_id", "purchase_id", "user_id", "attachment_type", "original_name", "content_type", "size_bytes", "sha256", "storage_backend", "storage_key", "created_at")))
+        return record
+
+    def list_purchase_attachments(self, user_id: str, purchase_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT attachment_id,purchase_id,attachment_type,original_name,content_type,size_bytes,sha256,created_at FROM shopping_purchase_attachment WHERE user_id=? AND purchase_id=? ORDER BY created_at DESC", (user_id, purchase_id)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_purchase_attachment(self, user_id: str, attachment_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_purchase_attachment WHERE attachment_id=? AND user_id=?", (attachment_id, user_id)).fetchone()
+        return dict(row) if row else None
+
+    def create_support_ticket(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        subject, content = str(payload.get("subject") or "").strip(), str(payload.get("content") or "").strip()
+        if not subject or not content:
+            raise ValueError("subject and content are required")
+        purchase_id = str(payload.get("purchase_id") or "") or None
+        now, ticket_id = utc_now_iso(), f"ticket_{uuid4().hex}"
+        with self._session() as conn:
+            if purchase_id and not conn.execute("SELECT 1 FROM shopping_purchase_record WHERE purchase_id=? AND user_id=?", (purchase_id, user_id)).fetchone():
+                raise ValueError("purchase not found")
+            conn.execute("INSERT INTO shopping_support_ticket VALUES(?,?,?,?,?,?,?,?,?)", (ticket_id, user_id, purchase_id, str(payload.get("category") or "general")[:40], subject[:160], "open", "normal", now, now))
+            conn.execute("INSERT INTO shopping_support_message VALUES(?,?,?,?,?,?)", (f"msg_{uuid4().hex}", ticket_id, user_id, "user", content[:5000], now))
+        return self.get_support_ticket(user_id, ticket_id) or {}
+
+    def get_support_ticket(self, user_id: str, ticket_id: str, admin: bool = False) -> dict[str, Any] | None:
+        with self._session() as conn:
+            query, params = "SELECT * FROM shopping_support_ticket WHERE ticket_id=?", [ticket_id]
+            if not admin:
+                query += " AND user_id=?"; params.append(user_id)
+            row = conn.execute(query, tuple(params)).fetchone()
+            if not row:
+                return None
+            messages = conn.execute("SELECT * FROM shopping_support_message WHERE ticket_id=? ORDER BY created_at", (ticket_id,)).fetchall()
+        return {**dict(row), "messages": [dict(message) for message in messages]}
+
+    def list_support_tickets(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        query, params = "SELECT * FROM shopping_support_ticket", []
+        if user_id:
+            query += " WHERE user_id=?"; params.append(user_id)
+        query += " ORDER BY updated_at DESC LIMIT 500"
+        with self._session() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def reply_support_ticket(self, actor_id: str, ticket_id: str, content: str, *, admin: bool = False, status: str | None = None) -> dict[str, Any]:
+        if status and status not in {"open", "in_progress", "waiting_user", "resolved", "closed"}:
+            raise ValueError("invalid ticket status")
+        if not content.strip():
+            raise ValueError("message is required")
+        ticket = self.get_support_ticket(actor_id, ticket_id, admin=admin)
+        if not ticket:
+            raise ValueError("ticket not found")
+        next_status = status or ("waiting_user" if admin else "open")
+        now = utc_now_iso()
+        with self._session() as conn:
+            conn.execute("INSERT INTO shopping_support_message VALUES(?,?,?,?,?,?)", (f"msg_{uuid4().hex}", ticket_id, actor_id, "admin" if admin else "user", content.strip()[:5000], now))
+            conn.execute("UPDATE shopping_support_ticket SET status=?,updated_at=? WHERE ticket_id=?", (next_status, now, ticket_id))
+        return self.get_support_ticket(actor_id, ticket_id, admin=admin) or {}
 
     def save_profile(self, user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()

@@ -20,6 +20,7 @@ export function AdminGovernance() {
   const [monitors, setMonitors] = useState<Item[]>([]);
   const [feedback, setFeedback] = useState<Item[]>([]);
   const [content, setContent] = useState<Item[]>([]);
+  const [tickets, setTickets] = useState<Item[]>([]);
   const [metrics, setMetrics] = useState<Record<string, unknown>>({});
   const [error, setError] = useState('');
   const [brand, setBrand] = useState('');
@@ -39,7 +40,7 @@ export function AdminGovernance() {
   async function load() {
     setError('');
     try {
-      const [catalog, promptData, benchmarkData, monitorData, feedbackData, metricsData, contentData] = await Promise.all([
+      const [catalog, promptData, benchmarkData, monitorData, feedbackData, metricsData, contentData, ticketData] = await Promise.all([
         api<{ products: Item[] }>('/api/v1/admin/catalog/products'),
         api<{ prompts: Item[] }>('/api/v1/admin/prompts'),
         api<{ runs: Item[] }>('/api/v1/admin/benchmarks'),
@@ -47,11 +48,13 @@ export function AdminGovernance() {
         api<{ feedback: Item[] }>('/api/v1/admin/feedback'),
         api<Record<string, unknown>>('/api/v1/admin/metrics'),
         api<{ items: Item[] }>('/api/v1/admin/content'),
+        api<{ tickets: Item[] }>('/api/v1/admin/support/tickets'),
       ]);
       setProducts(catalog.products); setPrompts(promptData.prompts); setBenchmarks(benchmarkData.runs); setMonitors(monitorData.monitors);
       setFeedback(feedbackData.feedback);
       setMetrics(metricsData);
       setContent(contentData.items);
+      setTickets(ticketData.tickets);
       if (!skuProductId && catalog.products[0]) setSkuProductId(String(catalog.products[0].product_id));
     } catch (err) { setError(err instanceof Error ? err.message : '治理数据加载失败'); }
   }
@@ -82,6 +85,7 @@ export function AdminGovernance() {
   async function reviewFeedback(id: string, status: 'reviewing' | 'resolved') { await api(`/api/v1/admin/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }); await load(); }
   async function saveContent(event: FormEvent) { event.preventDefault(); await api('/api/v1/admin/content', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content_type: 'guide', title: contentTitle, summary: contentSummary, body: contentSummary, category: '综合', status: 'published' }) }); setContentTitle(''); setContentSummary(''); await load(); }
   async function deleteContent(id: string) { await api(`/api/v1/admin/content/${encodeURIComponent(id)}`, { method: 'DELETE' }); await load(); }
+  async function replyTicket(id: string, status: string) { const content = window.prompt('回复用户'); if (!content?.trim()) return; await api(`/api/v1/admin/support/tickets/${encodeURIComponent(id)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, status }) }); await load(); }
 
   return <section className="admin-content governance-stack">
     {error && <div className="admin-error">{error}</div>}
@@ -95,6 +99,7 @@ export function AdminGovernance() {
     </div>
     <section className="admin-panel"><div className="admin-panel-title"><h2>用户纠错反馈</h2><span>{feedback.filter((item) => item.status !== 'resolved').length} 条待处理</span></div>{feedback.length ? feedback.slice(0, 30).map((item) => <div className="admin-row" key={String(item.feedback_id)}><div><strong>{String(item.content)}</strong><span>{String(item.feedback_type)} · {String(item.target_type)} · {String(item.status)}</span></div><div className="admin-row-buttons"><button title="开始核验" onClick={() => void reviewFeedback(String(item.feedback_id), 'reviewing')}><Eye size={14} /></button><button title="标记已解决" onClick={() => void reviewFeedback(String(item.feedback_id), 'resolved')}><Check size={14} /></button></div></div>) : <div className="admin-empty">暂无用户纠错</div>}</section>
     <section className="admin-panel"><div className="admin-panel-title"><h2>内容发现</h2><span>{content.length} 篇</span></div><form className="admin-inline-form" onSubmit={saveContent}><input required placeholder="标题" value={contentTitle} onChange={(e) => setContentTitle(e.target.value)} /><input required placeholder="摘要 / 来源说明" value={contentSummary} onChange={(e) => setContentSummary(e.target.value)} /><button title="发布指南"><Plus size={15} /></button></form>{content.length ? content.slice(0, 20).map((item) => <div className="admin-row" key={String(item.content_id)}><div><strong>{String(item.title)}</strong><span>{String(item.category)} · {String(item.status)}</span></div><button className="admin-icon-button" title="删除内容" onClick={() => void deleteContent(String(item.content_id))}><Trash2 size={14} /></button></div>) : <div className="admin-empty">还没有发布内容</div>}</section>
+    <section className="admin-panel"><div className="admin-panel-title"><h2>客服工单</h2><span>{tickets.filter((item) => !['resolved', 'closed'].includes(String(item.status))).length} 条待处理</span></div>{tickets.length ? tickets.map((item) => <div className="admin-row" key={String(item.ticket_id)}><div><strong>{String(item.subject)}</strong><span>{String(item.category)} · {String(item.status)} · 用户 {String(item.user_id)}</span></div><div className="admin-row-buttons"><button title="回复并等待用户" onClick={() => void replyTicket(String(item.ticket_id), 'waiting_user')}><Eye size={14} /></button><button title="回复并解决" onClick={() => void replyTicket(String(item.ticket_id), 'resolved')}><Check size={14} /></button></div></div>) : <div className="admin-empty">暂无客服工单</div>}</section>
     <section className="admin-panel"><div className="admin-panel-title"><h2>业务结果指标</h2><span>最近 30 天</span></div><div className="admin-kpis"><article><span>分析完成率</span><strong>{`${Math.round(Number(metrics.analysis_completion_rate || 0) * 100)}%`}</strong></article><article><span>建议采纳率</span><strong>{`${Math.round(Number(metrics.recommendation_acceptance_rate || 0) * 100)}%`}</strong></article><article><span>实际节省</span><strong>¥{Number(metrics.actual_savings || 0).toFixed(0)}</strong></article><article><span>分析 P95</span><strong>{String(metrics.analysis_p95_latency_ms || 0)}ms</strong></article></div></section>
   </section>;
 }

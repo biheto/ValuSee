@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from app.harness.events import utc_now_iso
 from app.core.database import connect_database, is_integrity_error
+from app.core.object_storage import delete_stored_object
 
 
 def _b64(data: bytes) -> str:
@@ -311,12 +312,14 @@ class AuthStore:
             "business_events": ("shopping_business_event", "user_id"),
             "saved_items": ("shopping_saved_item", "user_id"),
             "shares": ("shopping_share", "user_id"),
+            "purchase_attachments": ("shopping_purchase_attachment", "user_id"),
+            "support_tickets": ("shopping_support_ticket", "user_id"),
             "sessions": ("valuesee_session", "user_id"),
             "subscriptions": ("valuesee_subscription", "user_id"),
             "upgrade_requests": ("valuesee_upgrade_request", "user_id"),
         }
         with self._session() as conn:
-            result = {"user": self.get_user(user_id), "families": [], **{key: [] for key in tables}}
+            result = {"user": self.get_user(user_id), "families": [], "support_messages": [], **{key: [] for key in tables}}
             result["families"] = [dict(row) for row in conn.execute("SELECT f.*,m.role FROM valuesee_family f JOIN valuesee_family_member m ON f.family_id=m.family_id WHERE m.user_id=?", (user_id,)).fetchall()]
             for key, (table, column) in tables.items():
                 try:
@@ -329,6 +332,11 @@ class AuthStore:
                         result[key] = []
                     else:
                         raise
+            try:
+                result["support_messages"] = [dict(row) for row in conn.execute("SELECT m.* FROM shopping_support_message m JOIN shopping_support_ticket t ON t.ticket_id=m.ticket_id WHERE t.user_id=? ORDER BY m.created_at", (user_id,)).fetchall()]
+            except Exception as exc:
+                if exc.__class__.__name__ != "OperationalError":
+                    raise
         return result
 
     def delete_account(self, user_id: str) -> None:
@@ -342,10 +350,24 @@ class AuthStore:
             "shopping_business_event",
             "shopping_saved_item",
             "shopping_share",
+            "shopping_purchase_attachment", "shopping_support_ticket",
             "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request",
         )
+        attachment_objects: list[tuple[str, str]] = []
         with self._session() as conn:
             owned_family_ids = [row["family_id"] for row in conn.execute("SELECT family_id FROM valuesee_family WHERE owner_id=?", (user_id,)).fetchall()]
+            try:
+                attachment_objects = [(str(row["storage_backend"]), str(row["storage_key"])) for row in conn.execute("SELECT storage_backend,storage_key FROM shopping_purchase_attachment WHERE user_id=?", (user_id,)).fetchall()]
+            except Exception as exc:
+                if exc.__class__.__name__ != "OperationalError":
+                    raise
+            try:
+                ticket_ids = [row["ticket_id"] for row in conn.execute("SELECT ticket_id FROM shopping_support_ticket WHERE user_id=?", (user_id,)).fetchall()]
+                for ticket_id in ticket_ids:
+                    conn.execute("DELETE FROM shopping_support_message WHERE ticket_id=?", (ticket_id,))
+            except Exception as exc:
+                if exc.__class__.__name__ != "OperationalError":
+                    raise
             try:
                 monitor_ids = [row["monitor_id"] for row in conn.execute("SELECT monitor_id FROM shopping_price_monitor WHERE user_id=?", (user_id,)).fetchall()]
             except Exception as exc:
@@ -372,6 +394,8 @@ class AuthStore:
             conn.execute("DELETE FROM valuesee_family WHERE owner_id=?", (user_id,))
             conn.execute("DELETE FROM valuesee_auth_token WHERE user_id=?", (user_id,))
             conn.execute("DELETE FROM valuesee_user WHERE user_id=?", (user_id,))
+        for backend, key in attachment_objects:
+            delete_stored_object(backend, key)
 
 
 def hash_password(password: str) -> str:
