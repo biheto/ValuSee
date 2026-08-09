@@ -1,4 +1,5 @@
 import { Check, Sparkles } from 'lucide-react';
+import { useState } from 'react';
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
@@ -20,10 +21,23 @@ export function BrandWordmark() {
 }
 
 export function ValueMascot() {
+  const [mood, setMood] = useState(0);
+  const responses = ['我来帮你看清同款', '到手价已经算好了', '买完我还会盯住保价'];
+
+  function interact() {
+    setMood((current) => (current + 1) % responses.length);
+  }
+
   return (
-    <div className="value-mascot" role="img" aria-label="ValuSee 小值品牌角色">
+    <div className={`value-mascot mood-${mood}`} role="button" tabIndex={0} aria-label="与小值互动" onClick={interact} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') interact(); }}>
+      <span className="mascot-response" aria-live="polite">{responses[mood]}</span>
+      <span className="mascot-chip mascot-chip-match">同款识别</span>
+      <span className="mascot-chip mascot-chip-price">到手价</span>
+      <span className="mascot-chip mascot-chip-alert">保价提醒</span>
       <span className="mascot-spark mascot-spark-one" />
       <span className="mascot-spark mascot-spark-two" />
+      <span className="mascot-burst mascot-burst-one" />
+      <span className="mascot-burst mascot-burst-two" />
       <span className="mascot-arm mascot-arm-left" />
       <span className="mascot-arm mascot-arm-right" />
       <div className="mascot-body">
