@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { BrandMark, BrandWordmark, ValueMascot } from './BrandArt';
-import { AccountHome, ConsumerNotification, ConsumerProduct, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from './ConsumerHub';
+import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from './ConsumerHub';
 
 type Product = ConsumerProduct;
 type Decision = { task_id: string; status: string; result: {
@@ -97,6 +97,7 @@ export function App() {
   const [dashboard, setDashboard] = useState<Dashboard>({});
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [detailRef, setDetailRef] = useState(() => window.location.pathname.match(/^\/product\/(prd_[a-f0-9]+)$/)?.[1] || '');
+  const [contentId, setContentId] = useState(() => window.location.pathname.match(/^\/content\/(content_[a-f0-9]+)$/)?.[1] || '');
   const [publicShare, setPublicShare] = useState<{ title: string; share_type: string; payload: Record<string, unknown>; expires_at: string } | null | undefined>(undefined);
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [comparisons, setComparisons] = useState<SavedComparison[]>([]);
@@ -203,6 +204,7 @@ export function App() {
 
   const best = useMemo(() => result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index], [result]);
   if (window.location.pathname.startsWith('/share/')) return <SharedDecisionPage share={publicShare} />;
+  if (contentId) return <ContentDetailPage contentId={contentId} onBack={() => { setContentId(''); window.history.pushState({}, '', '/'); }} onOpenContent={(id) => { setContentId(id); window.history.pushState({}, '', `/content/${id}`); }} />;
   const nav: Array<[View, string, typeof Search]> = [['discover', '发现', Compass], ['analyze', '智能对比', Search], ['monitors', '省钱中心', Bell], ['purchases', '订单售后', Receipt], ['saved', '收藏足迹', Heart], ['messages', '消息', MessageSquare], ['account', '我的', UserRound]];
   return <main className={`valuesee-app experiment-${navigationVariant}`} id="main-content"><a className="skip-link" href="#primary-view">跳到主要内容</a>
     <header className="app-header"><div className="brand-lockup"><BrandMark /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button" onClick={() => setAccountOpen(true)}>{accountName}</button></header>
@@ -210,7 +212,7 @@ export function App() {
     {message && <div className="toast"><CheckCircle2 size={16} />{message}<button onClick={() => setMessage('')}>关闭</button></div>}
     {error && <div className="error-banner" role="alert">{error}</div>}
     <div id="primary-view" tabIndex={-1}></div>
-    {view === 'discover' && <DiscoverPage dashboard={dashboard} recent={savedItems.filter((item) => item.item_type === 'recent')} onStart={(nextGoal) => { setGoal(nextGoal); setView('analyze'); }} onOpen={(product) => void addProduct(product, true)} />}
+    {view === 'discover' && <DiscoverPage dashboard={dashboard} recent={savedItems.filter((item) => item.item_type === 'recent')} onStart={(nextGoal) => { setGoal(nextGoal); setView('analyze'); }} onOpen={(product) => void addProduct(product, true)} onOpenContent={(id) => { setContentId(id); window.history.pushState({}, '', `/content/${id}`); }} />}
     {view === 'saved' && <SavedPage items={savedItems} groups={savedGroups} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} onCreateGroup={(name) => void createSavedGroup(name)} onBulk={(ids, action, groupId) => void bulkSaved(ids, action, groupId)} />}
     {view === 'messages' && <MessagesPage notifications={notifications} onRead={(id) => void readMessage(id)} onReadAll={() => void readAllMessages()} onDelete={(id) => void deleteMessage(id)} onRetry={(id) => void retryMessage(id)} onBulk={(ids, action) => void bulkMessages(ids, action)} onNavigate={navigateTarget} />}
     {view === 'account' && <AccountHome name={accountName} dashboard={dashboard} onNavigate={(next) => setView(next as View)} onLogin={() => setAccountOpen(true)} />}

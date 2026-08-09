@@ -1162,15 +1162,34 @@ class ShoppingStore:
         counts.update({str(row["item_type"]): int(row["total"]) for row in saved_rows})
         return {**counts, "actual_savings": round(float(savings["total"] or 0), 2)}
 
-    def list_content(self, status: str = "published", category: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def list_content(self, status: str = "published", category: str | None = None, limit: int = 100, query_text: str | None = None) -> list[dict[str, Any]]:
         sql, params = "SELECT * FROM shopping_content", []
         if status != "all":
             sql += " WHERE status=?"; params.append(status)
         if category:
             sql += " AND" if " WHERE " in sql else " WHERE"; sql += " category=?"; params.append(category)
+        if query_text:
+            sql += " AND" if " WHERE " in sql else " WHERE"; sql += " (title LIKE ? OR summary LIKE ? OR body LIKE ?)"; term = f"%{query_text[:100]}%"; params.extend([term, term, term])
         sql += " ORDER BY COALESCE(published_at,updated_at) DESC LIMIT ?"; params.append(max(1, min(limit, 500)))
         with self._session() as conn:
             return [dict(row) for row in conn.execute(sql, tuple(params)).fetchall()]
+
+    def get_content(self, content_id: str, *, public_only: bool = True) -> dict[str, Any] | None:
+        sql = "SELECT * FROM shopping_content WHERE content_id=?"
+        params: list[Any] = [content_id]
+        if public_only:
+            sql += " AND status='published'"
+        with self._session() as conn:
+            row = conn.execute(sql, tuple(params)).fetchone()
+        return dict(row) if row else None
+
+    def related_content(self, content_id: str, limit: int = 4) -> list[dict[str, Any]]:
+        item = self.get_content(content_id)
+        if not item:
+            return []
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_content WHERE status='published' AND content_id<>? AND (category=? OR content_type=?) ORDER BY COALESCE(published_at,updated_at) DESC LIMIT ?", (content_id, item["category"], item["content_type"], max(1, min(limit, 12)))).fetchall()
+        return [dict(row) for row in rows]
 
     def save_content(self, payload: dict[str, Any], content_id: str | None = None) -> dict[str, Any]:
         now, content_id = utc_now_iso(), content_id or f"content_{uuid4().hex}"
@@ -1180,6 +1199,14 @@ class ShoppingStore:
         status = str(payload.get("status") or "draft")
         if status not in {"draft", "reviewing", "published", "offline"}:
             raise ValueError("invalid content status")
+        title = str(payload.get("title") or "").strip()
+        summary = str(payload.get("summary") or "").strip()
+        body = str(payload.get("body") or summary).strip()
+        source_url = str(payload.get("source_url") or "").strip()
+        if not title or not summary:
+            raise ValueError("title and summary are required")
+        if source_url and not source_url.startswith(("http://", "https://")):
+            raise ValueError("source URL must use http or https")
         with self._session() as conn:
             old = conn.execute("SELECT created_at,published_at FROM shopping_content WHERE content_id=?", (content_id,)).fetchone()
             created = old["created_at"] if old else now
@@ -1187,7 +1214,7 @@ class ShoppingStore:
             if status == "published" and not published:
                 published = now
             conn.execute("""INSERT INTO shopping_content(content_id,content_type,title,summary,body,category,source_url,status,created_at,updated_at,published_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(content_id) DO UPDATE SET content_type=excluded.content_type,title=excluded.title,summary=excluded.summary,body=excluded.body,category=excluded.category,source_url=excluded.source_url,status=excluded.status,updated_at=excluded.updated_at,published_at=excluded.published_at""", (content_id, content_type, str(payload.get("title") or "").strip(), str(payload.get("summary") or "").strip(), str(payload.get("body") or "").strip(), str(payload.get("category") or "综合"), str(payload.get("source_url") or "").strip(), status, created, now, published))
+                ON CONFLICT(content_id) DO UPDATE SET content_type=excluded.content_type,title=excluded.title,summary=excluded.summary,body=excluded.body,category=excluded.category,source_url=excluded.source_url,status=excluded.status,updated_at=excluded.updated_at,published_at=excluded.published_at""", (content_id, content_type, title, summary, body, str(payload.get("category") or "综合"), source_url, status, created, now, published))
             row = conn.execute("SELECT * FROM shopping_content WHERE content_id=?", (content_id,)).fetchone()
         return dict(row)
 

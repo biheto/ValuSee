@@ -60,6 +60,8 @@ The first release focuses on digital products and small appliances. The system m
 - Favorites and history now support account-scoped groups, search, selection, bulk move/delete, and an explicit unfollow action for brands. Bulk operations cap requests at 100 records and silently exclude records owned by another account.
 - The message center groups price, after-sales, and system events; supports unread filtering, detail navigation, selection, bulk read/delete, individual deletion, and delivery retry. Every channel attempt is persisted with attempt number, result, and status while the in-app message remains canonical.
 - Account export and deletion include product records, review evidence, saved groups, group memberships, and notification delivery attempts, keeping the new retention features inside the privacy lifecycle.
+- Discovery content now has public search, complete category filtering, stable `/content/{content_id}` pages, related guides/topics, source links, and escaped per-page SEO metadata. Consumer reads are restricted to published content; guessed draft, reviewing, and offline IDs return 404.
+- Content bodies render as text paragraphs rather than trusted operator HTML, and governed source URLs accept only HTTP(S), preventing stored script markup or script-protocol links from entering the consumer page.
 
 ### Brand assets
 

@@ -1,4 +1,4 @@
-import { Bell, Bookmark, ChevronRight, Clock3, Crown, ExternalLink, FolderPlus, Heart, History, Laptop, MessageSquare, PackageCheck, Receipt, RotateCcw, Search, ShieldCheck, Sparkles, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react';
+import { ArrowLeft, Bell, Bookmark, ChevronRight, Clock3, Crown, ExternalLink, FolderPlus, Heart, History, Laptop, MessageSquare, PackageCheck, Receipt, RotateCcw, Search, ShieldCheck, Sparkles, Tag, Trash2, UserRound, WalletCards, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export type ConsumerProduct = {
@@ -16,26 +16,38 @@ export type ProductDetailData = {
   price_history: { snapshots?: Array<{ captured_at: string; final_price: number }>; lowest_price?: number; average_price?: number };
   review_evidence?: { report: { risk_level: string; confidence: number; summary: string; sample_size: number; issue_groups: Array<{ name: string; ratio: number; evidence: string[] }> }; sources: string[]; created_at: string } | null;
 };
-type ContentItem = { content_id: string; content_type: string; title: string; summary: string; body: string; category: string; source_url?: string; published_at?: string };
+export type ContentItem = { content_id: string; content_type: string; title: string; summary: string; body: string; category: string; source_url?: string; published_at?: string };
 type CampaignItem = { campaign_id: string; title: string; summary: string; placement: string; target_url?: string };
 
 const money = (value?: number) => `¥${Number(value || 0).toFixed(0)}`;
 const day = (value: string) => new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 
-export function DiscoverPage({ dashboard, recent, onStart, onOpen }: { dashboard: Dashboard; recent: SavedItem[]; onStart: (goal: string) => void; onOpen: (product: ConsumerProduct) => void }) {
+export function DiscoverPage({ dashboard, recent, onStart, onOpen, onOpenContent }: { dashboard: Dashboard; recent: SavedItem[]; onStart: (goal: string) => void; onOpen: (product: ConsumerProduct) => void; onOpenContent: (contentId: string) => void }) {
   const [query, setQuery] = useState('');
   const [content, setContent] = useState<ContentItem[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
-  useEffect(() => { void fetch('/api/v1/shopping/content').then((response) => response.json()).then((data) => setContent(data.items || [])).catch(() => setContent([])); }, []);
+  const [contentQuery, setContentQuery] = useState('');
+  const [contentCategory, setContentCategory] = useState('');
+  const [contentCategories, setContentCategories] = useState<string[]>([]);
+  useEffect(() => { void fetch('/api/v1/shopping/content').then((response) => response.json()).then((data) => { setContent(data.items || []); setContentCategories(data.categories || []); }).catch(() => setContent([])); }, []);
   useEffect(() => { void fetch('/api/v1/shopping/campaigns').then((response) => response.json()).then((data) => setCampaigns(data.items || [])).catch(() => setCampaigns([])); }, []);
   const categories = [['手机', '换机前先核对版本与补贴'], ['电脑', '性能、续航和接口一起看'], ['显示器', '尺寸、供电与色彩不踩坑'], ['耳机', '降噪、接口与售后都算清'], ['家电', '能耗、耗材与保修全周期']];
   return <section className="discover-page">
     <div className="discover-hero"><div><span><Sparkles size={16} />AI 购物决策</span><h1>买之前，先看清真正的价值。</h1><p>把需求、商品链接或截图交给 ValuSee，从同款识别、到手价到买后保价，一次算明白。</p><form onSubmit={(event) => { event.preventDefault(); if (query.trim()) onStart(query.trim()); }}><Search size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="想买什么？例如：适合 MacBook 的 27 英寸显示器" /><button>开始分析</button></form></div><div className="discover-value"><strong>{money(dashboard.actual_savings)}</strong><span>已记录节省</span><small>{dashboard.monitors || 0} 个监控正在守候目标价</small></div></div>
     <div className="category-strip">{categories.map(([name, description]) => <button key={name} onClick={() => onStart(`帮我选${name}，请结合预算、用途和已有设备推荐`)}><i><Tag size={18} /></i><strong>{name}</strong><span>{description}</span><ChevronRight size={16} /></button>)}</div>
     {campaigns.length > 0 && <section className="campaign-strip" aria-label="当前活动">{campaigns.slice(0, 3).map((item) => <article key={item.campaign_id}><span>ValuSee 活动 · {item.placement}</span><strong>{item.title}</strong><p>{item.summary}</p>{item.target_url && <a href={item.target_url} target="_blank" rel="noreferrer">查看详情<ExternalLink size={13} /></a>}</article>)}</section>}
-    {content.length > 0 && <section className="content-shelf"><div className="consumer-section-title"><div><span>选购指南</span><h2>把复杂参数讲清楚</h2></div><BookOpenIcon /></div><div className="content-grid">{content.slice(0, 4).map((item) => <article key={item.content_id}><span>{item.category} · {item.content_type}</span><h3>{item.title}</h3><p>{item.summary}</p>{item.source_url && <a href={item.source_url} target="_blank" rel="noreferrer"><ExternalLink size={13} />查看来源</a>}</article>)}</div></section>}
+    {content.length > 0 && <section className="content-shelf"><div className="consumer-section-title"><div><span>选购指南</span><h2>把复杂参数讲清楚</h2></div><BookOpenIcon /></div><div className="content-filter"><label><Search size={14} /><input value={contentQuery} onChange={(event) => setContentQuery(event.target.value)} placeholder="搜索指南与专题" /></label><select value={contentCategory} onChange={(event) => setContentCategory(event.target.value)}><option value="">全部分类</option>{contentCategories.map((category) => <option key={category}>{category}</option>)}</select></div><div className="content-grid">{content.filter((item) => (!contentCategory || item.category === contentCategory) && (!contentQuery.trim() || `${item.title} ${item.summary} ${item.body}`.toLowerCase().includes(contentQuery.trim().toLowerCase()))).map((item) => <article key={item.content_id}><span>{item.category} · {item.content_type}</span><h3>{item.title}</h3><p>{item.summary}</p><div><button onClick={() => onOpenContent(item.content_id)}>阅读全文<ChevronRight size={13} /></button>{item.source_url && <a href={item.source_url} target="_blank" rel="noreferrer"><ExternalLink size={13} />来源</a>}</div></article>)}</div></section>}
     <div className="discover-grid"><section><div className="consumer-section-title"><div><span>继续上次</span><h2>最近看过</h2></div><History size={20} /></div>{recent.length ? <div className="consumer-product-grid">{recent.slice(0, 6).map((item) => <ProductTile key={item.saved_id} product={item.product} subtitle={`${item.product.platform || '来源待确认'} · ${day(item.updated_at)}`} onOpen={() => onOpen(item.product)} />)}</div> : <EmptyState icon={<Clock3 />} title="还没有浏览足迹" text="搜索或打开商品后，会在这里继续你的购买决策。" />}</section><aside><div className="consumer-section-title"><div><span>你的进度</span><h2>购物助理摘要</h2></div><WalletCards size={20} /></div><div className="home-stats"><article><Bell /><strong>{dashboard.monitors || 0}</strong><span>降价监控</span></article><article><Heart /><strong>{dashboard.favorite || 0}</strong><span>收藏商品</span></article><article><Receipt /><strong>{dashboard.purchases || 0}</strong><span>购买记录</span></article><article><MessageSquare /><strong>{dashboard.unread || 0}</strong><span>未读提醒</span></article></div><div className="truth-note"><ShieldCheck size={20} /><div><strong>真实来源优先</strong><p>没有授权价格或可追溯证据时，ValuSee 会明确提示缺失，不生成虚假榜单和优惠。</p></div></div></aside></div>
   </section>;
+}
+
+export function ContentDetailPage({ contentId, onBack, onOpenContent }: { contentId: string; onBack: () => void; onOpenContent: (contentId: string) => void }) {
+  const [data, setData] = useState<{ item: ContentItem; related: ContentItem[] } | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => { setData(null); setError(''); void fetch(`/api/v1/shopping/content/${encodeURIComponent(contentId)}`).then(async (response) => { if (!response.ok) throw new Error('内容不存在或已下线'); return response.json(); }).then(setData).catch((reason) => setError(reason instanceof Error ? reason.message : '内容读取失败')); }, [contentId]);
+  if (!data) return <main className="content-detail-page"><button className="content-back" onClick={onBack}><ArrowLeft size={16} />返回发现</button><div className="content-loading" role={error ? 'alert' : 'status'}>{error || '正在读取内容...'}</div></main>;
+  const { item, related } = data;
+  return <main className="content-detail-page"><button className="content-back" onClick={onBack}><ArrowLeft size={16} />返回发现</button><article><header><span>{item.category} · {item.content_type}</span><h1>{item.title}</h1><p>{item.summary}</p><small>{item.published_at ? day(item.published_at) : '发布时间待确认'}</small></header><div className="content-body">{item.body.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{item.source_url && <a className="content-source" href={item.source_url} target="_blank" rel="noreferrer"><ExternalLink size={15} />查看原始资料来源</a>}</article>{related.length > 0 && <aside><h2>相关推荐</h2><div>{related.map((content) => <button key={content.content_id} onClick={() => onOpenContent(content.content_id)}><span>{content.category}</span><strong>{content.title}</strong><ChevronRight size={15} /></button>)}</div></aside>}</main>;
 }
 
 function BookOpenIcon() { return <Bookmark size={20} />; }

@@ -1005,8 +1005,17 @@ def get_shopping_profile(authorization: str | None = Header(default=None)) -> di
 
 
 @router.get("/shopping/content", tags=["Shopping Discovery"])
-def list_shopping_content(category: str | None = None, limit: int = 100) -> dict[str, object]:
-    return {"items": shopping_store.list_content(category=category, limit=limit)}
+def list_shopping_content(category: str | None = None, query: str | None = None, limit: int = 100) -> dict[str, object]:
+    items = shopping_store.list_content(category=category, limit=limit, query_text=query)
+    return {"items": items, "categories": sorted({str(item["category"]) for item in shopping_store.list_content(limit=500)})}
+
+
+@router.get("/shopping/content/{content_id}", tags=["Shopping Discovery"])
+def get_shopping_content(content_id: str) -> dict[str, object]:
+    item = shopping_store.get_content(content_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    return {"item": item, "related": shopping_store.related_content(content_id)}
 
 
 @router.get("/shopping/campaigns", tags=["Shopping Discovery"])

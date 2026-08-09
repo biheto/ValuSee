@@ -124,6 +124,19 @@ if web_dist.exists():
         del product_ref
         return FileResponse(web_dist / "index.html")
 
+    @app.get("/content/{content_id}", include_in_schema=False)
+    def content_index(content_id: str) -> HTMLResponse:
+        item = shopping_store.get_content(content_id)
+        document = (web_dist / "index.html").read_text(encoding="utf-8")
+        if not item:
+            return HTMLResponse(document, status_code=404)
+        title = html.escape(str(item["title"]), quote=True)
+        description = html.escape(str(item["summary"]), quote=True)
+        document = document.replace("<title>ValuSee - 买之前，先看清价值</title>", f"<title>{title} - ValuSee</title>")
+        document = document.replace('<meta property="og:title" content="ValuSee - 买之前，先看清价值" />', f'<meta property="og:title" content="{title}" />')
+        document = document.replace('<meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />', f'<meta property="og:description" content="{description}" />')
+        return HTMLResponse(document)
+
     @app.get("/share/{share_token}", include_in_schema=False)
     def shared_decision_index(share_token: str) -> HTMLResponse:
         share = shopping_store.get_share(share_token)
