@@ -560,7 +560,7 @@ class AuthStore:
             "savings_ledger": ("shopping_savings_ledger", "user_id"),
         }
         with self._session() as conn:
-            result = {"user": self.get_user(user_id), "families": [], "family_assets": [], "family_budgets": [], "family_invitations": [], "support_messages": [], **{key: [] for key in tables}}
+            result = {"user": self.get_user(user_id), "families": [], "family_assets": [], "family_budgets": [], "family_invitations": [], "support_messages": [], "support_cases": [], **{key: [] for key in tables}}
             result["families"] = [dict(row) for row in conn.execute("SELECT f.*,m.role FROM valuesee_family f JOIN valuesee_family_member m ON f.family_id=m.family_id WHERE m.user_id=?", (user_id,)).fetchall()]
             family_ids = [item["family_id"] for item in result["families"]]
             for family_id in family_ids:
@@ -583,6 +583,7 @@ class AuthStore:
                         raise
             try:
                 result["support_messages"] = [dict(row) for row in conn.execute("SELECT m.* FROM shopping_support_message m JOIN shopping_support_ticket t ON t.ticket_id=m.ticket_id WHERE t.user_id=? ORDER BY m.created_at", (user_id,)).fetchall()]
+                result["support_cases"] = [dict(row) for row in conn.execute("SELECT c.* FROM shopping_support_case c JOIN shopping_support_ticket t ON t.ticket_id=c.ticket_id WHERE t.user_id=? ORDER BY c.updated_at", (user_id,)).fetchall()]
             except Exception as exc:
                 if exc.__class__.__name__ != "OperationalError":
                     raise
@@ -625,6 +626,7 @@ class AuthStore:
                 ticket_ids = [row["ticket_id"] for row in conn.execute("SELECT ticket_id FROM shopping_support_ticket WHERE user_id=?", (user_id,)).fetchall()]
                 for ticket_id in ticket_ids:
                     conn.execute("DELETE FROM shopping_support_message WHERE ticket_id=?", (ticket_id,))
+                    conn.execute("DELETE FROM shopping_support_case WHERE ticket_id=?", (ticket_id,))
             except Exception as exc:
                 if exc.__class__.__name__ != "OperationalError":
                     raise

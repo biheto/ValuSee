@@ -81,6 +81,13 @@ def test_support_ticket_conversation_is_scoped_and_stateful():
         assert admin_reply["status"] == "waiting_user" and len(admin_reply["messages"]) == 2
         user_reply = store.reply_support_ticket("u1", ticket["ticket_id"], "Attached")
         assert user_reply["status"] == "open" and len(user_reply["messages"]) == 3
+        assert admin_reply["first_response_at"] is not None and ticket["sla_due_at"] is not None
+        closed = store.update_support_case("u1", ticket["ticket_id"], {"status": "closed", "satisfaction": 5, "satisfaction_note": "Solved"})
+        assert closed["closed_at"] is not None and closed["satisfaction"] == 5
+        reopened = store.update_support_case("u1", ticket["ticket_id"], {"status": "open"})
+        assert reopened["closed_at"] is None
+        assigned = store.update_support_case("admin", ticket["ticket_id"], {"status": "in_progress", "assigned_to": "agent-1"}, admin=True)
+        assert assigned["assigned_to"] == "agent-1"
 
 
 def test_price_protection_claim_is_scoped_and_records_savings_once():

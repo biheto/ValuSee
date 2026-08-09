@@ -68,6 +68,11 @@ type SupportTicket = {
   subject: string;
   status: string;
   updated_at: string;
+  sla_due_at?: string;
+  first_response_at?: string;
+  closed_at?: string;
+  satisfaction?: number;
+  assigned_to?: string;
   messages?: Array<{
     message_id: string;
     actor_role: string;
@@ -2719,6 +2724,12 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
     setOpenTicket(updated);
     await loadTickets();
   }
+  async function updateTicket(status: "open" | "closed", satisfaction?: number) {
+    if (!openTicket) return;
+    const updated = await request<SupportTicket>(`/api/v1/shopping/support/tickets/${encodeURIComponent(openTicket.ticket_id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, satisfaction }) });
+    setOpenTicket(updated);
+    await loadTickets();
+  }
   return (
     <section className="page-section">
       <PageTitle icon={<Receipt size={22} />} title="订单与售后" subtitle="从购买记录、凭证归档到保价和客服协同集中管理。" />
@@ -2848,6 +2859,7 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
           </button>
           <h2>{openTicket.subject}</h2>
           <span>{openTicket.status}</span>
+          {openTicket.sla_due_at && <small>服务目标：{date(openTicket.sla_due_at)}前响应 {openTicket.first_response_at ? "· 已首次响应" : "· 等待响应"}</small>}
           <div className="ticket-messages">
             {openTicket.messages?.map((message) => (
               <article className={message.actor_role} key={message.message_id}>
@@ -2860,6 +2872,8 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
           <button className="primary-button" onClick={() => void reply()}>
             继续回复
           </button>
+          {openTicket.status === "closed" ? <button className="soft-button" onClick={() => void updateTicket("open")}>重新打开</button> : <button className="soft-button" onClick={() => void updateTicket("closed")}>关闭工单</button>}
+          {openTicket.status === "closed" && <div className="ticket-rating"><span>服务评分</span>{[1, 2, 3, 4, 5].map((score) => <button className={openTicket.satisfaction === score ? "active" : ""} key={score} onClick={() => void updateTicket("closed", score)}>{score}</button>)}</div>}
         </div>
       )}
     </section>

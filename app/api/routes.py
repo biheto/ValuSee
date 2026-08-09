@@ -1583,6 +1583,14 @@ def reply_support_ticket(ticket_id: str, payload: dict[str, object], authorizati
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.patch("/shopping/support/tickets/{ticket_id}", tags=["Customer Support"])
+def update_support_ticket(ticket_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.update_support_case(_request_user(authorization), ticket_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/admin/support/tickets", tags=["Admin Support"])
 def admin_list_support_tickets(authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
@@ -1597,6 +1605,15 @@ def admin_reply_support_ticket(ticket_id: str, payload: dict[str, object], autho
         message_id = str(ticket.get("messages", [{}])[-1].get("message_id") or uuid4().hex)
         shopping_store.create_notification(user_id=str(ticket["user_id"]), kind="support", title=f"客服回复：{ticket['subject']}", message=str(payload.get("content") or "")[:500], idempotency_key=f"support:{ticket_id}:{message_id}")
         return ticket
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.patch("/admin/support/tickets/{ticket_id}", tags=["Admin Support"])
+def admin_update_support_ticket(ticket_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        return shopping_store.update_support_case(actor_id, ticket_id, payload, admin=True)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

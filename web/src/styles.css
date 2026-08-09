@@ -189,6 +189,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .membership-orders article { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid rgba(18,55,46,.1); }
 .membership-orders article>div { display:grid; gap:4px; flex:1; }
 .membership-orders article span,.membership-orders article>b { color:#73827c; font-size:11px; }
+.ticket-rating { display:flex; align-items:center; gap:6px; margin-top:12px; }
+.ticket-rating button { width:30px; height:30px; border:1px solid rgba(18,55,46,.14); background:rgba(255,255,255,.5); }
+.ticket-rating button.active { color:#fff; background:#15735d; }
 .savings-ledger article { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid #e5ece7; }
 .savings-ledger strong,.savings-ledger span { display:block; }
 .savings-ledger span { margin-top:3px; color:#85918c; font-size:10px; }
