@@ -57,6 +57,19 @@ class AuthStore:
                 token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,purpose TEXT NOT NULL,
                 expires_at TEXT NOT NULL,used_at TEXT,created_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_session(
+                session_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,
+                device_name TEXT NOT NULL,ip_address TEXT,status TEXT NOT NULL,created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,expires_at TEXT NOT NULL,revoked_at TEXT
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_subscription(
+                user_id TEXT PRIMARY KEY,plan_code TEXT NOT NULL,status TEXT NOT NULL,
+                current_period_end TEXT,provider TEXT,external_reference TEXT,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_upgrade_request(
+                request_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,plan_code TEXT NOT NULL,
+                status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
             if conn.backend == "postgresql":
                 conn.execute("ALTER TABLE valuesee_user ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0")
             else:
@@ -139,7 +152,84 @@ class AuthStore:
             return False
         with self._session() as conn:
             conn.execute("UPDATE valuesee_user SET password_hash=? WHERE user_id=?", (hash_password(password), user_id))
+            conn.execute("UPDATE valuesee_session SET status='revoked',revoked_at=? WHERE user_id=? AND status='active'", (utc_now_iso(), user_id))
         return True
+
+    def create_session(self, user_id: str, device_name: str = "浏览器", ip_address: str | None = None, expires_seconds: int = 86_400) -> str:
+        session_id = f"ses_{uuid4().hex}"
+        token = issue_token(user_id, expires_seconds=expires_seconds, session_id=session_id)
+        now = datetime.now(timezone.utc)
+        expires_at = (now + timedelta(seconds=expires_seconds)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        with self._session() as conn:
+            conn.execute(
+                "INSERT INTO valuesee_session(session_id,user_id,token_hash,device_name,ip_address,status,created_at,last_seen_at,expires_at,revoked_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (session_id, user_id, hashlib.sha256(token.encode()).hexdigest(), device_name.strip()[:160] or "浏览器", ip_address, "active", utc_now_iso(), utc_now_iso(), expires_at, None),
+            )
+        return token
+
+    def validate_session(self, session_id: str, token: str) -> bool:
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with self._session() as conn:
+            row = conn.execute("SELECT status,expires_at,token_hash FROM valuesee_session WHERE session_id=?", (session_id,)).fetchone()
+            if not row or row["status"] != "active" or not hmac.compare_digest(str(row["token_hash"]), digest) or _parse_utc(row["expires_at"]) < datetime.now(timezone.utc):
+                return False
+            conn.execute("UPDATE valuesee_session SET last_seen_at=? WHERE session_id=?", (utc_now_iso(), session_id))
+        return True
+
+    def list_sessions(self, user_id: str, current_token: str | None = None) -> list[dict[str, Any]]:
+        current_hash = hashlib.sha256(current_token.encode()).hexdigest() if current_token else ""
+        with self._session() as conn:
+            rows = conn.execute("SELECT session_id,device_name,ip_address,status,created_at,last_seen_at,expires_at,revoked_at,token_hash FROM valuesee_session WHERE user_id=? ORDER BY last_seen_at DESC", (user_id,)).fetchall()
+        return [{**{key: row[key] for key in ("session_id", "device_name", "ip_address", "status", "created_at", "last_seen_at", "expires_at", "revoked_at")}, "current": bool(current_hash and hmac.compare_digest(str(row["token_hash"]), current_hash))} for row in rows]
+
+    def revoke_session(self, user_id: str, session_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("UPDATE valuesee_session SET status='revoked',revoked_at=? WHERE session_id=? AND user_id=? AND status='active'", (utc_now_iso(), session_id, user_id)).rowcount > 0
+
+    def subscription_status(self, user_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_subscription WHERE user_id=?", (user_id,)).fetchone()
+        plan = str(row["plan_code"]) if row and row["status"] == "active" else "free"
+        limits = {"free": {"active_monitors": 3, "monthly_comparisons": 10, "family_members": 2}, "pro": {"active_monitors": 100, "monthly_comparisons": 1000, "family_members": 6}}
+        return {"plan_code": plan, "status": str(row["status"]) if row else "active", "current_period_end": row["current_period_end"] if row else None, "provider": row["provider"] if row else None, "limits": limits[plan]}
+
+    def entitlement_usage(self, user_id: str) -> dict[str, int]:
+        month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        usage = {"active_monitors": 0, "monthly_comparisons": 0, "family_members": 1}
+        with self._session() as conn:
+            queries = {
+                "active_monitors": ("SELECT COUNT(*) AS total FROM shopping_price_monitor WHERE user_id=? AND status IN ('watching','paused','target_reached')", (user_id,)),
+                "monthly_comparisons": ("SELECT COUNT(*) AS total FROM shopping_comparison_list WHERE user_id=? AND created_at>=?", (user_id, month_start)),
+                "family_members": ("SELECT COALESCE(MAX(member_total),1) AS total FROM (SELECT COUNT(*) AS member_total FROM valuesee_family_member WHERE family_id IN (SELECT family_id FROM valuesee_family WHERE owner_id=?) GROUP BY family_id) counts", (user_id,)),
+            }
+            for key, (sql, params) in queries.items():
+                try:
+                    row = conn.execute(sql, params).fetchone()
+                    usage[key] = int(row["total"] if row and row["total"] is not None else usage[key])
+                except Exception as exc:
+                    if exc.__class__.__name__ != "OperationalError":
+                        raise
+        return usage
+
+    def require_entitlement(self, user_id: str, entitlement: str) -> None:
+        membership = self.subscription_status(user_id)
+        limits, usage = membership["limits"], self.entitlement_usage(user_id)
+        if entitlement not in limits:
+            raise ValueError("unknown entitlement")
+        if usage[entitlement] >= int(limits[entitlement]):
+            labels = {"active_monitors": "降价监控", "monthly_comparisons": "本月对比", "family_members": "家庭成员"}
+            raise ValueError(f"{labels[entitlement]}已达到 {membership['plan_code'].upper()} 方案额度")
+
+    def request_upgrade(self, user_id: str, plan_code: str) -> dict[str, Any]:
+        if plan_code != "pro":
+            raise ValueError("unsupported plan")
+        now, request_id = utc_now_iso(), f"upgrade_{uuid4().hex}"
+        with self._session() as conn:
+            existing = conn.execute("SELECT * FROM valuesee_upgrade_request WHERE user_id=? AND plan_code=? AND status='pending'", (user_id, plan_code)).fetchone()
+            if existing:
+                return dict(existing)
+            conn.execute("INSERT INTO valuesee_upgrade_request VALUES(?,?,?,?,?,?)", (request_id, user_id, plan_code, "pending", now, now))
+        return {"request_id": request_id, "user_id": user_id, "plan_code": plan_code, "status": "pending", "created_at": now, "updated_at": now}
 
     def create_family(self, owner_id: str, name: str) -> dict[str, Any]:
         family_id, now = f"fam_{uuid4().hex}", utc_now_iso()
@@ -221,6 +311,9 @@ class AuthStore:
             "business_events": ("shopping_business_event", "user_id"),
             "saved_items": ("shopping_saved_item", "user_id"),
             "shares": ("shopping_share", "user_id"),
+            "sessions": ("valuesee_session", "user_id"),
+            "subscriptions": ("valuesee_subscription", "user_id"),
+            "upgrade_requests": ("valuesee_upgrade_request", "user_id"),
         }
         with self._session() as conn:
             result = {"user": self.get_user(user_id), "families": [], **{key: [] for key in tables}}
@@ -228,6 +321,9 @@ class AuthStore:
             for key, (table, column) in tables.items():
                 try:
                     result[key] = [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE {column}=?", (user_id,)).fetchall()]
+                    if key == "sessions":
+                        for session in result[key]:
+                            session.pop("token_hash", None)
                 except Exception as exc:
                     if exc.__class__.__name__ == "OperationalError":
                         result[key] = []
@@ -246,8 +342,10 @@ class AuthStore:
             "shopping_business_event",
             "shopping_saved_item",
             "shopping_share",
+            "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request",
         )
         with self._session() as conn:
+            owned_family_ids = [row["family_id"] for row in conn.execute("SELECT family_id FROM valuesee_family WHERE owner_id=?", (user_id,)).fetchall()]
             try:
                 monitor_ids = [row["monitor_id"] for row in conn.execute("SELECT monitor_id FROM shopping_price_monitor WHERE user_id=?", (user_id,)).fetchall()]
             except Exception as exc:
@@ -268,8 +366,11 @@ class AuthStore:
                     except Exception as exc:
                         if exc.__class__.__name__ != "OperationalError":
                             raise
+            for family_id in owned_family_ids:
+                conn.execute("DELETE FROM valuesee_family_member WHERE family_id=?", (family_id,))
             conn.execute("DELETE FROM valuesee_family_member WHERE user_id=?", (user_id,))
             conn.execute("DELETE FROM valuesee_family WHERE owner_id=?", (user_id,))
+            conn.execute("DELETE FROM valuesee_auth_token WHERE user_id=?", (user_id,))
             conn.execute("DELETE FROM valuesee_user WHERE user_id=?", (user_id,))
 
 
@@ -288,9 +389,12 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def issue_token(user_id: str, expires_seconds: int = 86_400) -> str:
+def issue_token(user_id: str, expires_seconds: int = 86_400, session_id: str | None = None) -> str:
     header = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-    payload = _b64(json.dumps({"sub": user_id, "iat": int(time.time()), "exp": int(time.time()) + expires_seconds}, separators=(",", ":")).encode())
+    claims: dict[str, Any] = {"sub": user_id, "iat": int(time.time()), "exp": int(time.time()) + expires_seconds}
+    if session_id:
+        claims["sid"] = session_id
+    payload = _b64(json.dumps(claims, separators=(",", ":")).encode())
     signature = _b64(hmac.new(_jwt_secret(), f"{header}.{payload}".encode(), hashlib.sha256).digest())
     return f"{header}.{payload}.{signature}"
 
@@ -304,6 +408,8 @@ def verify_token(token: str) -> str:
         body = json.loads(_unb64(payload))
         if int(body["exp"]) < int(time.time()):
             raise ValueError("expired")
+        if body.get("sid") and not auth_store.validate_session(str(body["sid"]), token):
+            raise ValueError("revoked session")
         return str(body["sub"])
     except Exception as exc:
         raise ValueError("登录状态无效或已过期") from exc

@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Req
 from fastapi.responses import StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
-from app.auth.service import auth_store, bearer_subject, issue_token
+from app.auth.service import auth_store, bearer_subject
 from app.benchmark_runner import (
     run_collaboration_benchmark,
     run_llm_benchmark,
@@ -160,27 +160,39 @@ def _require_admin(authorization: str | None) -> str:
     return subject
 
 
+def _session_context(request: Request) -> tuple[str, str | None]:
+    device = request.headers.get("user-agent", "浏览器")[:160]
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    return device, forwarded or (request.client.host if request.client else None)
+
+
+def _raw_bearer(authorization: str | None) -> str | None:
+    return authorization[7:].strip() if authorization and authorization.startswith("Bearer ") else None
+
+
 @router.post("/auth/register", tags=["Account"])
-def register_account(request: RegisterRequest) -> dict[str, object]:
+def register_account(request_body: RegisterRequest, request: Request) -> dict[str, object]:
     try:
-        user = auth_store.register(request.email, request.password, request.display_name)
+        user = auth_store.register(request_body.email, request_body.password, request_body.display_name)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     verify_token = auth_store.create_action_token(user["user_id"], "verify_email", ttl_minutes=1440)
     base_url = os.getenv("VALUSee_PUBLIC_BASE_URL", "http://127.0.0.1:8200").rstrip("/")
     send_transactional_email(user["email"], "验证你的 ValuSee 邮箱", f"请在 24 小时内打开：{base_url}/?verify_token={verify_token}")
-    response: dict[str, object] = {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+    device, ip_address = _session_context(request)
+    response: dict[str, object] = {"user": user, "access_token": auth_store.create_session(user["user_id"], device, ip_address), "token_type": "bearer"}
     if settings.app_env.lower() not in {"prod", "production"}:
         response["verification_token"] = verify_token
     return response
 
 
 @router.post("/auth/login", tags=["Account"])
-def login_account(request: LoginRequest) -> dict[str, object]:
-    user = auth_store.authenticate(request.email, request.password)
+def login_account(request_body: LoginRequest, request: Request) -> dict[str, object]:
+    user = auth_store.authenticate(request_body.email, request_body.password)
     if not user:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
-    return {"user": user, "access_token": issue_token(user["user_id"]), "token_type": "bearer"}
+    device, ip_address = _session_context(request)
+    return {"user": user, "access_token": auth_store.create_session(user["user_id"], device, ip_address), "token_type": "bearer"}
 
 
 @router.post("/auth/email/verify/request", tags=["Account"])
@@ -234,6 +246,36 @@ def current_account(authorization: str | None = Header(default=None)) -> dict[st
     return {"user": user or {"user_id": user_id, "display_name": "本地账户", "status": "local"}}
 
 
+@router.get("/auth/sessions", tags=["Account"])
+def list_account_sessions(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return auth_store.list_sessions(_request_user(authorization), _raw_bearer(authorization))
+
+
+@router.delete("/auth/sessions/{session_id}", tags=["Account"])
+def revoke_account_session(session_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not auth_store.revoke_session(_request_user(authorization), session_id):
+        raise HTTPException(status_code=404, detail="会话不存在或已退出")
+    return {"revoked": True, "session_id": session_id}
+
+
+@router.get("/membership", tags=["Membership"])
+def membership_status(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return auth_store.subscription_status(_request_user(authorization))
+
+
+@router.get("/membership/plans", tags=["Membership"])
+def membership_plans() -> dict[str, object]:
+    return {"plans": [{"code": "free", "name": "Free", "price": None, "benefits": ["每月 10 次对比", "3 个降价监控", "基础购买建议"]}, {"code": "pro", "name": "Pro", "price": None, "status": "coming_soon", "benefits": ["更高对比与监控额度", "深度评论风险分析", "家庭多人档案", "长期购买偏好"]}], "payment_available": False}
+
+
+@router.post("/membership/upgrade-requests", tags=["Membership"])
+def create_upgrade_request(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.request_upgrade(_request_user(authorization), str(payload.get("plan_code") or "pro"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/families", tags=["Account"])
 def create_family(request: FamilyCreateRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     return auth_store.create_family(_request_user(authorization), request.name)
@@ -247,9 +289,11 @@ def list_families(authorization: str | None = Header(default=None)) -> list[dict
 @router.post("/families/invite", tags=["Account"])
 def invite_family_member(request: FamilyInviteRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     try:
-        return auth_store.invite_family_member(_request_user(authorization), request.family_id, request.email)
+        user_id = _request_user(authorization)
+        auth_store.require_entitlement(user_id, "family_members")
+        return auth_store.invite_family_member(user_id, request.family_id, request.email)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/families/{family_id}/members", tags=["Account"])
@@ -754,8 +798,13 @@ async def run_shopping_decision_stream(
 def create_price_monitor(request: PriceMonitorCreateRequest, authorization: str | None = Header(default=None)) -> PriceMonitorResponse:
     product = request.product.model_dump()
     breakdown = final_price_from_breakdown(product)
+    user_id = _request_user(authorization)
+    try:
+        auth_store.require_entitlement(user_id, "active_monitors")
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     record = shopping_store.create_monitor(
-        user_id=_request_user(authorization),
+        user_id=user_id,
         product=product,
         target_price=request.target_price,
         current_final_price=breakdown["final_price"],
@@ -836,7 +885,11 @@ def list_shopping_comparisons(authorization: str | None = Header(default=None)) 
 def save_shopping_comparison(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     products = payload.get("products") if isinstance(payload.get("products"), list) else []
     try:
-        return shopping_store.save_comparison(_request_user(authorization), str(payload.get("name") or "购物对比"), products, str(payload.get("comparison_id") or "") or None)
+        user_id = _request_user(authorization)
+        comparison_id = str(payload.get("comparison_id") or "") or None
+        if not comparison_id:
+            auth_store.require_entitlement(user_id, "monthly_comparisons")
+        return shopping_store.save_comparison(user_id, str(payload.get("name") or "购物对比"), products, comparison_id)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 

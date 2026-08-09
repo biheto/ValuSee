@@ -4,8 +4,10 @@ import {
   ChevronRight,
   ClipboardList,
   Compass,
+  Crown,
   Clock3,
   FileText,
+  Download,
   ExternalLink,
   MessageSquareWarning,
   Pause,
@@ -15,6 +17,7 @@ import {
   History,
   Heart,
   Link2,
+  LogOut,
   Loader2,
   Plus,
   Receipt,
@@ -49,7 +52,7 @@ type SavedReport = { report_id: string; task_id: string; goal: string; products:
 type SavedComparison = { comparison_id: string; name: string; products: Product[]; updated_at: string };
 type ShoppingProfile = { budget: number; devices: string[]; brand_preferences: string[]; sensitivities: string[]; acceptable_risk: string };
 type NotificationPreference = { email_enabled: boolean; in_app_enabled: boolean; quiet_start: string | null; quiet_end: string | null };
-type View = 'discover' | 'analyze' | 'monitors' | 'purchases' | 'saved' | 'messages' | 'account' | 'history' | 'family' | 'settings';
+type View = 'discover' | 'analyze' | 'monitors' | 'purchases' | 'saved' | 'messages' | 'account' | 'history' | 'family' | 'settings' | 'security' | 'membership';
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
 const sample: Product[] = [
@@ -203,6 +206,8 @@ export function App() {
     {view === 'history' && <SavedWork reports={reports} comparisons={comparisons} onOpenReport={(report) => { setResult({ task_id: report.task_id, status: 'completed', result: report.result, events: [] }); setProducts(report.products); setGoal(report.goal); setView('analyze'); }} onOpenComparison={(comparison) => { setProducts(comparison.products); setGoal(comparison.name); setView('analyze'); }} onDeleteComparison={removeComparison} onShareReport={(report) => void shareSnapshot('report', report.goal, { products: report.products, result: report.result })} onShareComparison={(comparison) => void shareSnapshot('comparison', comparison.name, { products: comparison.products })} />}
     {view === 'family' && <FamilyPanel />}
     {view === 'settings' && <SettingsPanel profile={profile} budget={budget} preferences={notificationPreference} onProfile={setProfile} onBudget={setBudget} onPreferences={setNotificationPreference} onSubmit={saveSettings} />}
+    {view === 'security' && <SecurityPanel onLoggedOut={logout} />}
+    {view === 'membership' && <MembershipPanel />}
     {detailProduct && <ProductDetail product={detailProduct} favorite={savedItems.some((item) => item.item_type === 'favorite' && item.reference_key === (detailProduct.url || `${detailProduct.brand}:${detailProduct.model}:${detailProduct.sku}`))} onClose={() => setDetailProduct(null)} onFavorite={() => void toggleFavorite(detailProduct)} onCompare={() => { void addProduct(detailProduct); setDetailProduct(null); setView('analyze'); }} request={request} />}
     <MobileNav view={view} onChange={(next) => setView(next as View)} />
   </main>;
@@ -243,6 +248,31 @@ function FamilyPanel() {
   async function remove(userId: string) { await request(`/api/v1/families/${encodeURIComponent(selected)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }); await load(); }
   if (!localStorage.getItem('valuesee-token')) return <section className="page-section"><PageTitle icon={<Users size={22} />} title="我的家庭" subtitle="登录后可与家庭成员共享设备档案和购买提醒。" /><div className="panel"><Empty text="请先登录账户" /></div></section>;
   return <section className="page-section"><PageTitle icon={<Users size={22} />} title="我的家庭" subtitle="管理家庭商品、设备档案和成员权限。" />{notice && <div className="toast"><CheckCircle2 size={16} />{notice}</div>}<div className="management-grid"><section className="panel"><div className="section-heading"><div><span>家庭空间</span><h2>创建或选择家庭</h2></div></div><form className="family-form" onSubmit={create}><input required value={name} onChange={(e) => setName(e.target.value)} /><button className="primary-button">创建家庭</button></form><div className="family-list">{families.map((item) => <button key={String(item.family_id)} className={selected === String(item.family_id) ? 'active' : ''} onClick={async () => { const id = String(item.family_id); setSelected(id); setMembers(await request(`/api/v1/families/${encodeURIComponent(id)}/members`)); }}><strong>{String(item.name)}</strong><span>{String(item.role)}</span></button>)}</div></section><section className="panel"><div className="section-heading"><div><span>成员权限</span><h2>家庭成员</h2></div></div>{selected && <form className="family-form" onSubmit={invite}><input type="email" required placeholder="已注册成员邮箱" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} /><button className="primary-button">添加成员</button></form>}<div className="family-members">{members.map((item) => <article key={String(item.user_id)}><div><strong>{String(item.display_name)}</strong><span>{String(item.email)} · {String(item.role)}</span></div>{item.role !== 'owner' && <div><button onClick={() => void role(String(item.user_id), item.role === 'editor' ? 'member' : 'editor')}>{item.role === 'editor' ? '设为成员' : '允许编辑'}</button><button className="danger" onClick={() => void remove(String(item.user_id))}>移除</button></div>}</article>)}</div></section></div></section>;
+}
+
+type AccountSession = { session_id: string; device_name: string; ip_address?: string; status: string; current: boolean; created_at: string; last_seen_at: string; expires_at: string };
+
+function SecurityPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const [user, setUser] = useState<{ email?: string; email_verified?: boolean } | null>(null);
+  const [sessions, setSessions] = useState<AccountSession[]>([]);
+  const [notice, setNotice] = useState('');
+  const load = async () => { const [me, active] = await Promise.all([request<{ user: { email?: string; email_verified?: boolean } }>('/api/v1/auth/me'), request<AccountSession[]>('/api/v1/auth/sessions')]); setUser(me.user); setSessions(active); };
+  useEffect(() => { if (localStorage.getItem('valuesee-token')) void load().catch(() => setNotice('安全信息读取失败，请重新登录。')); }, []);
+  async function revoke(item: AccountSession) { await request(`/api/v1/auth/sessions/${encodeURIComponent(item.session_id)}`, { method: 'DELETE' }); if (item.current) { onLoggedOut(); setNotice('当前设备已退出。'); } else { setNotice('该设备已退出。'); await load(); } }
+  async function verifyEmail() { await request('/api/v1/auth/email/verify/request', { method: 'POST' }); setNotice('验证邮件已发送，请在 24 小时内完成。'); }
+  async function exportData() { const data = await request<Record<string, unknown>>('/api/v1/auth/export'); const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `valuesee-account-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); setNotice('账户数据已导出。'); }
+  async function deleteAccount() { const confirmation = window.prompt('此操作会永久删除账户和关联购物数据。请输入 DELETE 确认：'); if (confirmation !== 'DELETE') return; await request('/api/v1/auth/account', { method: 'DELETE' }); onLoggedOut(); setNotice('账户和关联数据已删除。'); }
+  if (!localStorage.getItem('valuesee-token')) return <section className="page-section"><PageTitle icon={<ShieldCheck size={22} />} title="账户与数据安全" subtitle="登录后管理设备、邮箱和个人数据。" /><div className="panel"><Empty text="请先登录账户" /></div></section>;
+  return <section className="page-section"><PageTitle icon={<ShieldCheck size={22} />} title="账户与数据安全" subtitle="控制登录设备、身份验证和数据生命周期。" />{notice && <div className="toast"><CheckCircle2 size={16} />{notice}</div>}<div className="settings-grid"><section className="panel compact-form"><h3>身份与数据</h3><div className="security-identity"><span>{user?.email || '邮箱读取中'}</span><b className={user?.email_verified ? 'verified' : ''}>{user?.email_verified ? '已验证' : '未验证'}</b></div>{!user?.email_verified && <button className="soft-button" onClick={() => void verifyEmail()}>发送验证邮件</button>}<button className="soft-button" onClick={() => void exportData()}><Download size={16} />导出我的数据</button><button className="danger-button" onClick={() => void deleteAccount()}><Trash2 size={16} />永久注销账户</button><p className="settings-note">注销会删除账户、监控、报告、购买记录、分享和家庭成员关系，无法恢复。</p></section><section className="panel compact-form"><h3>登录设备</h3><div className="session-list">{sessions.map((item) => <article key={item.session_id}><div><strong>{item.device_name || '未知设备'}{item.current && <em>当前</em>}</strong><span>{item.ip_address || 'IP 未记录'} · 最近活动 {date(item.last_seen_at)}</span></div>{item.status === 'active' && <button title="退出该设备" onClick={() => void revoke(item)}><LogOut size={16} /></button>}</article>)}</div></section></div></section>;
+}
+
+function MembershipPanel() {
+  const [status, setStatus] = useState<{ plan_code: string; limits: Record<string, number> } | null>(null);
+  const [plans, setPlans] = useState<Array<{ code: string; name: string; price: number | null; status?: string; benefits: string[] }>>([]);
+  const [notice, setNotice] = useState('');
+  useEffect(() => { void Promise.all([request<{ plan_code: string; limits: Record<string, number> }>('/api/v1/membership'), request<{ plans: typeof plans; payment_available: boolean }>('/api/v1/membership/plans')]).then(([member, catalog]) => { setStatus(member); setPlans(catalog.plans); }).catch(() => setNotice('登录后可查看会员权益。')); }, []);
+  async function requestPro() { const result = await request<{ status: string }>('/api/v1/membership/upgrade-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan_code: 'pro' }) }); setNotice(result.status === 'pending' ? '已加入 Pro 开通候补，支付接入后会通知你。' : '申请已记录。'); }
+  return <section className="page-section"><PageTitle icon={<Crown size={22} />} title="会员权益" subtitle="额度与能力清晰可见，推荐排序不受会员或佣金影响。" />{notice && <div className="toast"><CheckCircle2 size={16} />{notice}</div>}<div className="membership-grid">{plans.map((plan) => <article className={`panel ${status?.plan_code === plan.code ? 'current' : ''}`} key={plan.code}><span>{status?.plan_code === plan.code ? '当前方案' : plan.status === 'coming_soon' ? '即将开放' : '方案'}</span><h2>{plan.name}</h2><strong>{plan.price == null ? (plan.code === 'free' ? '免费' : '价格待公布') : money(plan.price)}</strong><ul>{plan.benefits.map((benefit) => <li key={benefit}><CheckCircle2 size={15} />{benefit}</li>)}</ul>{plan.code === 'pro' && status?.plan_code !== 'pro' && <button className="primary-button" onClick={() => void requestPro()}>加入开通候补</button>}</article>)}</div>{status && <div className="panel quota-strip"><span>当前额度</span><b>{status.limits.active_monitors} 个监控</b><b>{status.limits.monthly_comparisons} 次/月对比</b><b>{status.limits.family_members} 位家庭成员</b></div>}</section>;
 }
 function AccountDialog({ mode, email, password, displayName, onEmail, onPassword, onDisplayName, onMode, onSubmit, onClose, onLogout }: { mode: 'login' | 'register' | 'forgot' | 'reset'; email: string; password: string; displayName: string; onEmail: (value: string) => void; onPassword: (value: string) => void; onDisplayName: (value: string) => void; onMode: (mode: 'login' | 'register' | 'forgot' | 'reset') => void; onSubmit: (event: FormEvent) => void; onClose: () => void; onLogout: () => void }) {
   const title = mode === 'login' ? '登录 ValuSee' : mode === 'register' ? '创建账户' : mode === 'forgot' ? '找回密码' : '设置新密码';
