@@ -71,7 +71,8 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | Browser extension | MVP complete | Load-unpacked Manifest V3 package reads user-visible fields on supported product pages and writes a confirmation inbox. |
 | Authorized commerce APIs | Adapter-ready | Provider boundary and configuration are documented; live JD/Taobao/affiliate credentials and approval are external release prerequisites. |
 | Price monitor scheduler | MVP complete | Independent restart-safe worker consumes new price snapshots, deduplicates checks, updates monitors, and emits notifications. |
-| Notifications | MVP complete | Durable idempotent in-app notifications and browser polling are implemented; production email/push adapters remain optional integrations. |
+| Notifications | MVP complete | Durable idempotent in-app notifications, browser polling, configurable TLS SMTP email, and signed Webhook delivery are implemented. |
+| Notification delivery | MVP complete | Account-email delivery through configurable TLS SMTP and signed Webhook delivery are implemented. Failed external delivery never removes the canonical in-app notification; SMS/mobile Push can be attached behind the signed Webhook after a provider is purchased. |
 | Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
 | Production storage | Runtime-ready | `DATABASE_URL` switches shopping and account stores to PostgreSQL; Redis rate limiting, RabbitMQ event publication, and S3/MinIO upload storage are wired, with a production Compose profile and health checks. |
