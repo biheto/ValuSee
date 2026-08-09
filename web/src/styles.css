@@ -169,6 +169,26 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .purchase-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; } .purchase-actions select { width:auto; min-width:108px; } .purchase-actions label { cursor:pointer; } .purchase-actions input[type=file] { display:none; } .attachment-list { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; } .attachment-list a { display:inline-flex; gap:5px; align-items:center; color:#15735d; font-size:11px; } .support-center { margin-top:17px; padding:20px; } .support-center>button { width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left; padding:13px 0; border:0; border-bottom:1px solid rgba(18,55,46,.1); background:transparent; } .support-center>button span { display:block; margin-top:4px; color:#7b8783; font-size:11px; } .support-center>button b { color:#15735d; font-size:11px; } .ticket-dialog { position:fixed; z-index:90; inset:10vh max(18px,calc((100vw - 680px)/2)); max-height:80vh; overflow:auto; padding:24px; } .ticket-messages { display:grid; gap:10px; margin:18px 0; } .ticket-messages article { max-width:82%; padding:12px; background:rgba(255,255,255,.4); border:1px solid rgba(18,55,46,.1); } .ticket-messages article.admin { margin-left:auto; } .ticket-messages p { margin:6px 0; } .ticket-messages small { color:#84908c; }
 .campaign-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; } .campaign-strip article { padding:16px; border-left:3px solid #eaa243; background:rgba(255,255,255,.28); } .campaign-strip span,.campaign-strip strong,.campaign-strip p { display:block; } .campaign-strip span { color:#9a641f; font-size:10px; } .campaign-strip strong { margin-top:6px; } .campaign-strip p { color:#68746f; font-size:12px; line-height:1.55; } .campaign-strip a { display:inline-flex; align-items:center; gap:5px; color:#15735d; font-size:11px; }
 .heading-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.family-invitations { margin-bottom:14px; padding:18px; }
+.family-invitations h2 { margin:0 0 10px; font-size:16px; }
+.family-invitations article { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:8px; align-items:center; padding:9px 0; border-top:1px solid #e5ece7; }
+.family-invitations strong,.family-invitations span { display:block; }
+.family-invitations span { margin-top:3px; color:#84908b; font-size:10px; }
+.family-invitations button { min-height:31px; padding:0 10px; border-radius:7px; color:#287b68; background:#e5f6ef; font-size:11px; font-weight:900; }
+.family-invitations button.danger { color:#a44650; background:#ffe7e7; }
+.family-workspace-grid { display:grid; grid-template-columns:260px minmax(0,1fr); gap:14px; align-items:start; }
+.family-workspace-grid > aside,.family-workspace-main > section { padding:18px; }
+.family-workspace-grid h2 { margin:0 0 12px; font-size:16px; }
+.family-workspace-main { display:grid; gap:14px; }
+.family-asset-form { display:grid; grid-template-columns:minmax(0,1fr) 130px auto; gap:7px; margin-bottom:12px; }
+.family-asset-form button { display:inline-flex; align-items:center; gap:5px; padding:0 11px; border-radius:8px; color:#fff; background:#398f7c; font-size:11px; font-weight:900; }
+.family-assets { display:grid; gap:6px; }
+.family-assets article { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid #e5ece7; border-radius:8px; }
+.family-assets strong,.family-assets span { display:block; }
+.family-assets span,.family-assets small { margin-top:3px; color:#85918c; font-size:10px; }
+.family-budget-form { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; align-items:end; }
+.family-budget-form label { display:grid; gap:5px; color:#6e7d77; font-size:11px; }
+@media(max-width:800px) { .family-workspace-grid { grid-template-columns:1fr; } .family-asset-form,.family-budget-form { grid-template-columns:1fr; } }
 .content-filter { display:flex; gap:8px; margin:10px 0 13px; }
 .content-filter label { display:flex; align-items:center; gap:7px; flex:1; padding:0 10px; border:1px solid rgba(18,55,46,.12); border-radius:8px; background:rgba(255,255,255,.55); }
 .content-filter input { width:100%; min-height:36px; border:0; background:transparent; }

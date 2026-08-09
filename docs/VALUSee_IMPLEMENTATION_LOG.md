@@ -62,6 +62,9 @@ The first release focuses on digital products and small appliances. The system m
 - Account export and deletion include product records, review evidence, saved groups, group memberships, and notification delivery attempts, keeping the new retention features inside the privacy lifecycle.
 - Discovery content now has public search, complete category filtering, stable `/content/{content_id}` pages, related guides/topics, source links, and escaped per-page SEO metadata. Consumer reads are restricted to published content; guessed draft, reviewing, and offline IDs return 404.
 - Content bodies render as text paragraphs rather than trusted operator HTML, and governed source URLs accept only HTTP(S), preventing stored script markup or script-protocol links from entering the consumer page.
+- Family membership now uses seven-day pending invitations that only the matching registered account can accept or decline. Guessing an invitation ID, accepting from another account, reusing a response, or accepting after expiry is rejected.
+- Family workspaces include shared item/device records and monthly/annual budgets. Members are read-only, editors can maintain assets and budgets, and only owners can invite, promote, demote, or remove members.
+- Family assets, budgets, and relevant invitations are included in account export. Deleting a family owner removes the owned workspace records; deleting a member removes only that account's membership/invitations and does not erase shared family data.
 
 ### Brand assets
 

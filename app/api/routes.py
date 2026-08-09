@@ -294,7 +294,7 @@ def invite_family_member(request: FamilyInviteRequest, authorization: str | None
     try:
         user_id = _request_user(authorization)
         auth_store.require_entitlement(user_id, "family_members")
-        return auth_store.invite_family_member(user_id, request.family_id, request.email)
+        return auth_store.create_family_invitation(user_id, request.family_id, request.email)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -322,6 +322,51 @@ def delete_family_member(family_id: str, user_id: str, authorization: str | None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"removed": removed, "user_id": user_id}
+
+
+@router.get("/families/invitations/pending", tags=["Account"])
+def pending_family_invitations(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return auth_store.list_family_invitations(_request_user(authorization))
+
+
+@router.post("/families/invitations/{invitation_id}/respond", tags=["Account"])
+def respond_family_invitation(invitation_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.respond_family_invitation(_request_user(authorization), invitation_id, bool(payload.get("accept")))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/families/{family_id}/assets", tags=["Account"])
+def list_family_assets(family_id: str, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    try:
+        return auth_store.list_family_assets(_request_user(authorization), family_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post("/families/{family_id}/assets", tags=["Account"])
+def save_family_asset(family_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.save_family_asset(_request_user(authorization), family_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get("/families/{family_id}/budget", tags=["Account"])
+def get_family_budget(family_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.family_budget(_request_user(authorization), family_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.put("/families/{family_id}/budget", tags=["Account"])
+def save_family_budget(family_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return auth_store.save_family_budget(_request_user(authorization), family_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/auth/export", tags=["Account"])

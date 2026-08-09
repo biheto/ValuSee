@@ -54,6 +54,19 @@ class AuthStore:
                 family_id TEXT NOT NULL,user_id TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,
                 PRIMARY KEY(family_id,user_id)
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_family_invitation(
+                invitation_id TEXT PRIMARY KEY,family_id TEXT NOT NULL,inviter_id TEXT NOT NULL,email TEXT NOT NULL,
+                role TEXT NOT NULL,status TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL,responded_at TEXT
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_family_asset(
+                asset_id TEXT PRIMARY KEY,family_id TEXT NOT NULL,name TEXT NOT NULL,category TEXT NOT NULL,
+                brand TEXT,model TEXT,purchased_at TEXT,warranty_deadline TEXT,notes TEXT,created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_family_budget(
+                family_id TEXT PRIMARY KEY,monthly_budget REAL NOT NULL,annual_budget REAL NOT NULL,currency TEXT NOT NULL,
+                updated_by TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_auth_token(
                 token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,purpose TEXT NOT NULL,
                 expires_at TEXT NOT NULL,used_at TEXT,created_at TEXT NOT NULL
@@ -292,6 +305,91 @@ class AuthStore:
                 raise
         return {"family_id": family_id, "user_id": member["user_id"], "email": normalized, "role": "member", "created_at": now}
 
+    def create_family_invitation(self, owner_id: str, family_id: str, email: str, role: str = "member") -> dict[str, Any]:
+        normalized = email.strip().lower()
+        if role not in {"member", "editor"}:
+            raise ValueError("invalid invitation role")
+        now = datetime.now(timezone.utc)
+        with self._session() as conn:
+            family = conn.execute("SELECT 1 FROM valuesee_family WHERE family_id=? AND owner_id=?", (family_id, owner_id)).fetchone()
+            target = conn.execute("SELECT user_id FROM valuesee_user WHERE email=? AND status='active'", (normalized,)).fetchone()
+            if not family:
+                raise ValueError("只有家庭所有者可以邀请成员")
+            if not target:
+                raise ValueError("该邮箱尚未注册 ValuSee 账户")
+            if conn.execute("SELECT 1 FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, target["user_id"])).fetchone():
+                raise ValueError("该用户已经在家庭中")
+            existing = conn.execute("SELECT * FROM valuesee_family_invitation WHERE family_id=? AND email=? AND status='pending'", (family_id, normalized)).fetchone()
+            if existing:
+                return dict(existing)
+            record = {"invitation_id": f"invite_{uuid4().hex}", "family_id": family_id, "inviter_id": owner_id, "email": normalized, "role": role, "status": "pending", "expires_at": (now + timedelta(days=7)).isoformat(), "created_at": now.isoformat(), "responded_at": None}
+            conn.execute("INSERT INTO valuesee_family_invitation(invitation_id,family_id,inviter_id,email,role,status,expires_at,created_at,responded_at) VALUES(?,?,?,?,?,?,?,?,?)", tuple(record.values()))
+        return record
+
+    def list_family_invitations(self, user_id: str) -> list[dict[str, Any]]:
+        user = self.get_user(user_id)
+        if not user:
+            return []
+        with self._session() as conn:
+            rows = conn.execute("SELECT i.*,f.name AS family_name FROM valuesee_family_invitation i JOIN valuesee_family f ON f.family_id=i.family_id WHERE i.email=? AND i.status='pending' ORDER BY i.created_at DESC", (user["email"],)).fetchall()
+        return [dict(row) for row in rows]
+
+    def respond_family_invitation(self, user_id: str, invitation_id: str, accept: bool) -> dict[str, Any]:
+        user = self.get_user(user_id)
+        now = datetime.now(timezone.utc)
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_family_invitation WHERE invitation_id=? AND status='pending'", (invitation_id,)).fetchone()
+            if not row or not user or row["email"] != user["email"]:
+                raise ValueError("邀请不存在或不属于当前账户")
+            if datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")) <= now:
+                conn.execute("UPDATE valuesee_family_invitation SET status='expired',responded_at=? WHERE invitation_id=?", (now.isoformat(), invitation_id))
+                raise ValueError("邀请已过期")
+            status = "accepted" if accept else "declined"
+            if accept:
+                conn.execute("INSERT INTO valuesee_family_member(family_id,user_id,role,created_at) VALUES(?,?,?,?)", (row["family_id"], user_id, row["role"], now.isoformat()))
+            conn.execute("UPDATE valuesee_family_invitation SET status=?,responded_at=? WHERE invitation_id=?", (status, now.isoformat(), invitation_id))
+        return {"invitation_id": invitation_id, "status": status, "family_id": row["family_id"]}
+
+    def _family_role(self, conn: Any, user_id: str, family_id: str) -> str | None:
+        row = conn.execute("SELECT role FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, user_id)).fetchone()
+        return str(row["role"]) if row else None
+
+    def list_family_assets(self, user_id: str, family_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            if not self._family_role(conn, user_id, family_id):
+                raise ValueError("无权查看该家庭物品")
+            rows = conn.execute("SELECT * FROM valuesee_family_asset WHERE family_id=? ORDER BY updated_at DESC", (family_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_family_asset(self, user_id: str, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now, asset_id = utc_now_iso(), str(payload.get("asset_id") or f"asset_{uuid4().hex}")
+        with self._session() as conn:
+            if self._family_role(conn, user_id, family_id) not in {"owner", "editor"}:
+                raise ValueError("只有所有者或编辑者可以维护家庭物品")
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("物品名称不能为空")
+            old = conn.execute("SELECT created_at,created_by FROM valuesee_family_asset WHERE asset_id=? AND family_id=?", (asset_id, family_id)).fetchone()
+            values = (asset_id, family_id, name, str(payload.get("category") or "其他"), str(payload.get("brand") or ""), str(payload.get("model") or ""), payload.get("purchased_at"), payload.get("warranty_deadline"), str(payload.get("notes") or ""), old["created_by"] if old else user_id, old["created_at"] if old else now, now)
+            conn.execute("""INSERT INTO valuesee_family_asset(asset_id,family_id,name,category,brand,model,purchased_at,warranty_deadline,notes,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(asset_id) DO UPDATE SET name=excluded.name,category=excluded.category,brand=excluded.brand,model=excluded.model,purchased_at=excluded.purchased_at,warranty_deadline=excluded.warranty_deadline,notes=excluded.notes,updated_at=excluded.updated_at""", values)
+            row = conn.execute("SELECT * FROM valuesee_family_asset WHERE asset_id=?", (asset_id,)).fetchone()
+        return dict(row)
+
+    def family_budget(self, user_id: str, family_id: str) -> dict[str, Any]:
+        with self._session() as conn:
+            if not self._family_role(conn, user_id, family_id):
+                raise ValueError("无权查看家庭预算")
+            row = conn.execute("SELECT * FROM valuesee_family_budget WHERE family_id=?", (family_id,)).fetchone()
+        return dict(row) if row else {"family_id": family_id, "monthly_budget": 0, "annual_budget": 0, "currency": "CNY"}
+
+    def save_family_budget(self, user_id: str, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._session() as conn:
+            if self._family_role(conn, user_id, family_id) not in {"owner", "editor"}:
+                raise ValueError("只有所有者或编辑者可以维护家庭预算")
+            values = (family_id, max(0, float(payload.get("monthly_budget") or 0)), max(0, float(payload.get("annual_budget") or 0)), str(payload.get("currency") or "CNY")[:3].upper(), user_id, utc_now_iso())
+            conn.execute("INSERT INTO valuesee_family_budget(family_id,monthly_budget,annual_budget,currency,updated_by,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(family_id) DO UPDATE SET monthly_budget=excluded.monthly_budget,annual_budget=excluded.annual_budget,currency=excluded.currency,updated_by=excluded.updated_by,updated_at=excluded.updated_at", values)
+        return self.family_budget(user_id, family_id)
+
     def list_family_members(self, actor_id: str, family_id: str) -> list[dict[str, Any]]:
         with self._session() as conn:
             allowed = conn.execute("SELECT 1 FROM valuesee_family_member WHERE family_id=? AND user_id=?", (family_id, actor_id)).fetchone()
@@ -353,8 +451,16 @@ class AuthStore:
             "upgrade_requests": ("valuesee_upgrade_request", "user_id"),
         }
         with self._session() as conn:
-            result = {"user": self.get_user(user_id), "families": [], "support_messages": [], **{key: [] for key in tables}}
+            result = {"user": self.get_user(user_id), "families": [], "family_assets": [], "family_budgets": [], "family_invitations": [], "support_messages": [], **{key: [] for key in tables}}
             result["families"] = [dict(row) for row in conn.execute("SELECT f.*,m.role FROM valuesee_family f JOIN valuesee_family_member m ON f.family_id=m.family_id WHERE m.user_id=?", (user_id,)).fetchall()]
+            family_ids = [item["family_id"] for item in result["families"]]
+            for family_id in family_ids:
+                result["family_assets"].extend(dict(row) for row in conn.execute("SELECT * FROM valuesee_family_asset WHERE family_id=?", (family_id,)).fetchall())
+                budget = conn.execute("SELECT * FROM valuesee_family_budget WHERE family_id=?", (family_id,)).fetchone()
+                if budget:
+                    result["family_budgets"].append(dict(budget))
+            user = result["user"] or {}
+            result["family_invitations"] = [dict(row) for row in conn.execute("SELECT * FROM valuesee_family_invitation WHERE inviter_id=? OR email=?", (user_id, user.get("email", ""))).fetchall()]
             for key, (table, column) in tables.items():
                 try:
                     result[key] = [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE {column}=?", (user_id,)).fetchall()]
@@ -391,6 +497,7 @@ class AuthStore:
         attachment_objects: list[tuple[str, str]] = []
         with self._session() as conn:
             owned_family_ids = [row["family_id"] for row in conn.execute("SELECT family_id FROM valuesee_family WHERE owner_id=?", (user_id,)).fetchall()]
+            user_row = conn.execute("SELECT email FROM valuesee_user WHERE user_id=?", (user_id,)).fetchone()
             try:
                 attachment_objects = [(str(row["storage_backend"]), str(row["storage_key"])) for row in conn.execute("SELECT storage_backend,storage_key FROM shopping_purchase_attachment WHERE user_id=?", (user_id,)).fetchall()]
             except Exception as exc:
@@ -424,7 +531,11 @@ class AuthStore:
                         if exc.__class__.__name__ != "OperationalError":
                             raise
             for family_id in owned_family_ids:
+                conn.execute("DELETE FROM valuesee_family_asset WHERE family_id=?", (family_id,))
+                conn.execute("DELETE FROM valuesee_family_budget WHERE family_id=?", (family_id,))
+                conn.execute("DELETE FROM valuesee_family_invitation WHERE family_id=?", (family_id,))
                 conn.execute("DELETE FROM valuesee_family_member WHERE family_id=?", (family_id,))
+            conn.execute("DELETE FROM valuesee_family_invitation WHERE inviter_id=? OR email=?", (user_id, user_row["email"] if user_row else ""))
             conn.execute("DELETE FROM valuesee_family_member WHERE user_id=?", (user_id,))
             conn.execute("DELETE FROM valuesee_family WHERE owner_id=?", (user_id,))
             conn.execute("DELETE FROM valuesee_auth_token WHERE user_id=?", (user_id,))
