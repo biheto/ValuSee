@@ -33,14 +33,20 @@ shopping need -> product identification -> true landed price -> same-SKU matchin
 -> risk analysis -> personal recommendation -> price monitoring -> after-sales reminders
 ```
 
-The consumer workbench provides four practical views:
+The consumer product now provides a complete shopping information architecture:
 
-- **Analyze products**: paste product links, upload a screenshot for follow-up, confirm price/specification fields, compare candidates, and generate a decision report.
-- **Price monitoring**: set a target landed price and keep a persisted monitoring record that survives application restarts.
-- **My purchases**: record the actual paid price and receive visible price-protection, return, warranty, and consumable reminders.
-- **Report history**: reopen the latest decision report locally without losing the previous analysis after a page refresh.
+- **Discover**: natural-language search, category shortcuts, recently viewed products, account savings summary, and governed buying guides. Empty rankings stay empty until traceable data exists.
+- **Smart comparison**: paste links, upload screenshots, confirm specification and discount fields, detect SKU differences, highlight risk, and generate an account-backed decision report.
+- **Product details**: inspect landed-price breakdown, specification/version, historical observations, source link, store status, return and warranty terms, then favorite or add the product to comparison.
+- **Savings center**: create, edit, pause, resume, and delete durable target-price monitors.
+- **Orders and after-sales**: record the paid price and manage received, price-protection, return, warranty, and completed states with visible deadlines.
+- **Favorites and history**: synchronize favorite products, recent views, followed brands, reports, and saved comparison lists across devices.
+- **Messages and account**: manage unread notifications, shopping preferences, existing-device profiles, family collaboration, security, export/deletion, and measured savings.
+- **Mobile/PWA**: installable Web client with a compact bottom navigation and a public-only offline shell that never caches private API responses.
 
-The first release intentionally supports user-supplied product information and manual price confirmation. It does not perform automatic checkout, payment, refunds, or large-scale crawling. This keeps recommendations explainable and puts platform data access on a compliant path: user-provided links first, browser extension and authorized platform APIs next.
+The separate admin console governs canonical products/SKUs, commerce source health, prompts, benchmarks, monitors, user corrections, business metrics, and published discovery content.
+
+The release intentionally supports user-supplied product information and manual price confirmation. It does not perform automatic checkout, payment, refunds, or large-scale crawling. This keeps recommendations explainable and puts platform data access on a compliant path: user-provided links first, browser extension and authorized platform APIs next.
 
 Core message:
 

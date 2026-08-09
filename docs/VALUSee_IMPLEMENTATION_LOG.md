@@ -70,6 +70,10 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Server-backed user profile, comparison list, decision report history, notification preferences, monitor editing, and correction feedback are now part of the consumer workflow.
 - Admin feedback review and business outcome metrics close the loop between user corrections and product quality: completion, acceptance, monitor conversion, resolution, savings, and P95 latency.
 - PWA manifest, responsive install icons, and a private-data-safe offline shell are included in the release build.
+- Consumer information architecture now includes Discover, Smart Comparison, Savings, Orders/After-sales, Favorites/History, Messages, Account, Product Details, Family, Preferences, and account-backed reports.
+- Favorites, recent views, followed brands, message read state, dashboard totals, and purchase lifecycle changes are persisted and owner-scoped; account export/deletion includes the new engagement records.
+- Buying guides/topics use a governed draft/review/published/offline lifecycle. Only published records appear on the consumer home page, and optional source URLs remain visible.
+- Mobile navigation, responsive product cards, explicit empty/error states, and a source-aware product-detail drawer complete the first consumer UX pass.
 
 | Area | Status | Notes |
 | --- | --- | --- |

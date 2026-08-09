@@ -69,6 +69,7 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - Admin-triggered RAG release benchmark: completed with 100% success rate on the isolated clean-install fixture.
 - Local `/health`, `/ready`, consumer Web, and `/admin` smoke checks: passed on port 8200.
 - API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
+- Consumer expansion acceptance passed favorite/recent persistence, dashboard aggregation, purchase status changes, governed content publication/visibility, frontend response, and test-data cleanup.
 - PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
