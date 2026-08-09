@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import AsyncIterator
 from uuid import uuid4
 from urllib.parse import urlparse
@@ -697,7 +698,10 @@ async def run_business_scenario_stream(request: BusinessScenarioRequest) -> Stre
 @router.post("/shopping/decide", response_model=TaskRunResponse, tags=["Shopping Decision"])
 def run_shopping_decision(request: ShoppingDecisionRequest, authorization: str | None = Header(default=None)) -> TaskRunResponse:
     goal = request.goal or "为商品候选生成购买决策"
+    user_id = _request_user(authorization)
     context = harness_runtime.create_context(goal=goal, variables={"shopping": True})
+    started = time.perf_counter()
+    shopping_store.record_business_event(user_id, "analysis_started", context.task_id, idempotency_key=f"analysis-start:{context.task_id}")
     try:
         result = harness_runtime.run_graph(
             context,
@@ -705,9 +709,11 @@ def run_shopping_decision(request: ShoppingDecisionRequest, authorization: str |
             {"goal": goal, **request.model_dump()},
         )
     except Exception as exc:
+        shopping_store.record_business_event(user_id, "analysis_failed", context.task_id, metadata={"error": str(exc)}, idempotency_key=f"analysis-fail:{context.task_id}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     response = TaskRunResponse(**result)
-    shopping_store.save_report(_request_user(authorization), response.task_id, goal, [item.model_dump() for item in request.products], response.result)
+    shopping_store.save_report(user_id, response.task_id, goal, [item.model_dump() for item in request.products], response.result)
+    shopping_store.record_business_event(user_id, "analysis_completed", response.task_id, metadata={"latency_ms": int((time.perf_counter() - started) * 1000)}, idempotency_key=f"analysis-complete:{response.task_id}")
     return response
 
 
@@ -807,6 +813,21 @@ def list_shopping_reports(limit: int = 100, authorization: str | None = Header(d
 def create_shopping_feedback(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     try: return shopping_store.create_feedback(_request_user(authorization), payload)
     except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/shopping/events", tags=["Shopping Feedback"])
+def record_shopping_event(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    event_type = str(payload.get("event_type") or "")
+    if event_type not in {"recommendation_accepted", "recommendation_rejected"}:
+        raise HTTPException(status_code=422, detail="unsupported shopping event")
+    event = shopping_store.record_business_event(_request_user(authorization), event_type, str(payload.get("reference_id") or "") or None, idempotency_key=str(payload.get("idempotency_key") or "") or None)
+    return event or {"duplicate": True}
+
+
+@router.get("/admin/metrics", tags=["Admin Console"])
+def admin_shopping_metrics(days: int = 30, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return shopping_store.business_metrics(days)
 
 
 @router.get("/shopping/feedback", tags=["Shopping Feedback"])

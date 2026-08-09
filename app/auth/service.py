@@ -218,6 +218,7 @@ class AuthStore:
             "reports": ("shopping_decision_report", "user_id"),
             "feedback": ("shopping_feedback", "user_id"),
             "notification_preferences": ("shopping_notification_preference", "user_id"),
+            "business_events": ("shopping_business_event", "user_id"),
         }
         with self._session() as conn:
             result = {"user": self.get_user(user_id), "families": [], **{key: [] for key in tables}}
@@ -240,6 +241,7 @@ class AuthStore:
             "shopping_purchase_record", "shopping_extension_capture", "shopping_price_snapshot",
             "shopping_notification", "shopping_user_profile", "shopping_comparison_list",
             "shopping_decision_report", "shopping_feedback", "shopping_notification_preference",
+            "shopping_business_event",
         )
         with self._session() as conn:
             try:

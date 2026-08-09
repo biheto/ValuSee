@@ -1,0 +1,17 @@
+{
+  "name": "ValuSee AI 购物决策助手",
+  "short_name": "ValuSee",
+  "description": "识别同款、核算到手价、判断是否值得买，并持续管理降价与售后提醒。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f8f5",
+  "theme_color": "#e45f69",
+  "lang": "zh-CN",
+  "categories": ["shopping", "finance", "utilities"],
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

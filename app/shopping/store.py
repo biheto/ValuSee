@@ -159,6 +159,11 @@ class ShoppingStore:
                 user_id TEXT PRIMARY KEY,email_enabled INTEGER NOT NULL,in_app_enabled INTEGER NOT NULL,
                 quiet_start TEXT,quiet_end TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_business_event(
+                event_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,event_type TEXT NOT NULL,reference_id TEXT,
+                value REAL NOT NULL,metadata_json TEXT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_business_event_type_time ON shopping_business_event(event_type,created_at)")
 
     def create_extension_capture(
         self,
@@ -329,6 +334,8 @@ class ShoppingStore:
                     message=check["message"], idempotency_key=f"price:{monitor['monitor_id']}:{snapshot['snapshot_id']}",
                 )
                 notifications += 1 if created else 0
+                if created:
+                    self.record_business_event(monitor["user_id"], "monitor_target_reached", monitor["monitor_id"], idempotency_key=f"target:{monitor['monitor_id']}:{snapshot['snapshot_id']}")
         return {"processed": processed, "notifications": notifications}
 
     def create_notification(self, *, user_id: str, kind: str, title: str, message: str, idempotency_key: str) -> dict[str, Any] | None:
@@ -406,6 +413,7 @@ class ShoppingStore:
                     record["last_message"],
                 ),
             )
+        self.record_business_event(user_id, "monitor_created", monitor_id, idempotency_key=f"monitor:{monitor_id}")
         return record
 
     def list_monitors(self, user_id: str | None = None) -> list[dict[str, Any]]:
@@ -633,6 +641,8 @@ class ShoppingStore:
                     now,
                 ),
             )
+        reference_price = float(product.get("price") or paid_price)
+        self.record_business_event(user_id, "purchase_confirmed", purchase_id, max(0.0, reference_price - float(paid_price)), idempotency_key=f"purchase:{purchase_id}")
         return record
 
     def list_purchases(self, user_id: str | None = None) -> list[dict[str, Any]]:
@@ -708,6 +718,7 @@ class ShoppingStore:
         with self._session() as conn:
             conn.execute("INSERT INTO shopping_feedback(feedback_id,user_id,feedback_type,target_type,target_id,content,evidence_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (record["feedback_id"], user_id, record["feedback_type"], record["target_type"], record["target_id"], record["content"], json.dumps(record["evidence"], ensure_ascii=False), record["status"], now, now))
+        self.record_business_event(user_id, "feedback_submitted", record["feedback_id"], idempotency_key=f"feedback:{record['feedback_id']}")
         return record
 
     def list_feedback(self, user_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
@@ -730,7 +741,51 @@ class ShoppingStore:
             if cursor.rowcount == 0:
                 return None
             row = conn.execute("SELECT * FROM shopping_feedback WHERE feedback_id=?", (feedback_id,)).fetchone()
-        return _decode_json_columns(row, {"evidence_json": "evidence"})
+        result = _decode_json_columns(row, {"evidence_json": "evidence"})
+        if status == "resolved":
+            self.record_business_event(str(result["user_id"]), "feedback_resolved", feedback_id, idempotency_key=f"feedback-resolved:{feedback_id}")
+        return result
+
+    def record_business_event(self, user_id: str, event_type: str, reference_id: str | None = None, value: float = 0.0, metadata: dict[str, Any] | None = None, idempotency_key: str | None = None) -> dict[str, Any] | None:
+        record = {"event_id": f"evt_{uuid4().hex}", "user_id": user_id, "event_type": event_type, "reference_id": reference_id, "value": round(float(value), 2), "metadata": metadata or {}, "idempotency_key": idempotency_key or f"event:{uuid4().hex}", "created_at": utc_now_iso()}
+        with self._session() as conn:
+            try:
+                conn.execute("INSERT INTO shopping_business_event(event_id,user_id,event_type,reference_id,value,metadata_json,idempotency_key,created_at) VALUES(?,?,?,?,?,?,?,?)", (record["event_id"], user_id, event_type, reference_id, record["value"], json.dumps(record["metadata"], ensure_ascii=False), record["idempotency_key"], record["created_at"]))
+            except Exception as exc:
+                if is_integrity_error(exc):
+                    return None
+                raise
+        return record
+
+    def business_metrics(self, days: int = 30) -> dict[str, Any]:
+        since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+        with self._session() as conn:
+            rows = conn.execute("SELECT event_type,value,metadata_json FROM shopping_business_event WHERE created_at>=?", (since,)).fetchall()
+        counts: dict[str, int] = {}
+        latencies: list[int] = []
+        savings = 0.0
+        for row in rows:
+            event_type = str(row["event_type"])
+            counts[event_type] = counts.get(event_type, 0) + 1
+            if event_type == "purchase_confirmed":
+                savings += float(row["value"] or 0)
+            if event_type == "analysis_completed":
+                latency = int((json.loads(row["metadata_json"] or "{}") or {}).get("latency_ms") or 0)
+                if latency >= 0:
+                    latencies.append(latency)
+        latencies.sort()
+        started, completed = counts.get("analysis_started", 0), counts.get("analysis_completed", 0)
+        monitors, reached = counts.get("monitor_created", 0), counts.get("monitor_target_reached", 0)
+        feedback, resolved = counts.get("feedback_submitted", 0), counts.get("feedback_resolved", 0)
+        return {
+            "period_days": days, "events": counts,
+            "analysis_completion_rate": round(completed / started, 4) if started else 0.0,
+            "recommendation_acceptance_rate": round(counts.get("recommendation_accepted", 0) / completed, 4) if completed else 0.0,
+            "monitor_conversion_rate": round(reached / monitors, 4) if monitors else 0.0,
+            "feedback_resolution_rate": round(resolved / feedback, 4) if feedback else 0.0,
+            "actual_savings": round(savings, 2),
+            "analysis_p95_latency_ms": latencies[min(len(latencies) - 1, max(0, int(len(latencies) * 0.95)))] if latencies else 0,
+        }
 
     def save_notification_preference(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()

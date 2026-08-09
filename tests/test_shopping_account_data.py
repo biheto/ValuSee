@@ -95,3 +95,20 @@ def test_feedback_has_a_governed_resolution_lifecycle():
         resolved = store.update_feedback_status(feedback["feedback_id"], "resolved")
         assert reviewing and reviewing["status"] == "reviewing"
         assert resolved and resolved["status"] == "resolved"
+
+
+def test_business_metrics_track_savings_and_quality_events():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        store.record_business_event("u1", "analysis_started", "task-1", idempotency_key="start-1")
+        store.record_business_event("u1", "analysis_completed", "task-1", metadata={"latency_ms": 120}, idempotency_key="done-1")
+        store.record_business_event("u1", "recommendation_accepted", "task-1", idempotency_key="accept-1")
+        store.record_business_event("u1", "monitor_created", "mon-1", idempotency_key="monitor-1")
+        store.record_business_event("u1", "monitor_target_reached", "mon-1", idempotency_key="target-1")
+        store.record_business_event("u1", "purchase_confirmed", "buy-1", value=88, idempotency_key="purchase-1")
+        metrics = store.business_metrics()
+        assert metrics["analysis_completion_rate"] == 1.0
+        assert metrics["recommendation_acceptance_rate"] == 1.0
+        assert metrics["monitor_conversion_rate"] == 1.0
+        assert metrics["actual_savings"] == 88
+        assert metrics["analysis_p95_latency_ms"] == 120
