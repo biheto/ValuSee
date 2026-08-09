@@ -1,6 +1,9 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from fastapi.testclient import TestClient
+
+from app.main import app
 from app.auth.service import AuthStore
 from app.shopping.store import ShoppingStore
 
@@ -43,3 +46,55 @@ def test_suspending_user_revokes_all_sessions_and_upgrade_is_governed():
         assert store.update_upgrade_request(upgrade["request_id"], "contacted")["status"] == "contacted"
         assert store.update_user_status(user["user_id"], "suspended")["status"] == "suspended"
         assert store.validate_session(session["session_id"], token) is False
+
+
+def test_experiment_assignment_is_stable_and_inactive_falls_back():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "operations.db")
+        experiment = store.save_experiment({"code": "hero-copy", "name": "Hero copy", "variants": ["control", "value"], "status": "running"})
+        first = store.assign_experiment("u1", "hero-copy")
+        second = store.assign_experiment("u1", "hero-copy")
+        assert first and second and first["variant"] == second["variant"]
+        store.save_experiment({"code": "hero-copy", "name": "Hero copy", "variants": ["control", "value"], "status": "paused"}, experiment["experiment_id"])
+        assert store.assign_experiment("u2", "hero-copy") is None
+
+
+def test_metrics_are_exposed_in_development_and_protected_in_production(monkeypatch):
+    client = TestClient(app)
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "valuesee_http_requests_total" in response.text
+
+    monkeypatch.setattr("app.main.settings.app_env", "production")
+    monkeypatch.setenv("VALUSee_METRICS_TOKEN", "metrics-secret")
+    assert client.get("/metrics").status_code == 403
+    assert client.get("/metrics", headers={"X-Metrics-Token": "metrics-secret"}).status_code == 200
+
+
+def test_event_metadata_is_allowlisted(monkeypatch):
+    captured: list[dict] = []
+
+    def record(_user_id, event_type, reference_id, metadata, idempotency_key):
+        captured.append({"event_type": event_type, "reference_id": reference_id, "metadata": metadata, "idempotency_key": idempotency_key})
+        return captured[-1]
+
+    monkeypatch.setattr("app.api.routes.shopping_store.record_business_event", record)
+    response = TestClient(app).post(
+        "/api/v1/shopping/events",
+        json={
+            "event_type": "page_view",
+            "reference_id": "discover",
+            "idempotency_key": "view-1",
+            "metadata": {"view": "discover", "variant": "compact", "email": "must-not-be-collected"},
+        },
+    )
+    assert response.status_code == 200
+    assert captured[0]["metadata"] == {"view": "discover", "variant": "compact"}
+
+
+def test_shared_page_escapes_dynamic_title(monkeypatch):
+    monkeypatch.setattr("app.main.shopping_store.get_share", lambda _token: {"title": '<script>alert("x")</script>'})
+    response = TestClient(app).get("/share/test-token")
+    assert response.status_code == 200
+    assert "<script>alert" not in response.text
+    assert "&lt;script&gt;alert" in response.text

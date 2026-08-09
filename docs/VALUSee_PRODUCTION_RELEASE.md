@@ -23,6 +23,8 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 - MinIO/S3 stores uploaded product images when `S3_ENDPOINT_URL` is set. Local development keeps a non-public ignored upload directory.
 - `/health` is a liveness probe. `/ready` checks the configured database and infrastructure dependencies.
 - `/api/v1/admin/metrics` exposes business outcomes for the latest reporting window: analysis completion, recommendation acceptance, monitor conversion, feedback resolution, estimated savings, and analysis P95 latency.
+- `/metrics` exposes bounded-cardinality Prometheus HTTP counters and duration aggregates. Production requires `X-Metrics-Token` matching `VALUSee_METRICS_TOKEN`; do not expose this endpoint anonymously.
+- First-party experiments use deterministic account assignment and an allowlisted analytics payload. Experiment creation and status changes remain administrator-only.
 
 ## Start For Release
 
@@ -31,6 +33,7 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 3. Run `docker compose --env-file .env.production -f docker-compose.production.yml up -d --build`.
 4. Put TLS termination and a request body limit in front of the API. Expose only the API/reverse-proxy port; do not expose PostgreSQL, Redis, RabbitMQ, or MinIO publicly.
 5. Verify `/health`, `/ready`, registration/login, screenshot upload, a price snapshot, a monitor cycle, and account export/deletion in staging before switching DNS.
+6. Run `scripts/verify-release.ps1` against the TLS origin. Schedule `scripts/backup-production.ps1`, copy encrypted backups off host, and perform a quarterly restore drill with `scripts/restore-production.ps1` in an isolated environment.
 
 ## External Credentials Required
 
@@ -71,6 +74,7 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
 - Consumer expansion acceptance passed favorite/recent persistence, dashboard aggregation, purchase status changes, governed content publication/visibility, frontend response, and test-data cleanup.
 - PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
+- Automated release quality passed with 55 Python tests, the production Vite build, the correctness Ruff gate, PowerShell backup/restore/release script parsing, zero npm audit findings, and no known auditable Python dependency vulnerabilities.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
 See `docs/VALUSee_IMPLEMENTATION_LOG.md` for the feature-by-feature history and commit record.

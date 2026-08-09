@@ -24,6 +24,11 @@ The first release focuses on digital products and small appliances. The system m
 - Account export, account deletion, family member invitation, privacy policy, and service terms endpoints are available.
 - Release and deployment acceptance criteria are recorded in `docs/VALUSee_PRODUCTION_RELEASE.md`.
 - Account security now includes single-use, expiring, SHA-256-hashed email-verification and password-reset tokens. Production sends links only by email; development may return a test token. Password-reset requests use a uniform response to prevent email-account enumeration.
+- Release observability now includes bounded-cardinality Prometheus HTTP counters/durations, production token protection for `/metrics`, database/Redis/RabbitMQ/object-storage readiness, RabbitMQ queue depth, and container health checks.
+- First-party product analytics accepts only an explicit event and metadata allowlist. Stable SHA-256 experiment assignment supports draft, scheduled running, paused, and completed experiments without collecting arbitrary client payloads.
+- The Web release includes SEO metadata, share-specific escaped Open Graph titles, a React error boundary, skip navigation, visible keyboard focus, reduced-motion support, and semantic alert states.
+- Production backup and restore scripts cover PostgreSQL, MinIO, and local attachment volumes with SHA-256 manifests. Restore requires an explicit confirmation phrase and release verification checks health, readiness, metrics authorization, and the public Web shell.
+- GitHub Actions now runs the Python suite, a correctness-focused Ruff gate, the production Web build, and Python/npm dependency audits. The broader historical style backlog is deliberately not misrepresented as a release failure.
 
 ### Product search and operations console
 
@@ -97,6 +102,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | Provider diagnostics | MVP complete | Configured providers can be health-checked through a protected admin endpoint; no provider is represented as live without credentials. |
 | Account continuity | MVP complete | Profile, saved comparison, report history, notification settings, feedback correction, export, and deletion flows are server-backed and account-isolated. |
 | Installable client | MVP complete | Web build includes manifest, icons, install metadata, and a public-only offline shell. |
+| Release automation | MVP complete | CI, dependency audits, backup/restore manifests, release smoke verification, Prometheus metrics, and controlled experiments are implemented; external alert routing and off-site backup retention are deployment configuration. |
 
 ## Next implementation order
 

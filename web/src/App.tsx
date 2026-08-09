@@ -75,6 +75,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const money = (value: number) => `¥${Number(value || 0).toFixed(0)}`;
 const date = (value?: string) => value ? new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) : '未设置';
 const riskLabel: Record<string, string> = { low: '低风险', medium: '中风险', high: '高风险' };
+const analyticsSession = sessionStorage.getItem('valuesee-analytics-session') || crypto.randomUUID();
+sessionStorage.setItem('valuesee-analytics-session', analyticsSession);
 
 export function App() {
   const [view, setView] = useState<View>('discover');
@@ -109,6 +111,7 @@ export function App() {
   const [displayName, setDisplayName] = useState('');
   const [resetToken, setResetToken] = useState(new URLSearchParams(window.location.search).get('reset_token') || '');
   const [accountName, setAccountName] = useState(localStorage.getItem('valuesee-account-name') || '本地账户');
+  const [navigationVariant, setNavigationVariant] = useState('control');
 
   const refreshRecords = async () => {
     try {
@@ -130,6 +133,8 @@ export function App() {
     } catch { /* backend may be offline while the static preview is open */ }
   };
   useEffect(() => { void refreshRecords(); }, []);
+  useEffect(() => { void request<{ variant: string }>('/api/v1/shopping/experiments/navigation-density').then((item) => setNavigationVariant(item.variant)).catch(() => setNavigationVariant('control')); }, []);
+  useEffect(() => { void request('/api/v1/shopping/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event_type: 'page_view', reference_id: view, metadata: { view, experiment: 'navigation-density', variant: navigationVariant }, idempotency_key: `page:${analyticsSession}:${view}` }) }).catch(() => undefined); }, [view, navigationVariant]);
   useEffect(() => { const match = window.location.pathname.match(/^\/share\/([a-f0-9]+)$/); if (match) void request<typeof publicShare>(`/api/v1/public/shares/${match[1]}`).then((data) => setPublicShare(data ?? null)).catch(() => setPublicShare(null)); }, []);
   useEffect(() => {
     const saved = localStorage.getItem('valuesee-last-report');
@@ -185,11 +190,12 @@ export function App() {
   const best = useMemo(() => result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index], [result]);
   if (window.location.pathname.startsWith('/share/')) return <SharedDecisionPage share={publicShare} />;
   const nav: Array<[View, string, typeof Search]> = [['discover', '发现', Compass], ['analyze', '智能对比', Search], ['monitors', '省钱中心', Bell], ['purchases', '订单售后', Receipt], ['saved', '收藏足迹', Heart], ['messages', '消息', MessageSquare], ['account', '我的', UserRound]];
-  return <main className="valuesee-app">
+  return <main className={`valuesee-app experiment-${navigationVariant}`} id="main-content"><a className="skip-link" href="#primary-view">跳到主要内容</a>
     <header className="app-header"><div className="brand-lockup"><BrandMark /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button" onClick={() => setAccountOpen(true)}>{accountName}</button></header>
     {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} displayName={displayName} onEmail={setEmail} onPassword={setPassword} onDisplayName={setDisplayName} onMode={setAccountMode} onSubmit={submitAccount} onClose={() => setAccountOpen(false)} onLogout={logout} />}
     {message && <div className="toast"><CheckCircle2 size={16} />{message}<button onClick={() => setMessage('')}>关闭</button></div>}
-    {error && <div className="error-banner">{error}</div>}
+    {error && <div className="error-banner" role="alert">{error}</div>}
+    <div id="primary-view" tabIndex={-1}></div>
     {view === 'discover' && <DiscoverPage dashboard={dashboard} recent={savedItems.filter((item) => item.item_type === 'recent')} onStart={(nextGoal) => { setGoal(nextGoal); setView('analyze'); }} onOpen={(product) => void addProduct(product, true)} />}
     {view === 'saved' && <SavedPage items={savedItems} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} />}
     {view === 'messages' && <MessagesPage notifications={notifications} onRead={(id) => void readMessage(id)} onReadAll={() => void readAllMessages()} />}

@@ -10,6 +10,7 @@ x-app-environment: &app-environment
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
   VALUSee_JWT_SECRET: ${VALUSee_JWT_SECRET:?set VALUSee_JWT_SECRET}
+  VALUSee_METRICS_TOKEN: ${VALUSee_METRICS_TOKEN:?set VALUSee_METRICS_TOKEN}
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:?set ALLOWED_HOSTS}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS}
   VALUSee_MONITOR_INTERVAL_SECONDS: "60"
@@ -35,8 +36,14 @@ services:
       - /tmp
     volumes:
       - upload-cache:/app/data/uploads
+      - attachment-cache:/app/data/attachments
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   monitor-worker:
     build: .
@@ -116,3 +123,4 @@ volumes:
   rabbitmq-data:
   minio-data:
   upload-cache:
+  attachment-cache:

@@ -1,8 +1,11 @@
+import html
 import os
+import secrets
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +14,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.routes import router as project_router
 from app.core.config import settings
 from app.core.database import database_health
-from app.core.infrastructure import infrastructure_health, rate_limiter
+from app.core.infrastructure import http_metrics, infrastructure_health, rate_limiter
+from app.shopping.store import shopping_store
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -29,24 +33,44 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
 @app.middleware("http")
 async def protect_api(request: Request, call_next):
-    if request.url.path.startswith("/api/"):
-        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        client_ip = forwarded or (request.client.host if request.client else "unknown")
-        limit = 20 if request.url.path.startswith("/api/v1/auth/") else 120
-        if not rate_limiter.allow(f"{client_ip}:{request.url.path}", limit=limit):
-            return JSONResponse({"detail": "请求过于频繁，请稍后重试"}, status_code=429)
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
-    return response
+    started = time.perf_counter()
+    status_code = 500
+    try:
+        if request.url.path.startswith("/api/"):
+            forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            client_ip = forwarded or (request.client.host if request.client else "unknown")
+            limit = 20 if request.url.path.startswith("/api/v1/auth/") else 120
+            if not rate_limiter.allow(f"{client_ip}:{request.url.path}", limit=limit):
+                response = JSONResponse({"detail": "请求过于频繁，请稍后重试"}, status_code=429)
+            else:
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+        return response
+    finally:
+        route = request.scope.get("route")
+        fallback = request.url.path if not request.url.path.startswith("/api/") else "/api/unmatched"
+        route_path = getattr(route, "path", fallback)
+        http_metrics.observe(request.method, route_path, status_code, time.perf_counter() - started)
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env}
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics(request: Request) -> PlainTextResponse:
+    expected = os.getenv("VALUSee_METRICS_TOKEN", "")
+    if settings.app_env.lower() in {"prod", "production"} and (not expected or not secrets.compare_digest(request.headers.get("x-metrics-token", ""), expected)):
+        return PlainTextResponse("forbidden\n", status_code=403)
+    return PlainTextResponse(http_metrics.prometheus(), media_type="text/plain; version=0.0.4")
 
 
 @app.get("/privacy", include_in_schema=False)
@@ -96,6 +120,14 @@ if web_dist.exists():
         return FileResponse(web_dist / "index.html")
 
     @app.get("/share/{share_token}", include_in_schema=False)
-    def shared_decision_index(share_token: str) -> FileResponse:
-        del share_token
-        return FileResponse(web_dist / "index.html")
+    def shared_decision_index(share_token: str) -> HTMLResponse:
+        share = shopping_store.get_share(share_token)
+        document = (web_dist / "index.html").read_text(encoding="utf-8")
+        if not share:
+            return HTMLResponse(document, status_code=404)
+        title = html.escape(str(share.get("title") or "ValuSee 购物决策分享"), quote=True)
+        description = html.escape("ValuSee 公开只读购物决策快照，价格与优惠请在下单前回到原平台核验。", quote=True)
+        document = document.replace("<title>ValuSee - 买之前，先看清价值</title>", f"<title>{title} - ValuSee</title>")
+        document = document.replace('<meta property="og:title" content="ValuSee - 买之前，先看清价值" />', f'<meta property="og:title" content="{title}" />')
+        document = document.replace('<meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />', f'<meta property="og:description" content="{description}" />')
+        return HTMLResponse(document)

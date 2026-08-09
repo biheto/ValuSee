@@ -1,0 +1,32 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -q tests
+      # This release gate catches invalid Python and undefined names. The
+      # existing style backlog is tracked separately from release correctness.
+      - run: ruff check app tests --select E9,F63,F7,F82 --no-cache
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npm audit --audit-level=high
+        working-directory: web
+      - run: pip install pip-audit && pip-audit

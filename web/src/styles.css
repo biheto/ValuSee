@@ -4,6 +4,10 @@ html, body, #root { min-height: 100%; }
 body { margin: 0; overflow-x: hidden; background: radial-gradient(circle at 5% 0%, rgba(250, 199, 72, .18), transparent 27%), radial-gradient(circle at 95% 18%, rgba(48, 199, 164, .13), transparent 25%), #f7f8f5; }
 button, input, textarea, select { font: inherit; }
 button { border: 0; cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline:3px solid #087f6a; outline-offset:3px; }
+.skip-link { position:fixed; z-index:200; top:8px; left:8px; padding:10px 14px; color:#fff; background:#153f36; transform:translateY(-150%); } .skip-link:focus { transform:translateY(0); }
+.fatal-error { width:min(520px,calc(100vw - 32px)); margin:18vh auto; padding:28px; text-align:center; background:#fff; border:1px solid #d8dfdc; } .fatal-error strong { font-size:22px; } .fatal-error button { min-height:42px; padding:0 18px; color:#fff; background:#15735d; }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } }
 .valuesee-app { width: min(1240px, calc(100vw - 36px)); margin: 0 auto; padding: 18px 0 64px; }
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-height: 74px; padding: 8px 6px 18px; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; min-width: 185px; }
@@ -25,6 +29,7 @@ button { border: 0; cursor: pointer; }
 .app-header nav { display: flex; align-items: center; gap: 5px; padding: 5px; border: 1px solid rgba(28, 45, 45, .07); border-radius: 15px; background: rgba(255,255,255,.62); box-shadow: 0 8px 25px rgba(57, 73, 64, .07); }
 .app-header nav button, .profile-button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 13px; border-radius: 11px; color: #697473; background: transparent; font-size: 13px; font-weight: 800; }
 .app-header nav button.active { color: #243535; background: #fff; box-shadow: 0 5px 14px rgba(47, 66, 58, .1); }
+.experiment-compact .app-header nav button { padding-inline:9px; }
 .product-search-panel { display: grid; grid-template-columns: minmax(230px,.62fr) minmax(0,1.38fr); gap: 14px 22px; margin: 0 0 18px; padding: 17px 20px; border: 1px solid rgba(255,255,255,.92); border-radius: 20px; background: rgba(255,255,255,.62); box-shadow: 0 14px 34px rgba(56,74,64,.07), inset 0 1px 0 #fff; backdrop-filter: blur(18px); }
 .agent-timeline { display: grid; grid-template-columns: 190px minmax(0,1fr); gap: 16px; align-items: center; margin: 0 0 18px; padding: 15px 19px; border: 1px solid rgba(255,255,255,.92); border-radius: 18px; background: rgba(255,255,255,.55); box-shadow: 0 10px 26px rgba(56,74,64,.06); }
 .agent-timeline > div:first-child strong, .agent-timeline > div:first-child span { display: block; } .agent-timeline > div:first-child strong { margin-top: 5px; color: #34423e; font-size: 14px; }

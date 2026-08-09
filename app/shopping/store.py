@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -117,6 +118,15 @@ class ShoppingStore:
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_admin_audit(
                 audit_id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,target_type TEXT NOT NULL,
                 target_id TEXT,metadata_json TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_experiment(
+                experiment_id TEXT PRIMARY KEY,code TEXT NOT NULL UNIQUE,name TEXT NOT NULL,
+                variants_json TEXT NOT NULL,status TEXT NOT NULL,starts_at TEXT,ends_at TEXT,
+                created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_experiment_assignment(
+                experiment_id TEXT NOT NULL,user_id TEXT NOT NULL,variant TEXT NOT NULL,created_at TEXT NOT NULL,
+                PRIMARY KEY(experiment_id,user_id)
             )""")
             conn.execute(
                 """
@@ -889,6 +899,45 @@ class ShoppingStore:
     def admin_revoke_share(self, share_id: str) -> bool:
         with self._session() as conn:
             return conn.execute("UPDATE shopping_share SET status='revoked',revoked_at=? WHERE share_id=? AND status='active'", (utc_now_iso(), share_id)).rowcount > 0
+
+    def save_experiment(self, payload: dict[str, Any], experiment_id: str | None = None) -> dict[str, Any]:
+        code, name = str(payload.get("code") or "").strip()[:80], str(payload.get("name") or "").strip()[:120]
+        variants = payload.get("variants") if isinstance(payload.get("variants"), list) else []
+        variants = [str(item).strip()[:40] for item in variants if str(item).strip()][:5]
+        status = str(payload.get("status") or "draft")
+        if not code or not name or len(variants) < 2 or status not in {"draft", "running", "paused", "completed"}:
+            raise ValueError("experiment requires code, name, 2-5 variants, and a valid status")
+        now, experiment_id = utc_now_iso(), experiment_id or f"experiment_{uuid4().hex}"
+        with self._session() as conn:
+            old = conn.execute("SELECT created_at FROM shopping_experiment WHERE experiment_id=?", (experiment_id,)).fetchone()
+            conflict = conn.execute("SELECT experiment_id FROM shopping_experiment WHERE code=? AND experiment_id<>?", (code, experiment_id)).fetchone()
+            if conflict:
+                raise ValueError("experiment code already exists")
+            created_at = old["created_at"] if old else now
+            conn.execute("""INSERT INTO shopping_experiment VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(experiment_id) DO UPDATE SET code=excluded.code,name=excluded.name,variants_json=excluded.variants_json,status=excluded.status,starts_at=excluded.starts_at,ends_at=excluded.ends_at,updated_at=excluded.updated_at""", (experiment_id, code, name, json.dumps(variants, ensure_ascii=False), status, payload.get("starts_at"), payload.get("ends_at"), created_at, now))
+            row = conn.execute("SELECT * FROM shopping_experiment WHERE experiment_id=?", (experiment_id,)).fetchone()
+        return _decode_json_columns(row, {"variants_json": "variants"})
+
+    def list_experiments(self) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_experiment ORDER BY updated_at DESC LIMIT 200").fetchall()
+        return [_decode_json_columns(row, {"variants_json": "variants"}) for row in rows]
+
+    def assign_experiment(self, user_id: str, code: str) -> dict[str, Any] | None:
+        now = utc_now_iso()
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_experiment WHERE code=? AND status='running' AND (starts_at IS NULL OR starts_at<=?) AND (ends_at IS NULL OR ends_at>?)", (code, now, now)).fetchone()
+            if not row:
+                return None
+            existing = conn.execute("SELECT variant,created_at FROM shopping_experiment_assignment WHERE experiment_id=? AND user_id=?", (row["experiment_id"], user_id)).fetchone()
+            variants = json.loads(row["variants_json"])
+            if existing:
+                variant, created_at = existing["variant"], existing["created_at"]
+            else:
+                index = int(hashlib.sha256(f"{row['experiment_id']}:{user_id}".encode()).hexdigest()[:8], 16) % len(variants)
+                variant, created_at = variants[index], now
+                conn.execute("INSERT INTO shopping_experiment_assignment VALUES(?,?,?,?)", (row["experiment_id"], user_id, variant, created_at))
+        return {"experiment_id": row["experiment_id"], "code": code, "variant": variant, "created_at": created_at}
 
     def save_profile(self, user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()

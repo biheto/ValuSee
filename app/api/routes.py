@@ -675,6 +675,23 @@ def admin_audits(limit: int = 500, authorization: str | None = Header(default=No
     return {"audits": shopping_store.list_admin_audits(limit)}
 
 
+@router.get("/admin/experiments", tags=["Admin Operations"])
+def admin_experiments(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"experiments": shopping_store.list_experiments()}
+
+
+@router.post("/admin/experiments", tags=["Admin Operations"])
+def admin_save_experiment(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    try:
+        experiment = shopping_store.save_experiment(payload, str(payload.get("experiment_id") or "") or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    shopping_store.record_admin_audit(actor_id, "experiment.save", "experiment", experiment["experiment_id"], {"status": experiment["status"]})
+    return {"experiment": experiment}
+
+
 @router.get("/admin/traces", tags=["Admin Console"])
 def admin_traces(limit: int = 100, agent: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
@@ -1064,10 +1081,18 @@ def create_shopping_feedback(payload: dict[str, object], authorization: str | No
 @router.post("/shopping/events", tags=["Shopping Feedback"])
 def record_shopping_event(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     event_type = str(payload.get("event_type") or "")
-    if event_type not in {"recommendation_accepted", "recommendation_rejected"}:
+    if event_type not in {"recommendation_accepted", "recommendation_rejected", "page_view", "search_started", "product_added", "comparison_saved", "monitor_cta", "support_opened"}:
         raise HTTPException(status_code=422, detail="unsupported shopping event")
-    event = shopping_store.record_business_event(_request_user(authorization), event_type, str(payload.get("reference_id") or "") or None, idempotency_key=str(payload.get("idempotency_key") or "") or None)
+    incoming = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    metadata = {key: str(incoming[key])[:120] for key in ("view", "source", "experiment", "variant") if key in incoming}
+    event = shopping_store.record_business_event(_request_user(authorization), event_type, str(payload.get("reference_id") or "")[:160] or None, metadata=metadata, idempotency_key=str(payload.get("idempotency_key") or "")[:200] or None)
     return event or {"duplicate": True}
+
+
+@router.get("/shopping/experiments/{code}", tags=["Shopping Experiment"])
+def shopping_experiment_assignment(code: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    assignment = shopping_store.assign_experiment(_request_user(authorization), code)
+    return assignment or {"code": code, "variant": "control", "inactive": True}
 
 
 @router.get("/admin/metrics", tags=["Admin Console"])
@@ -2930,8 +2955,6 @@ def _learning_next_questions(request: LearningChatRequest, task: dict[str, objec
     )
     generated_questions = [line.strip("- 0123456789.、").strip() for line in result["text"].splitlines() if line.strip()]
     return {"questions": generated_questions[:3] or fallback_questions, "answer_source": result["answer_source"]}
-    questions = [line.strip("- 0123456789.、").strip() for line in text.splitlines() if line.strip()]
-    return questions[:3] or fallback_questions
 
 
 def _fallback_learning_next_questions(request: LearningChatRequest, task: dict[str, object] | None) -> list[str]:
