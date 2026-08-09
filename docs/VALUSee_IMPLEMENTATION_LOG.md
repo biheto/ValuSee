@@ -30,6 +30,7 @@ The first release focuses on digital products and small appliances. The system m
 - Added a user-facing real-source search panel with loading, source health, empty state, direct product links, and add-to-comparison actions.
 - Added `/admin` as a separate ValuSee Admin Console with protected overview, Agent task list, LLM Trace usage, commerce-source status, MCP status, and refresh controls.
 - Production admin access requires `VALUSee_ADMIN_EMAILS`; development keeps a local preview for verification.
+- Admin Agent task rows now support detail drill-down into persisted task payloads/artifacts for operational debugging and review.
 
 ### Consumer decision workbench
 
