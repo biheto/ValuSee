@@ -85,3 +85,13 @@ def test_account_export_and_delete_cover_shopping_account_tables():
         assert shopping.get_profile(user_id)["profile"] == {}
         assert shopping.list_comparisons(user_id) == []
         assert shopping.list_reports(user_id) == []
+
+
+def test_feedback_has_a_governed_resolution_lifecycle():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        feedback = store.create_feedback("u1", {"feedback_type": "wrong_sku", "content": "Wrong generation"})
+        reviewing = store.update_feedback_status(feedback["feedback_id"], "reviewing")
+        resolved = store.update_feedback_status(feedback["feedback_id"], "resolved")
+        assert reviewing and reviewing["status"] == "reviewing"
+        assert resolved and resolved["status"] == "resolved"

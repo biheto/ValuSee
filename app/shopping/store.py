@@ -719,6 +719,19 @@ class ShoppingStore:
             rows = conn.execute(sql, tuple(params)).fetchall()
         return [_decode_json_columns(row, {"evidence_json": "evidence"}) for row in rows]
 
+    def update_feedback_status(self, feedback_id: str, status: str) -> dict[str, Any] | None:
+        if status not in {"open", "reviewing", "resolved", "rejected"}:
+            raise ValueError("invalid feedback status")
+        with self._session() as conn:
+            cursor = conn.execute(
+                "UPDATE shopping_feedback SET status=?,updated_at=? WHERE feedback_id=?",
+                (status, utc_now_iso(), feedback_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM shopping_feedback WHERE feedback_id=?", (feedback_id,)).fetchone()
+        return _decode_json_columns(row, {"evidence_json": "evidence"})
+
     def save_notification_preference(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()
         record = {"user_id": user_id, "email_enabled": bool(payload.get("email_enabled", True)), "in_app_enabled": bool(payload.get("in_app_enabled", True)), "quiet_start": str(payload.get("quiet_start") or "") or None, "quiet_end": str(payload.get("quiet_end") or "") or None, "updated_at": now}

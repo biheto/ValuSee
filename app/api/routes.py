@@ -830,6 +830,18 @@ def admin_feedback(limit: int = 200, authorization: str | None = Header(default=
     return {"feedback": shopping_store.list_feedback(limit=limit)}
 
 
+@router.patch("/admin/feedback/{feedback_id}", tags=["Admin Console"])
+def update_admin_feedback(feedback_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    try:
+        feedback = shopping_store.update_feedback_status(feedback_id, str(payload.get("status") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return feedback
+
+
 @router.get("/shopping/monitors/{monitor_id}/checks", tags=["Shopping Monitor"])
 def list_price_monitor_checks(monitor_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
     monitor = shopping_store.get_monitor(monitor_id)

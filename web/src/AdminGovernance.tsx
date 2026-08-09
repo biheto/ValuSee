@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Pause, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Eye, Pause, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 type Item = Record<string, unknown>;
 
@@ -18,6 +18,7 @@ export function AdminGovernance() {
   const [prompts, setPrompts] = useState<Item[]>([]);
   const [benchmarks, setBenchmarks] = useState<Item[]>([]);
   const [monitors, setMonitors] = useState<Item[]>([]);
+  const [feedback, setFeedback] = useState<Item[]>([]);
   const [error, setError] = useState('');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
@@ -34,13 +35,15 @@ export function AdminGovernance() {
   async function load() {
     setError('');
     try {
-      const [catalog, promptData, benchmarkData, monitorData] = await Promise.all([
+      const [catalog, promptData, benchmarkData, monitorData, feedbackData] = await Promise.all([
         api<{ products: Item[] }>('/api/v1/admin/catalog/products'),
         api<{ prompts: Item[] }>('/api/v1/admin/prompts'),
         api<{ runs: Item[] }>('/api/v1/admin/benchmarks'),
         api<{ monitors: Item[] }>('/api/v1/admin/monitors'),
+        api<{ feedback: Item[] }>('/api/v1/admin/feedback'),
       ]);
       setProducts(catalog.products); setPrompts(promptData.prompts); setBenchmarks(benchmarkData.runs); setMonitors(monitorData.monitors);
+      setFeedback(feedbackData.feedback);
       if (!skuProductId && catalog.products[0]) setSkuProductId(String(catalog.products[0].product_id));
     } catch (err) { setError(err instanceof Error ? err.message : '治理数据加载失败'); }
   }
@@ -68,6 +71,7 @@ export function AdminGovernance() {
     await load();
   }
   async function runBenchmark() { setBenchmarkBusy(true); setError(''); try { await api('/api/v1/admin/benchmarks/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ benchmark_type: benchmarkType, name: `${benchmarkType.toUpperCase()} 运营评测`, iterations: 1 }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : '评测运行失败'); } finally { setBenchmarkBusy(false); } }
+  async function reviewFeedback(id: string, status: 'reviewing' | 'resolved') { await api(`/api/v1/admin/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }); await load(); }
 
   return <section className="admin-content governance-stack">
     {error && <div className="admin-error">{error}</div>}
@@ -79,5 +83,6 @@ export function AdminGovernance() {
       <section className="admin-panel"><div className="admin-panel-title"><h2>价格监控治理</h2><span>{monitors.length} 条</span></div>{monitors.length ? monitors.map((item) => { const id = String(item.monitor_id); const status = String(item.status); const product = item.product as Item | undefined; return <div className="admin-row" key={id}><div><strong>{String(product?.title ?? id)}</strong><span>目标 ¥{String(item.target_price)} · 当前 ¥{String(item.current_final_price)} · {status}</span></div><div className="admin-row-buttons">{status === 'paused' || status === 'expired' ? <button title="恢复" onClick={() => void monitorAction(id, 'resume')}><Play size={14} /></button> : <button title="暂停" onClick={() => void monitorAction(id, 'pause')}><Pause size={14} /></button>}<button title="重试" onClick={() => void monitorAction(id, 'retry')}><RefreshCw size={14} /></button></div></div>; }) : <div className="admin-empty">暂无监控任务</div>}</section>
       <section className="admin-panel"><div className="admin-panel-title"><h2>Benchmark 结果</h2><span>{benchmarks.length} 次</span></div><div className="benchmark-runner"><select value={benchmarkType} onChange={(e) => setBenchmarkType(e.target.value)}><option value="rag">RAG 检索</option><option value="llm">LLM Prompt</option><option value="workflow">Workflow</option><option value="collaboration">多 Agent 协作</option><option value="mcp">工具调用</option></select><button onClick={() => void runBenchmark()} disabled={benchmarkBusy}>{benchmarkBusy ? '运行中…' : '立即评测'}</button></div>{benchmarks.length ? benchmarks.slice(0, 10).map((item) => <div className="admin-row" key={String(item.run_id)}><div><strong>{String(item.name)}</strong><span>{String(item.benchmark_type)} · {String(item.status)}</span></div><b>{String(item.finished_at ?? item.started_at ?? '')}</b></div>) : <div className="admin-empty">暂无评测记录</div>}</section>
     </div>
+    <section className="admin-panel"><div className="admin-panel-title"><h2>用户纠错反馈</h2><span>{feedback.filter((item) => item.status !== 'resolved').length} 条待处理</span></div>{feedback.length ? feedback.slice(0, 30).map((item) => <div className="admin-row" key={String(item.feedback_id)}><div><strong>{String(item.content)}</strong><span>{String(item.feedback_type)} · {String(item.target_type)} · {String(item.status)}</span></div><div className="admin-row-buttons"><button title="开始核验" onClick={() => void reviewFeedback(String(item.feedback_id), 'reviewing')}><Eye size={14} /></button><button title="标记已解决" onClick={() => void reviewFeedback(String(item.feedback_id), 'resolved')}><Check size={14} /></button></div></div>) : <div className="admin-empty">暂无用户纠错</div>}</section>
   </section>;
 }
