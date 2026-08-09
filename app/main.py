@@ -12,11 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import router as project_router
-from app.core.config import settings
+from app.core.config import settings, validate_production_config
 from app.core.database import database_health
 from app.core.infrastructure import http_metrics, infrastructure_health, rate_limiter
 from app.shopping.store import shopping_store
 
+validate_production_config()
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
 allowed_origins = [item.strip() for item in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if item.strip()]
@@ -37,8 +38,8 @@ async def protect_api(request: Request, call_next):
     status_code = 500
     try:
         if request.url.path.startswith("/api/"):
-            forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-            client_ip = forwarded or (request.client.host if request.client else "unknown")
+            # Uvicorn normalizes request.client only for explicitly trusted proxies.
+            client_ip = request.client.host if request.client else "unknown"
             limit = 20 if request.url.path.startswith("/api/v1/auth/") else 120
             if not rate_limiter.allow(f"{client_ip}:{request.url.path}", limit=limit):
                 response = JSONResponse({"detail": "请求过于频繁，请稍后重试"}, status_code=429)

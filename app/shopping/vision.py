@@ -11,6 +11,7 @@ from app.core.object_storage import persist_upload
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
 
 
 def inspect_product_image(content: bytes, content_type: str, original_name: str) -> dict[str, Any]:
@@ -18,6 +19,14 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str)
         raise ValueError("仅支持 JPG、PNG 和 WebP 商品图片")
     if not content or len(content) > MAX_IMAGE_BYTES:
         raise ValueError("图片不能为空且大小不能超过 8 MB")
+    signatures = {
+        "image/jpeg": content.startswith(b"\xff\xd8\xff"),
+        "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP",
+    }
+    if not signatures[content_type]:
+        raise ValueError("图片内容与声明类型不一致")
+    _validate_image_pixels(content)
     digest = hashlib.sha256(content).hexdigest()
     upload_dir = Path.cwd() / "data" / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -35,6 +44,24 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str)
         "requires_confirmation": not bool(text.strip()) or not bool(product["model"] or product["brand"]),
         "warning": warning,
     }
+
+
+def _validate_image_pixels(content: bytes) -> None:
+    if importlib.util.find_spec("PIL") is None:
+        return
+    from io import BytesIO
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(content)) as image:
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                raise ValueError("图片像素尺寸过大")
+            image.verify()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("图片文件已损坏或格式无效") from exc
 
 
 def normalize_product_text(text: str, fallback_title: str = "") -> dict[str, Any]:

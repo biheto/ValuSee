@@ -33,6 +33,7 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 2. Set `ALLOWED_HOSTS` and `ALLOWED_ORIGINS` to the production host only.
 3. Run `docker compose --env-file .env.production -f docker-compose.production.yml up -d --build`.
 4. Put TLS termination and a request body limit in front of the API. Expose only the API/reverse-proxy port; do not expose PostgreSQL, Redis, RabbitMQ, or MinIO publicly.
+   Set `FORWARDED_ALLOW_IPS` to the exact reverse-proxy addresses; wildcard proxy trust is intentionally disabled.
 5. Verify `/health`, `/ready`, registration/login, screenshot upload, a price snapshot, a monitor cycle, and account export/deletion in staging before switching DNS.
 6. Run `scripts/verify-release.ps1` against the TLS origin. Schedule `scripts/backup-production.ps1`, copy encrypted backups off host, and perform a quarterly restore drill with `scripts/restore-production.ps1` in an isolated environment.
 
@@ -49,6 +50,8 @@ The optional `VALUSee_NOTIFICATION_WEBHOOK_URL` delivers signed server-to-server
 ## Security And Data Controls
 
 - Production requires a non-default `VALUSee_JWT_SECRET` and bearer authentication for user data.
+- Production startup fails on weak JWT/metrics secrets, wildcard hosts/origins, a non-HTTPS public URL, or a missing administrator allowlist.
+- Marketplace preview/install/uninstall is administrator-only. Production rejects local package paths, non-GitHub remote hosts, private network targets, unsafe redirects, oversized downloads and archive path traversal.
 - Passwords use PBKDF2-HMAC-SHA256 with per-user salts.
 - User IDs are derived from the verified token; request-body `user_id` values cannot cross account boundaries.
 - Uploads are type/size/hash validated and assigned random names. Production storage should use a private bucket and lifecycle policy.

@@ -165,8 +165,7 @@ def _require_admin(authorization: str | None) -> str:
 
 def _session_context(request: Request) -> tuple[str, str | None]:
     device = request.headers.get("user-agent", "浏览器")[:160]
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    return device, forwarded or (request.client.host if request.client else None)
+    return device, request.client.host if request.client else None
 
 
 def _raw_bearer(authorization: str | None) -> str | None:
@@ -2003,12 +2002,14 @@ def get_marketplace_catalog() -> dict[str, object]:
 
 
 @router.get("/marketplace/installs", tags=["Plugin Marketplace"])
-def list_marketplace_installs(limit: int = 80, package_type: str | None = None) -> dict[str, object]:
+def list_marketplace_installs(limit: int = 80, package_type: str | None = None, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
     return {"installs": task_store.list_marketplace_installs(limit=limit, package_type=package_type)}
 
 
 @router.post("/marketplace/preview", tags=["Plugin Marketplace"])
-def preview_marketplace(payload: dict[str, object]) -> dict[str, object]:
+def preview_marketplace(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
     source_url = str(payload.get("source_url") or "").strip()
     try:
         return preview_marketplace_package(source_url)
@@ -2017,7 +2018,8 @@ def preview_marketplace(payload: dict[str, object]) -> dict[str, object]:
 
 
 @router.post("/marketplace/install", tags=["Plugin Marketplace"])
-def install_marketplace(payload: dict[str, object]) -> dict[str, object]:
+def install_marketplace(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
     source_url = str(payload.get("source_url") or "").strip()
     try:
         install = install_marketplace_package(source_url)
@@ -2028,7 +2030,8 @@ def install_marketplace(payload: dict[str, object]) -> dict[str, object]:
 
 
 @router.delete("/marketplace/packages/{package_id}", tags=["Plugin Marketplace"])
-def uninstall_marketplace(package_id: str) -> dict[str, object]:
+def uninstall_marketplace(package_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
     try:
         uninstall = uninstall_marketplace_package(package_id)
     except FileNotFoundError as exc:

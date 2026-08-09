@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
+import stat
 import tempfile
 import urllib.parse
 import urllib.request
@@ -12,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.marketplace.catalog import get_builtin_manifest
+from app.core.url_security import validate_public_https_url
 from app.persistence.rag_store import rag_store
 from app.persistence.sqlite_store import task_store
 from app.providers.llm_provider import llm_provider
@@ -26,6 +29,10 @@ SUPPORTED_PACKAGE_TYPES = {
     "workflow_pack",
     "prompt_pack",
 }
+MAX_REMOTE_PACKAGE_BYTES = 10 * 1024 * 1024
+MAX_EXTRACTED_PACKAGE_BYTES = 50 * 1024 * 1024
+MAX_ARCHIVE_FILES = 1_000
+MARKETPLACE_REMOTE_HOSTS = {"github.com", "www.github.com", "codeload.github.com"}
 
 
 def preview_marketplace_package(source_url: str) -> dict[str, Any]:
@@ -327,6 +334,8 @@ def _load_manifest(source_url: str) -> dict[str, Any]:
         return manifest
     path = Path(source).expanduser()
     if path.exists():
+        if os.getenv("APP_ENV", "dev").lower() in {"prod", "production"}:
+            raise ValueError("local marketplace sources are disabled in production")
         manifest = _load_local_manifest(path)
         manifest["source_url"] = path.as_posix()
         return manifest
@@ -345,7 +354,7 @@ def _load_local_manifest(path: Path) -> dict[str, Any]:
     if manifest_path.suffix.lower() == ".zip":
         with tempfile.TemporaryDirectory() as temp_dir:
             with zipfile.ZipFile(manifest_path) as archive:
-                archive.extractall(temp_dir)
+                _safe_extract(archive, Path(temp_dir))
             return _find_manifest(Path(temp_dir))
     if manifest_path.is_dir() or not manifest_path.exists():
         manifest = _find_manifest(path)
@@ -375,7 +384,7 @@ def _load_remote_manifest(url: str) -> dict[str, Any]:
         zip_path = target.with_suffix(".zip")
         zip_path.write_bytes(data)
         with zipfile.ZipFile(zip_path) as archive:
-            archive.extractall(target)
+            _safe_extract(archive, target)
         manifest = _find_manifest(target)
         _attach_package_root(manifest, target)
         return manifest
@@ -389,9 +398,38 @@ def _attach_package_root(manifest: dict[str, Any], package_root: Path) -> None:
 
 
 def _download_bytes(url: str) -> bytes:
+    validate_public_https_url(url, allowed_hosts=MARKETPLACE_REMOTE_HOSTS)
     request = urllib.request.Request(url, headers={"User-Agent": "DevAgent-Studio-Marketplace/1.0"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+    opener = urllib.request.build_opener(_SafeRedirectHandler())
+    with opener.open(request, timeout=30) as response:
+        validate_public_https_url(response.geturl(), allowed_hosts=MARKETPLACE_REMOTE_HOSTS)
+        declared = int(response.headers.get("Content-Length") or 0)
+        if declared > MAX_REMOTE_PACKAGE_BYTES:
+            raise ValueError("remote marketplace package exceeds 10 MB")
+        data = response.read(MAX_REMOTE_PACKAGE_BYTES + 1)
+        if len(data) > MAX_REMOTE_PACKAGE_BYTES:
+            raise ValueError("remote marketplace package exceeds 10 MB")
+        return data
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_public_https_url(newurl, allowed_hosts=MARKETPLACE_REMOTE_HOSTS)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _safe_extract(archive: zipfile.ZipFile, target: Path) -> None:
+    root = target.resolve()
+    members = archive.infolist()
+    if len(members) > MAX_ARCHIVE_FILES or sum(member.file_size for member in members) > MAX_EXTRACTED_PACKAGE_BYTES:
+        raise ValueError("marketplace archive is too large after extraction")
+    for member in members:
+        if member.flag_bits & 0x1 or stat.S_ISLNK(member.external_attr >> 16):
+            raise ValueError("encrypted files and symbolic links are not allowed")
+        destination = (root / member.filename).resolve()
+        if not destination.is_relative_to(root):
+            raise ValueError("marketplace archive contains an unsafe path")
+    archive.extractall(root)
 
 
 def _github_zip_url(url: str) -> str | None:
