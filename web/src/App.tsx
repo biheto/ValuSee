@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { BrandMark, BrandWordmark, ValueMascot } from './BrandArt';
-import { AccountHome, ConsumerNotification, ConsumerProduct, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedItem, SavedPage, SharedDecisionPage } from './ConsumerHub';
+import { AccountHome, ConsumerNotification, ConsumerProduct, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from './ConsumerHub';
 
 type Product = ConsumerProduct;
 type Decision = { task_id: string; status: string; result: {
@@ -93,6 +93,7 @@ export function App() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+  const [savedGroups, setSavedGroups] = useState<SavedGroup[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard>({});
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [detailRef, setDetailRef] = useState(() => window.location.pathname.match(/^\/product\/(prd_[a-f0-9]+)$/)?.[1] || '');
@@ -120,17 +121,18 @@ export function App() {
 
   const refreshRecords = async () => {
     try {
-      const [m, p, c, n, savedReports, savedComparisons, savedProfile, preferences, saved, overview] = await Promise.all([
+      const [m, p, c, n, savedReports, savedComparisons, savedProfile, preferences, saved, overview, groups] = await Promise.all([
         request<Monitor[]>('/api/v1/shopping/monitors'), request<Purchase[]>('/api/v1/shopping/purchases'),
         request<Capture[]>('/api/v1/shopping/extension/captures'), request<Notification[]>('/api/v1/shopping/notifications'),
         request<SavedReport[]>('/api/v1/shopping/reports'), request<SavedComparison[]>('/api/v1/shopping/comparisons'),
         request<{ profile: Partial<ShoppingProfile> }>('/api/v1/shopping/profile'),
         request<NotificationPreference>('/api/v1/shopping/notification-preferences'),
-        request<SavedItem[]>('/api/v1/shopping/saved'), request<Dashboard>('/api/v1/shopping/dashboard'),
+        request<SavedItem[]>('/api/v1/shopping/saved'), request<Dashboard>('/api/v1/shopping/dashboard'), request<{ groups: SavedGroup[] }>('/api/v1/shopping/saved-groups'),
       ]);
       setMonitors(m); setPurchases(p); setCaptures(c.filter((item) => item.status === 'pending_confirmation')); setNotifications(n);
       setReports(savedReports); setComparisons(savedComparisons); setNotificationPreference(preferences);
       setSavedItems(saved); setDashboard(overview);
+      setSavedGroups(groups.groups);
       if (Object.keys(savedProfile.profile || {}).length) {
         setProfile((current) => ({ ...current, ...savedProfile.profile }));
         setBudget(Number(savedProfile.profile.budget || 1800));
@@ -180,6 +182,12 @@ export function App() {
   async function deleteSaved(id: string) { await request(`/api/v1/shopping/saved/${id}`, { method: 'DELETE' }); await refreshRecords(); }
   async function readMessage(id: string) { await request(`/api/v1/shopping/notifications/${id}/read`, { method: 'PATCH' }); await refreshRecords(); }
   async function readAllMessages() { await request('/api/v1/shopping/notifications/read-all', { method: 'POST' }); await refreshRecords(); }
+  async function deleteMessage(id: string) { await request(`/api/v1/shopping/notifications/${id}`, { method: 'DELETE' }); await refreshRecords(); }
+  async function retryMessage(id: string) { await request(`/api/v1/shopping/notifications/${id}/retry`, { method: 'POST' }); setMessage('消息已重新投递，站内记录保持不变。'); await refreshRecords(); }
+  async function bulkMessages(ids: string[], action: 'read' | 'delete') { await request('/api/v1/shopping/notifications/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notification_ids: ids, action }) }); await refreshRecords(); }
+  async function createSavedGroup(name: string) { await request('/api/v1/shopping/saved-groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); await refreshRecords(); }
+  async function bulkSaved(ids: string[], action: 'delete' | 'move', groupId?: string) { await request('/api/v1/shopping/saved/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ saved_ids: ids, action, group_id: groupId }) }); await refreshRecords(); }
+  function navigateTarget(target: string) { const next = new URL(target, window.location.origin).searchParams.get('view'); if (next) setView(next as View); }
   async function shareSnapshot(shareType: 'comparison' | 'report', title: string, payload: Record<string, unknown>) { try { const share = await request<{ share_url: string }>('/api/v1/shopping/shares', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ share_type: shareType, title, payload, expires_days: 30 }) }); const url = new URL(share.share_url, window.location.origin).toString(); let copied = false; try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(url); copied = true; } } catch { /* Clipboard access may be denied outside a secure context. */ } if (!copied) window.prompt('分享链接已生成，请复制：', url); setMessage(copied ? '分享链接已复制到剪贴板。' : `分享链接已生成：${url}`); } catch (err) { setError(err instanceof Error ? err.message : '生成分享链接失败'); } }
   function updateProduct(index: number, patch: Partial<Product>) { setProducts((items) => items.map((item, i) => i === index ? { ...item, ...patch } : item)); }
   async function createMonitor(event: FormEvent) { event.preventDefault(); const product = products[monitorProduct]; try { await request<Monitor>('/api/v1/shopping/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product, target_price: targetPrice, monitor_days: 30, notify_channel: 'in_app' }) }); setMessage('降价监控已创建，服务重启后仍会保留。'); await refreshRecords(); } catch (err) { setError(err instanceof Error ? err.message : '创建监控失败'); } }
@@ -203,8 +211,8 @@ export function App() {
     {error && <div className="error-banner" role="alert">{error}</div>}
     <div id="primary-view" tabIndex={-1}></div>
     {view === 'discover' && <DiscoverPage dashboard={dashboard} recent={savedItems.filter((item) => item.item_type === 'recent')} onStart={(nextGoal) => { setGoal(nextGoal); setView('analyze'); }} onOpen={(product) => void addProduct(product, true)} />}
-    {view === 'saved' && <SavedPage items={savedItems} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} />}
-    {view === 'messages' && <MessagesPage notifications={notifications} onRead={(id) => void readMessage(id)} onReadAll={() => void readAllMessages()} />}
+    {view === 'saved' && <SavedPage items={savedItems} groups={savedGroups} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} onCreateGroup={(name) => void createSavedGroup(name)} onBulk={(ids, action, groupId) => void bulkSaved(ids, action, groupId)} />}
+    {view === 'messages' && <MessagesPage notifications={notifications} onRead={(id) => void readMessage(id)} onReadAll={() => void readAllMessages()} onDelete={(id) => void deleteMessage(id)} onRetry={(id) => void retryMessage(id)} onBulk={(ids, action) => void bulkMessages(ids, action)} onNavigate={navigateTarget} />}
     {view === 'account' && <AccountHome name={accountName} dashboard={dashboard} onNavigate={(next) => setView(next as View)} onLogin={() => setAccountOpen(true)} />}
     {view === 'analyze' && <>
       <section className="hero"><div className="hero-copy"><div className="eyebrow"><Sparkles size={16} />AI 购物决策助手</div><h1>别只看便不便宜，先看它值不值得。</h1><p>识别真假同款，算清真实到手价，结合你的预算和设备给出建议。买完之后，继续帮你盯住降价与保价。</p><form className="decision-box" onSubmit={runDecision}><textarea value={goal} onChange={(e) => setGoal(e.target.value)} /><div className="decision-controls"><label>预算 <input type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /> 元</label><button type="submit" disabled={loading}>{loading ? <Loader2 className="spin" size={18} /> : <Search size={18} />}立即分析</button></div></form></div><div className="hero-aside"><div className="hero-visual"><ValueMascot /><div className="visual-badge">看清价值，再决定</div></div></div></section>

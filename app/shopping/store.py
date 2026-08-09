@@ -210,6 +210,19 @@ class ShoppingStore:
                 UNIQUE(user_id,item_type,reference_key)
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_saved_item_user_type ON shopping_saved_item(user_id,item_type,updated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_saved_group(
+                group_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+                UNIQUE(user_id,name)
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_saved_group_item(
+                user_id TEXT NOT NULL,saved_id TEXT NOT NULL,group_id TEXT NOT NULL,created_at TEXT NOT NULL,
+                PRIMARY KEY(user_id,saved_id)
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_notification_delivery(
+                delivery_id TEXT PRIMARY KEY,notification_id TEXT NOT NULL,user_id TEXT NOT NULL,attempt INTEGER NOT NULL,
+                status TEXT NOT NULL,result TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_notification_delivery ON shopping_notification_delivery(user_id,notification_id,attempt)")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_content(
                 content_id TEXT PRIMARY KEY,content_type TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,
                 body TEXT NOT NULL,category TEXT NOT NULL,source_url TEXT,status TEXT NOT NULL,
@@ -419,6 +432,15 @@ class ShoppingStore:
                     return None
                 raise
         record["delivery"] = deliver_notification(record, self.get_notification_preference(user_id))
+        self._record_notification_delivery(record, str(record["delivery"]))
+        return record
+
+    def _record_notification_delivery(self, notification: dict[str, Any], result: str) -> dict[str, Any]:
+        notification_id, user_id = str(notification["notification_id"]), str(notification["user_id"])
+        with self._session() as conn:
+            row = conn.execute("SELECT COALESCE(MAX(attempt),0) AS attempt FROM shopping_notification_delivery WHERE notification_id=? AND user_id=?", (notification_id, user_id)).fetchone()
+            record = {"delivery_id": f"delivery_{uuid4().hex}", "notification_id": notification_id, "user_id": user_id, "attempt": int(row["attempt"]) + 1, "status": "failed" if result == "audit_only" else "delivered", "result": result, "created_at": utc_now_iso()}
+            conn.execute("INSERT INTO shopping_notification_delivery(delivery_id,notification_id,user_id,attempt,status,result,created_at) VALUES(?,?,?,?,?,?,?)", tuple(record.values()))
         return record
 
     def list_notifications(self, user_id: str, unread_only: bool = False) -> list[dict[str, Any]]:
@@ -430,7 +452,12 @@ class ShoppingStore:
             query += " AND status='unread'"
         query += " ORDER BY created_at DESC LIMIT 100"
         with self._session() as conn:
-            return [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+            items = [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+            for item in items:
+                delivery = conn.execute("SELECT status,result,attempt,created_at FROM shopping_notification_delivery WHERE notification_id=? AND user_id=? ORDER BY attempt DESC LIMIT 1", (item["notification_id"], user_id)).fetchone()
+                item["delivery"] = dict(delivery) if delivery else None
+                item["target_url"] = _notification_target(str(item["kind"]))
+            return items
 
     def mark_notification_read(self, user_id: str, notification_id: str | None = None) -> int:
         now = utc_now_iso()
@@ -440,6 +467,29 @@ class ShoppingStore:
             else:
                 cursor = conn.execute("UPDATE shopping_notification SET status='read',read_at=? WHERE user_id=? AND status='unread'", (now, user_id))
         return int(cursor.rowcount)
+
+    def delete_notifications(self, user_id: str, notification_ids: list[str]) -> int:
+        ids = [str(item) for item in notification_ids if str(item)][:100]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        with self._session() as conn:
+            owned = conn.execute(f"SELECT notification_id FROM shopping_notification WHERE user_id=? AND notification_id IN ({placeholders})", (user_id, *ids)).fetchall()
+            owned_ids = [row["notification_id"] for row in owned]
+            if not owned_ids:
+                return 0
+            owned_placeholders = ",".join("?" for _ in owned_ids)
+            conn.execute(f"DELETE FROM shopping_notification_delivery WHERE user_id=? AND notification_id IN ({owned_placeholders})", (user_id, *owned_ids))
+            return int(conn.execute(f"DELETE FROM shopping_notification WHERE user_id=? AND notification_id IN ({owned_placeholders})", (user_id, *owned_ids)).rowcount)
+
+    def retry_notification(self, user_id: str, notification_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_notification WHERE user_id=? AND notification_id=?", (user_id, notification_id)).fetchone()
+        if not row:
+            return None
+        notification = dict(row)
+        result = deliver_notification(notification, self.get_notification_preference(user_id))
+        return self._record_notification_delivery(notification, result)
 
     def create_monitor(
         self,
@@ -1045,18 +1095,61 @@ class ShoppingStore:
                 (record["report_id"], user_id, product_ref, json.dumps(product, ensure_ascii=False), json.dumps(report, ensure_ascii=False), json.dumps(sources, ensure_ascii=False), record["created_at"]))
         return record
 
-    def list_saved_items(self, user_id: str, item_type: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def list_saved_items(self, user_id: str, item_type: str | None = None, limit: int = 200, query_text: str | None = None, group_id: str | None = None) -> list[dict[str, Any]]:
         sql, params = "SELECT * FROM shopping_saved_item WHERE user_id=?", [user_id]
         if item_type:
             sql += " AND item_type=?"; params.append(item_type)
+        if query_text:
+            sql += " AND (label LIKE ? OR product_json LIKE ?)"; term = f"%{query_text[:80]}%"; params.extend([term, term])
+        if group_id:
+            sql += " AND saved_id IN (SELECT saved_id FROM shopping_saved_group_item WHERE user_id=? AND group_id=?)"; params.extend([user_id, group_id])
         sql += " ORDER BY updated_at DESC LIMIT ?"; params.append(max(1, min(limit, 500)))
         with self._session() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
-        return [_decode_json_columns(row, {"product_json": "product"}) for row in rows]
+            groups = {row["saved_id"]: {"group_id": row["group_id"], "group_name": row["name"]} for row in conn.execute("SELECT i.saved_id,i.group_id,g.name FROM shopping_saved_group_item i JOIN shopping_saved_group g ON g.group_id=i.group_id WHERE i.user_id=?", (user_id,)).fetchall()}
+        return [{**_decode_json_columns(row, {"product_json": "product"}), **groups.get(row["saved_id"], {"group_id": None, "group_name": None})} for row in rows]
 
     def delete_saved_item(self, user_id: str, saved_id: str) -> bool:
         with self._session() as conn:
+            conn.execute("DELETE FROM shopping_saved_group_item WHERE saved_id=? AND user_id=?", (saved_id, user_id))
             return conn.execute("DELETE FROM shopping_saved_item WHERE saved_id=? AND user_id=?", (saved_id, user_id)).rowcount > 0
+
+    def list_saved_groups(self, user_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT g.*,COUNT(i.saved_id) AS item_count FROM shopping_saved_group g LEFT JOIN shopping_saved_group_item i ON i.group_id=g.group_id AND i.user_id=g.user_id WHERE g.user_id=? GROUP BY g.group_id,g.user_id,g.name,g.created_at,g.updated_at ORDER BY g.updated_at DESC", (user_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_saved_group(self, user_id: str, name: str) -> dict[str, Any]:
+        name = name.strip()[:40]
+        if not name:
+            raise ValueError("group name is required")
+        now, group_id = utc_now_iso(), f"group_{uuid4().hex}"
+        with self._session() as conn:
+            old = conn.execute("SELECT * FROM shopping_saved_group WHERE user_id=? AND name=?", (user_id, name)).fetchone()
+            if old:
+                return dict(old)
+            conn.execute("INSERT INTO shopping_saved_group(group_id,user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)", (group_id, user_id, name, now, now))
+        return {"group_id": group_id, "user_id": user_id, "name": name, "item_count": 0, "created_at": now, "updated_at": now}
+
+    def bulk_saved_items(self, user_id: str, saved_ids: list[str], action: str, group_id: str | None = None) -> int:
+        ids = list(dict.fromkeys(str(item) for item in saved_ids if str(item)))[:100]
+        if not ids or action not in {"delete", "move"}:
+            raise ValueError("invalid bulk saved action")
+        placeholders = ",".join("?" for _ in ids)
+        with self._session() as conn:
+            owned = [row["saved_id"] for row in conn.execute(f"SELECT saved_id FROM shopping_saved_item WHERE user_id=? AND saved_id IN ({placeholders})", (user_id, *ids)).fetchall()]
+            if action == "move":
+                if not group_id or not conn.execute("SELECT 1 FROM shopping_saved_group WHERE user_id=? AND group_id=?", (user_id, group_id)).fetchone():
+                    raise ValueError("saved group not found")
+                now = utc_now_iso()
+                for saved_id in owned:
+                    conn.execute("INSERT INTO shopping_saved_group_item(user_id,saved_id,group_id,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id,saved_id) DO UPDATE SET group_id=excluded.group_id,created_at=excluded.created_at", (user_id, saved_id, group_id, now))
+                return len(owned)
+            if owned:
+                owned_placeholders = ",".join("?" for _ in owned)
+                conn.execute(f"DELETE FROM shopping_saved_group_item WHERE user_id=? AND saved_id IN ({owned_placeholders})", (user_id, *owned))
+                return int(conn.execute(f"DELETE FROM shopping_saved_item WHERE user_id=? AND saved_id IN ({owned_placeholders})", (user_id, *owned)).rowcount)
+            return 0
 
     def user_dashboard(self, user_id: str) -> dict[str, Any]:
         with self._session() as conn:
@@ -1435,6 +1528,14 @@ def _monitor_message(final_price: float, target_price: float) -> str:
     if final_price <= target_price:
         return f"已达到目标价：当前到手价 {final_price:.0f} 元，目标价 {target_price:.0f} 元。"
     return f"继续观察：当前到手价 {final_price:.0f} 元，距离目标价还差 {final_price - target_price:.0f} 元。"
+
+
+def _notification_target(kind: str) -> str:
+    if kind in {"price_reached", "price_drop", "monitor"}:
+        return "/?view=monitors"
+    if kind in {"price_protection", "return_deadline", "warranty_deadline", "after_sales"}:
+        return "/?view=purchases"
+    return "/?view=messages"
 
 
 shopping_store = ShoppingStore()

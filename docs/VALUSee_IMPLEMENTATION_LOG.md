@@ -57,6 +57,9 @@ The first release focuses on digital products and small appliances. The system m
 - Product details now use stable owner-scoped `/product/{product_ref}` routes backed by normalized records from favorites, recent views, comparisons, reports, monitors, and purchases. A refreshed URL restores the same user-owned product instead of relying on transient drawer state.
 - Product detail aggregates only persisted evidence: extension/user price snapshots render as a trend line, same-SKU source offers remain separate from alternate SKUs, and source-bearing review defect evidence includes sample size and confidence. Missing evidence remains an explicit empty state.
 - The comparison workbench supports drag and keyboard-friendly button ordering, difference-only specification views, collapsible dimensions, revocable share links, PNG snapshots, and print/PDF output with source-freshness warnings.
+- Favorites and history now support account-scoped groups, search, selection, bulk move/delete, and an explicit unfollow action for brands. Bulk operations cap requests at 100 records and silently exclude records owned by another account.
+- The message center groups price, after-sales, and system events; supports unread filtering, detail navigation, selection, bulk read/delete, individual deletion, and delivery retry. Every channel attempt is persisted with attempt number, result, and status while the in-app message remains canonical.
+- Account export and deletion include product records, review evidence, saved groups, group memberships, and notification delivery attempts, keeping the new retention features inside the privacy lifecycle.
 
 ### Brand assets
 

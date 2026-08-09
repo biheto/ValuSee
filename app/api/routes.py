@@ -447,6 +447,33 @@ def read_all_shopping_notifications(authorization: str | None = Header(default=N
     return {"updated": shopping_store.mark_notification_read(_request_user(authorization))}
 
 
+@router.delete("/shopping/notifications/{notification_id}", tags=["Shopping Monitor"])
+def delete_shopping_notification(notification_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    deleted = shopping_store.delete_notifications(_request_user(authorization), [notification_id])
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"deleted": deleted}
+
+
+@router.post("/shopping/notifications/{notification_id}/retry", tags=["Shopping Monitor"])
+def retry_shopping_notification(notification_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    delivery = shopping_store.retry_notification(_request_user(authorization), notification_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return delivery
+
+
+@router.post("/shopping/notifications/bulk", tags=["Shopping Monitor"])
+def bulk_shopping_notifications(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    notification_ids = payload.get("notification_ids") if isinstance(payload.get("notification_ids"), list) else []
+    action, user_id = str(payload.get("action") or ""), _request_user(authorization)
+    if len(notification_ids) > 100 or action not in {"read", "delete"}:
+        raise HTTPException(status_code=422, detail="invalid notification bulk action")
+    if action == "delete":
+        return {"updated": shopping_store.delete_notifications(user_id, notification_ids)}
+    return {"updated": sum(shopping_store.mark_notification_read(user_id, str(item)) for item in notification_ids)}
+
+
 @router.post("/shopping/reviews/analyze", tags=["Shopping Decision"])
 def analyze_product_reviews(request: ReviewAnalysisRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     user_id = _request_user(authorization)
@@ -1015,8 +1042,8 @@ def get_shopping_product(product_ref: str, authorization: str | None = Header(de
 
 
 @router.get("/shopping/saved", tags=["Shopping Account"])
-def list_shopping_saved(item_type: str | None = None, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
-    return shopping_store.list_saved_items(_request_user(authorization), item_type)
+def list_shopping_saved(item_type: str | None = None, query: str | None = None, group_id: str | None = None, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_saved_items(_request_user(authorization), item_type, query_text=query, group_id=group_id)
 
 
 @router.post("/shopping/saved", tags=["Shopping Account"])
@@ -1032,6 +1059,31 @@ def delete_shopping_saved(saved_id: str, authorization: str | None = Header(defa
     if not shopping_store.delete_saved_item(_request_user(authorization), saved_id):
         raise HTTPException(status_code=404, detail="Saved item not found")
     return {"deleted": True}
+
+
+@router.get("/shopping/saved-groups", tags=["Shopping Account"])
+def list_shopping_saved_groups(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"groups": shopping_store.list_saved_groups(_request_user(authorization))}
+
+
+@router.post("/shopping/saved-groups", tags=["Shopping Account"])
+def create_shopping_saved_group(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.save_saved_group(_request_user(authorization), str(payload.get("name") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/shopping/saved/bulk", tags=["Shopping Account"])
+def bulk_shopping_saved(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    saved_ids = payload.get("saved_ids") if isinstance(payload.get("saved_ids"), list) else []
+    if len(saved_ids) > 100:
+        raise HTTPException(status_code=422, detail="at most 100 saved items can be changed")
+    try:
+        updated = shopping_store.bulk_saved_items(_request_user(authorization), saved_ids, str(payload.get("action") or ""), str(payload.get("group_id") or "") or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"updated": updated}
 
 
 @router.get("/shopping/comparisons", tags=["Shopping Decision"])

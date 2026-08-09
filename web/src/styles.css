@@ -169,6 +169,30 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .purchase-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; } .purchase-actions select { width:auto; min-width:108px; } .purchase-actions label { cursor:pointer; } .purchase-actions input[type=file] { display:none; } .attachment-list { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; } .attachment-list a { display:inline-flex; gap:5px; align-items:center; color:#15735d; font-size:11px; } .support-center { margin-top:17px; padding:20px; } .support-center>button { width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left; padding:13px 0; border:0; border-bottom:1px solid rgba(18,55,46,.1); background:transparent; } .support-center>button span { display:block; margin-top:4px; color:#7b8783; font-size:11px; } .support-center>button b { color:#15735d; font-size:11px; } .ticket-dialog { position:fixed; z-index:90; inset:10vh max(18px,calc((100vw - 680px)/2)); max-height:80vh; overflow:auto; padding:24px; } .ticket-messages { display:grid; gap:10px; margin:18px 0; } .ticket-messages article { max-width:82%; padding:12px; background:rgba(255,255,255,.4); border:1px solid rgba(18,55,46,.1); } .ticket-messages article.admin { margin-left:auto; } .ticket-messages p { margin:6px 0; } .ticket-messages small { color:#84908c; }
 .campaign-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; } .campaign-strip article { padding:16px; border-left:3px solid #eaa243; background:rgba(255,255,255,.28); } .campaign-strip span,.campaign-strip strong,.campaign-strip p { display:block; } .campaign-strip span { color:#9a641f; font-size:10px; } .campaign-strip strong { margin-top:6px; } .campaign-strip p { color:#68746f; font-size:12px; line-height:1.55; } .campaign-strip a { display:inline-flex; align-items:center; gap:5px; color:#15735d; font-size:11px; }
 .heading-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.saved-toolbar { display:grid; grid-template-columns:minmax(220px,1fr) 180px minmax(220px,.7fr); gap:8px; margin-bottom:10px; padding:10px; }
+.saved-toolbar label,.saved-toolbar form { display:flex; align-items:center; gap:7px; }
+.saved-toolbar label { padding:0 10px; border:1px solid #e0e9e3; border-radius:8px; background:rgba(255,255,255,.65); }
+.saved-toolbar input,.saved-toolbar select { width:100%; min-height:36px; border:0; background:transparent; }
+.saved-toolbar form input { min-width:0; padding:0 10px; border:1px solid #e0e9e3; border-radius:8px; background:rgba(255,255,255,.65); }
+.saved-toolbar form button { display:grid; place-items:center; width:36px; height:36px; flex:0 0 auto; border-radius:8px; color:#fff; background:#398f7c; }
+.saved-bulk,.message-bulk { display:flex; align-items:center; gap:8px; margin:8px 0; padding:10px 13px; border-radius:9px; color:#52645d; background:#fff4df; font-size:11px; }
+.saved-bulk select { margin-left:auto; min-height:32px; }
+.saved-bulk button,.message-bulk button { display:inline-flex; align-items:center; gap:5px; min-height:32px; padding:0 9px; border-radius:7px; color:#9a4650; background:#ffe8e8; font-weight:900; }
+.saved-list > article { grid-template-columns:auto minmax(0,1fr) auto; }
+.saved-list > article > input,.message-center > article > input { width:16px; height:16px; accent-color:#d85d68; }
+.message-unread { display:flex; align-items:center; gap:6px; color:#687772; font-size:11px; white-space:nowrap; }
+.message-center > article { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:9px; align-items:center; padding:8px 4px; border-top:1px solid #edf1ed; }
+.message-center > article:first-child { border-top:0; }
+.message-main { display:grid; grid-template-columns:37px minmax(0,1fr) auto; gap:11px; align-items:start; min-width:0; color:#465650; text-align:left; }
+.message-main > i { display:grid; place-items:center; width:37px; height:37px; border-radius:11px; color:#3b9d86; background:#e6f7ef; }
+.message-center > article.unread .message-main > i { color:#d85d68; background:#fff0d7; }
+.message-main strong,.message-main span,.message-main small { display:block; }
+.message-main span { margin-top:4px; color:#778780; font-size:12px; line-height:1.5; }
+.message-main small { margin-top:7px; color:#a0aaa5; font-size:10px; }
+.message-main em { padding:4px 6px; border-radius:5px; color:#d85d68; background:#fff0d7; font-size:10px; font-style:normal; font-weight:900; }
+.message-actions { display:flex; gap:4px; }
+.message-actions button { display:grid; place-items:center; width:30px; height:30px; border-radius:7px; color:#71817a; background:#edf4ef; }
+@media (max-width:700px) { .saved-toolbar { grid-template-columns:1fr; } .saved-bulk,.message-bulk { align-items:stretch; flex-direction:column; } .saved-bulk select { margin-left:0; } .message-center > article { grid-template-columns:auto minmax(0,1fr); } .message-actions { grid-column:2; justify-content:flex-end; } }
 .comparison-workbench { margin:16px 0; padding:20px; }
 .comparison-workbench-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .comparison-workbench-head span { color:#d85d68; font-size:10px; font-weight:900; }
