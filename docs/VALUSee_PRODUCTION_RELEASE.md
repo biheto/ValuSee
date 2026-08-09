@@ -11,6 +11,7 @@ need or link or screenshot -> OCR/product normalization -> SKU/spec comparison
 ```
 
 The Web workbench and Manifest V3 browser extension are included. The extension reads only fields visible on the page the user has opened and sends a pending confirmation record to ValuSee.
+The Web client is also installable as a PWA. Its offline shell contains no private API responses; account data, reports, comparisons, and notifications always come from authenticated requests.
 
 ## Production Components
 
@@ -21,6 +22,7 @@ The Web workbench and Manifest V3 browser extension are included. The extension 
 - RabbitMQ publishes durable price snapshot events when `RABBITMQ_URL` is set.
 - MinIO/S3 stores uploaded product images when `S3_ENDPOINT_URL` is set. Local development keeps a non-public ignored upload directory.
 - `/health` is a liveness probe. `/ready` checks the configured database and infrastructure dependencies.
+- `/api/v1/admin/metrics` exposes business outcomes for the latest reporting window: analysis completion, recommendation acceptance, monitor conversion, feedback resolution, estimated savings, and analysis P95 latency.
 
 ## Start For Release
 
@@ -49,6 +51,7 @@ The optional `VALUSee_NOTIFICATION_WEBHOOK_URL` delivers signed server-to-server
 - API rate limits use Redis in production and fail closed when Redis is configured but unavailable.
 - Responses include nosniff, frame, referrer, permissions, and CSP headers.
 - Account data can be exported through `GET /api/v1/auth/export` and deleted through `DELETE /api/v1/auth/account`.
+- Saved comparison lists, decision reports, shopping profiles, notification preferences, feedback, and business events are included in export/deletion boundaries.
 
 ## Release Boundaries
 
@@ -65,6 +68,8 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - Canonical product/SKU create-query-delete flow: passed.
 - Admin-triggered RAG release benchmark: completed with 100% success rate on the isolated clean-install fixture.
 - Local `/health`, `/ready`, consumer Web, and `/admin` smoke checks: passed on port 8200.
+- API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
+- PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
 See `docs/VALUSee_IMPLEMENTATION_LOG.md` for the feature-by-feature history and commit record.

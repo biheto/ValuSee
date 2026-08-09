@@ -74,6 +74,19 @@ if web_dist.exists():
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="web-assets")
 
+    public_dir = web_dist
+    brand_dir = public_dir / "brand"
+    if brand_dir.exists():
+        app.mount("/brand", StaticFiles(directory=brand_dir), name="web-brand")
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def web_manifest() -> FileResponse:
+        return FileResponse(public_dir / "manifest.webmanifest", media_type="application/manifest+json")
+
+    @app.get("/sw.js", include_in_schema=False)
+    def web_service_worker() -> FileResponse:
+        return FileResponse(public_dir / "sw.js", media_type="application/javascript")
+
     @app.get("/", include_in_schema=False)
     def web_index() -> FileResponse:
         return FileResponse(web_dist / "index.html")

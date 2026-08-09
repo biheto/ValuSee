@@ -65,6 +65,12 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 
 ## Release status
 
+## Latest product iteration
+
+- Server-backed user profile, comparison list, decision report history, notification preferences, monitor editing, and correction feedback are now part of the consumer workflow.
+- Admin feedback review and business outcome metrics close the loop between user corrections and product quality: completion, acceptance, monitor conversion, resolution, savings, and P95 latency.
+- PWA manifest, responsive install icons, and a private-data-safe offline shell are included in the release build.
+
 | Area | Status | Notes |
 | --- | --- | --- |
 | Consumer analysis UI | MVP complete | Web workbench is buildable and uses the shopping APIs. |
@@ -81,20 +87,19 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
 | Production storage | Runtime-ready | `DATABASE_URL` switches shopping and account stores to PostgreSQL; Redis rate limiting, RabbitMQ event publication, and S3/MinIO upload storage are wired, with a production Compose profile and health checks. |
 | Review risk analysis | MVP complete | Source-bearing reviews are weighted by verified purchase and rating, clustered into defect groups, and returned with evidence and confidence. |
-| Observability | Foundation present | Health/readiness probes, structured Worker logs, durable task records, idempotency keys, and source evidence are present; external metrics/alerting wiring remains deployment-specific. |
-| Monitor operations | MVP complete | Admin API supports stateful pause/resume/retry/expire/delete actions with audit records; a dedicated UI control surface remains the next console refinement. |
+| Observability | MVP complete | Health/readiness probes, structured Worker logs, durable task records, idempotency keys, source evidence, account-scoped business events, admin metrics, savings and feedback outcomes are present; external metrics/alerting wiring remains deployment-specific. |
+| Monitor operations | MVP complete | Consumer and admin UI support stateful pause/resume/retry/target editing/delete actions with audit records and owner checks. |
 | Product/SKU governance | MVP complete | Admin CRUD, normalized persistence, and the first operational UI are implemented; marketplace credentials and product ingestion remain external release prerequisites. |
 | Provider diagnostics | MVP complete | Configured providers can be health-checked through a protected admin endpoint; no provider is represented as live without credentials. |
+| Account continuity | MVP complete | Profile, saved comparison, report history, notification settings, feedback correction, export, and deletion flows are server-backed and account-isolated. |
+| Installable client | MVP complete | Web build includes manifest, icons, install metadata, and a public-only offline shell. |
 
 ## Next implementation order
 
-1. Product understanding normalization and user confirmation workflow.
-2. PostgreSQL/Redis/object storage/queue compose profile and repository interfaces.
-5. Durable monitor worker, retries, idempotency, and notification adapters.
-6. Account, session, personal/family scopes, export, and deletion flows.
-7. Historical price snapshots and price-position calculations.
-8. Review evidence ingestion, retrieval, and risk summary.
-9. Production hardening, security checks, deployment documentation, and release verification.
+1. Configure approved commerce providers and validate signed response adapters in staging.
+2. Deploy the production Compose stack behind TLS and verify SMTP/Webhook notification channels.
+3. Replace local development defaults with production secrets, domain allowlists, backups, monitoring, and alerting.
+4. Populate real source-bearing historical prices/reviews through approved APIs, user observations, or extension captures.
 
 ## Verification rule
 
