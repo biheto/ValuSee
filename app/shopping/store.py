@@ -170,6 +170,12 @@ class ShoppingStore:
                 UNIQUE(user_id,item_type,reference_key)
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_saved_item_user_type ON shopping_saved_item(user_id,item_type,updated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_content(
+                content_id TEXT PRIMARY KEY,content_type TEXT NOT NULL,title TEXT NOT NULL,summary TEXT NOT NULL,
+                body TEXT NOT NULL,category TEXT NOT NULL,source_url TEXT,status TEXT NOT NULL,
+                created_at TEXT NOT NULL,updated_at TEXT NOT NULL,published_at TEXT
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_shopping_content_status ON shopping_content(status,updated_at)")
 
     def create_extension_capture(
         self,
@@ -742,6 +748,39 @@ class ShoppingStore:
             savings = conn.execute("SELECT COALESCE(SUM(value),0) AS total FROM shopping_business_event WHERE user_id=? AND event_type='purchase_confirmed'", (user_id,)).fetchone()
         counts.update({str(row["item_type"]): int(row["total"]) for row in saved_rows})
         return {**counts, "actual_savings": round(float(savings["total"] or 0), 2)}
+
+    def list_content(self, status: str = "published", category: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        sql, params = "SELECT * FROM shopping_content", []
+        if status != "all":
+            sql += " WHERE status=?"; params.append(status)
+        if category:
+            sql += " AND" if " WHERE " in sql else " WHERE"; sql += " category=?"; params.append(category)
+        sql += " ORDER BY COALESCE(published_at,updated_at) DESC LIMIT ?"; params.append(max(1, min(limit, 500)))
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute(sql, tuple(params)).fetchall()]
+
+    def save_content(self, payload: dict[str, Any], content_id: str | None = None) -> dict[str, Any]:
+        now, content_id = utc_now_iso(), content_id or f"content_{uuid4().hex}"
+        content_type = str(payload.get("content_type") or "guide")
+        if content_type not in {"guide", "topic", "榜单", "case"}:
+            raise ValueError("invalid content type")
+        status = str(payload.get("status") or "draft")
+        if status not in {"draft", "reviewing", "published", "offline"}:
+            raise ValueError("invalid content status")
+        with self._session() as conn:
+            old = conn.execute("SELECT created_at,published_at FROM shopping_content WHERE content_id=?", (content_id,)).fetchone()
+            created = old["created_at"] if old else now
+            published = old["published_at"] if old else None
+            if status == "published" and not published:
+                published = now
+            conn.execute("""INSERT INTO shopping_content(content_id,content_type,title,summary,body,category,source_url,status,created_at,updated_at,published_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(content_id) DO UPDATE SET content_type=excluded.content_type,title=excluded.title,summary=excluded.summary,body=excluded.body,category=excluded.category,source_url=excluded.source_url,status=excluded.status,updated_at=excluded.updated_at,published_at=excluded.published_at""", (content_id, content_type, str(payload.get("title") or "").strip(), str(payload.get("summary") or "").strip(), str(payload.get("body") or "").strip(), str(payload.get("category") or "综合"), str(payload.get("source_url") or "").strip(), status, created, now, published))
+            row = conn.execute("SELECT * FROM shopping_content WHERE content_id=?", (content_id,)).fetchone()
+        return dict(row)
+
+    def delete_content(self, content_id: str) -> bool:
+        with self._session() as conn:
+            return conn.execute("DELETE FROM shopping_content WHERE content_id=?", (content_id,)).rowcount > 0
 
     def save_comparison(self, user_id: str, name: str, products: list[dict[str, Any]], comparison_id: str | None = None) -> dict[str, Any]:
         now, comparison_id = utc_now_iso(), comparison_id or f"cmp_{uuid4().hex}"

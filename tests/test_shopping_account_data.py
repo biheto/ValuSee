@@ -144,3 +144,14 @@ def test_purchase_status_update_requires_owner():
         assert store.update_purchase("u2", purchase["purchase_id"], {"status": "received"}) is None
         updated = store.update_purchase("u1", purchase["purchase_id"], {"status": "received", "notes": "Delivered"})
         assert updated and updated["status"] == "received" and updated["notes"] == "Delivered"
+
+
+def test_discovery_content_requires_published_status():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        draft = store.save_content({"title": "Draft guide", "summary": "Internal", "status": "draft"})
+        published = store.save_content({"title": "Buying guide", "summary": "Source-aware advice", "status": "published", "source_url": "https://example.org/source"})
+        visible = store.list_content()
+        assert [item["content_id"] for item in visible] == [published["content_id"]]
+        assert len(store.list_content(status="all")) == 2
+        assert store.delete_content(draft["content_id"]) is True

@@ -792,6 +792,11 @@ def get_shopping_profile(authorization: str | None = Header(default=None)) -> di
     return shopping_store.get_profile(_request_user(authorization))
 
 
+@router.get("/shopping/content", tags=["Shopping Discovery"])
+def list_shopping_content(category: str | None = None, limit: int = 100) -> dict[str, object]:
+    return {"items": shopping_store.list_content(category=category, limit=limit)}
+
+
 @router.put("/shopping/profile", tags=["Shopping Account"])
 def save_shopping_profile(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     return shopping_store.save_profile(_request_user(authorization), payload)
@@ -866,6 +871,29 @@ def record_shopping_event(payload: dict[str, object], authorization: str | None 
 def admin_shopping_metrics(days: int = 30, authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
     return shopping_store.business_metrics(days)
+
+
+@router.get("/admin/content", tags=["Admin Console"])
+def admin_list_content(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"items": shopping_store.list_content(status="all")}
+
+
+@router.post("/admin/content", tags=["Admin Console"])
+def admin_save_content(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    try:
+        return shopping_store.save_content(payload, str(payload.get("content_id") or "") or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/admin/content/{content_id}", tags=["Admin Console"])
+def admin_delete_content(content_id: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    if not shopping_store.delete_content(content_id):
+        raise HTTPException(status_code=404, detail="Content not found")
+    return {"deleted": True, "content_id": content_id}
 
 
 @router.get("/shopping/feedback", tags=["Shopping Feedback"])
