@@ -32,7 +32,7 @@ type Decision = { task_id: string; status: string; result: {
   price_breakdowns: Array<{ final_price: number }>;
   risk_reports: Array<{ overall_risk: string; reasons: string[] }>;
   report_markdown: string;
-}};
+}; events: Array<{ node?: string; agent?: string; status?: string; content?: string; timestamp?: string }> };
 type Monitor = { monitor_id: string; status: string; target_price: number; current_final_price: number; product: Product; expires_at: string; last_message: string };
 type Purchase = { purchase_id: string; product: Product; paid_price: number; platform: string; store_name: string; purchased_at: string; price_protection_deadline?: string; return_deadline?: string; warranty_deadline?: string; status: string; reminders: Array<{ kind: string; deadline: string; label: string }>; notes: string };
 type Capture = { capture_id: string; status: string; product: Product; source: string; captured_at: string };
@@ -119,6 +119,7 @@ export function App() {
   const nav: Array<[View, string, typeof Search]> = [['analyze', '分析商品', Search], ['monitors', '降价监控', Bell], ['purchases', '我的购买', Receipt], ['history', '历史报告', History]];
   return <main className="valuesee-app">
     {view === 'analyze' && <ProductSearchPanel onAdd={(product) => setProducts((items) => items.some((item) => item.url === product.url) ? items : [...items, product])} />}
+    {view === 'analyze' && result && <AgentTimeline events={result.events} />}
     <header className="app-header"><div className="brand-lockup"><BrandMark /><div><strong>ValuSee</strong><span>买之前，先看清价值</span></div></div><nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => setView(key)}><Icon size={17} />{label}</button>)}</nav><button className="profile-button" onClick={() => setAccountOpen(true)}>{accountName}</button></header>
     {accountOpen && <div className="account-backdrop" onClick={() => setAccountOpen(false)}><section className="account-dialog" onClick={(event) => event.stopPropagation()}><BrandWordmark /><h2>{accountMode === 'login' ? '登录 ValuSee' : '创建账户'}</h2><p>你的监控、购买记录和家庭数据会与账户隔离。</p><form onSubmit={submitAccount}>{accountMode === 'register' && <label>昵称<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>}<label>邮箱<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label><label>密码<input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></label><button className="primary-button">{accountMode === 'login' ? '登录' : '注册'}</button></form><button className="account-switch" onClick={() => setAccountMode(accountMode === 'login' ? 'register' : 'login')}>{accountMode === 'login' ? '没有账户？立即注册' : '已有账户？返回登录'}</button>{localStorage.getItem('valuesee-token') && <button className="account-switch danger" onClick={logout}>退出登录</button>}</section></div>}
     {message && <div className="toast"><CheckCircle2 size={16} />{message}<button onClick={() => setMessage('')}>关闭</button></div>}
@@ -151,6 +152,10 @@ function ProductSearchPanel({ onAdd }: { onAdd: (product: Product) => void }) {
     finally { setLoading(false); }
   }
   return <section className="product-search-panel"><div className="product-search-copy"><span className="section-kicker">实时商品来源</span><h2>先搜一搜，再让 Agent 帮你选</h2><p>只展示已授权来源返回的商品，保留平台、价格和原始链接，点击即可回到商品详情。</p></div><form className="product-search-form" onSubmit={submit}><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：AirPods Pro 2 USB-C、27 英寸 4K 显示器" /><button disabled={loading}>{loading ? '搜索中…' : '搜索商品'}</button></form>{message && <div className="search-message">{message}</div>}{sources.length > 0 && <div className="source-status">{sources.map((source) => <span key={source.provider} className={source.status === 'ok' ? 'source-ok' : 'source-error'}>{source.provider} · {source.status === 'ok' ? `${source.count ?? 0} 条` : '不可用'}</span>)}</div>}{results.length > 0 && <div className="product-search-results">{results.map((item) => <article className="product-search-result" key={`${item.provider}-${item.product.url}`}><div><strong>{item.product.title}</strong><span>{item.product.platform || item.provider} · {item.product.price ? money(item.product.price) : '价格待确认'} · {item.product.model || '型号待确认'}</span></div><div className="product-search-actions"><a href={item.product.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />打开商品</a><button type="button" onClick={() => onAdd(item.product)}>加入比较</button></div></article>)}</div>}</section>;
+}
+
+function AgentTimeline({ events }: { events: Decision['events'] }) {
+  return <section className="agent-timeline"><div><span className="section-kicker">Agent 执行记录</span><strong>这份建议是怎样得出的</strong></div><div className="agent-timeline-steps">{events.map((event, index) => <div className="agent-step" key={`${event.node}-${index}`}><i>{index + 1}</i><div><b>{event.agent || event.node || 'Agent'}</b><span>{event.content || '执行完成'}</span></div><em>{event.status || 'completed'}</em></div>)}</div></section>;
 }
 
 function PageTitle({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) { return <div className="page-title"><div className="title-icon">{icon}</div><div><h1>{title}</h1><p>{subtitle}</p></div></div>; }
