@@ -19,9 +19,10 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 - `monitor-worker` is an independent restart-safe process. It polls durable snapshots and accepts RabbitMQ price events as an acceleration path; the database scan remains the recovery path.
 - PostgreSQL is selected with `DATABASE_URL` for account, shopping, monitor, purchase, notification, and snapshot records.
 - Redis provides distributed rate-limit buckets when `REDIS_URL` is set.
-- RabbitMQ publishes durable price snapshot events when `RABBITMQ_URL` is set.
+- RabbitMQ publishes confirmed durable price snapshot events when `RABBITMQ_URL` is set. The worker uses a main queue, delayed retry queue and dead-letter queue; duplicate delivery remains safe because snapshot checks and notifications are idempotent.
 - MinIO/S3 stores uploaded product images when `S3_ENDPOINT_URL` is set. Local development keeps a non-public ignored upload directory.
 - `/health` is a liveness probe. `/ready` checks the configured database and infrastructure dependencies.
+- The monitor worker writes a cycle heartbeat. Its container health check fails when the worker remains alive but stops completing queue/scan cycles.
 - `/api/v1/admin/metrics` exposes business outcomes for the latest reporting window: analysis completion, recommendation acceptance, monitor conversion, feedback resolution, estimated savings, and analysis P95 latency.
 - `/metrics` exposes bounded-cardinality Prometheus HTTP counters and duration aggregates. Production requires `X-Metrics-Token` matching `VALUSee_METRICS_TOKEN`; do not expose this endpoint anonymously.
 - First-party experiments use deterministic account assignment and an allowlisted analytics payload. Experiment creation and status changes remain administrator-only.

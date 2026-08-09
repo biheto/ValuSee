@@ -8,6 +8,33 @@ from collections import defaultdict, deque
 from typing import Any
 
 
+MONITOR_QUEUE = "valuesee.price-events"
+MONITOR_RETRY_QUEUE = "valuesee.price-events.retry"
+MONITOR_DEAD_QUEUE = "valuesee.price-events.dead"
+
+
+def declare_monitor_queues(channel: Any) -> None:
+    retry_ms = max(1_000, int(os.getenv("VALUSee_QUEUE_RETRY_DELAY_MS", "30000")))
+    channel.queue_declare(queue=MONITOR_DEAD_QUEUE, durable=True)
+    channel.queue_declare(
+        queue=MONITOR_RETRY_QUEUE,
+        durable=True,
+        arguments={
+            "x-message-ttl": retry_ms,
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": MONITOR_QUEUE,
+        },
+    )
+    channel.queue_declare(
+        queue=MONITOR_QUEUE,
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": MONITOR_DEAD_QUEUE,
+        },
+    )
+
+
 class RateLimiter:
     def __init__(self) -> None:
         self._local: dict[str, deque[float]] = defaultdict(deque)
@@ -75,12 +102,19 @@ def publish_monitor_event(payload: dict[str, Any]) -> bool:
 
         connection = pika.BlockingConnection(pika.URLParameters(url))
         channel = connection.channel()
-        channel.queue_declare(queue="valuesee.price-events", durable=True)
+        declare_monitor_queues(channel)
+        channel.confirm_delivery()
         channel.basic_publish(
             exchange="",
-            routing_key="valuesee.price-events",
+            routing_key=MONITOR_QUEUE,
             body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
+            properties=pika.BasicProperties(
+                delivery_mode=2,
+                content_type="application/json",
+                message_id=str(payload.get("event_id") or payload.get("snapshot_id") or ""),
+                timestamp=int(time.time()),
+            ),
+            mandatory=True,
         )
         connection.close()
         return True
@@ -105,10 +139,18 @@ def infrastructure_health() -> dict[str, dict[str, Any]]:
             import pika
 
             connection = pika.BlockingConnection(pika.URLParameters(rabbit_url))
-            queue = connection.channel().queue_declare(queue="valuesee.price-events", durable=True, passive=True)
-            depth = int(queue.method.message_count)
+            channel = connection.channel()
+            declare_monitor_queues(channel)
+            queue = channel.queue_declare(queue=MONITOR_QUEUE, durable=True, passive=True)
+            retry = channel.queue_declare(queue=MONITOR_RETRY_QUEUE, durable=True, passive=True)
+            dead = channel.queue_declare(queue=MONITOR_DEAD_QUEUE, durable=True, passive=True)
             connection.close()
-            checks["rabbitmq"] = {"status": "ok", "queue_depth": depth}
+            checks["rabbitmq"] = {
+                "status": "ok",
+                "queue_depth": int(queue.method.message_count),
+                "retry_depth": int(retry.method.message_count),
+                "dead_letter_depth": int(dead.method.message_count),
+            }
         except Exception as exc:
             checks["rabbitmq"] = {"status": "error", "detail": type(exc).__name__}
     endpoint = os.getenv("S3_ENDPOINT_URL", "").strip()
