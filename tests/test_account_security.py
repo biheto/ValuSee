@@ -78,6 +78,20 @@ def test_membership_defaults_to_free_and_upgrade_is_pending():
         assert first["status"] == "pending" and second["request_id"] == first["request_id"]
 
 
+def test_billing_order_never_implies_payment_without_provider():
+    with TemporaryDirectory() as tmp:
+        store = AuthStore(Path(tmp) / "auth.db")
+        user = store.register("billing@example.com", "strong-password", "Billing")
+        first = store.create_billing_order(user["user_id"], "pro", "monthly")
+        second = store.create_billing_order(user["user_id"], "pro", "monthly")
+        assert first["order_id"] == second["order_id"]
+        assert first["status"] == "pending_external_payment" and first["amount"] == 19
+        assert store.subscription_status(user["user_id"])["plan_code"] == "free"
+        cancelled = store.cancel_billing_order(user["user_id"], first["order_id"])
+        assert cancelled and cancelled["status"] == "cancelled"
+        assert store.list_billing_orders("another-user") == []
+
+
 def test_free_plan_entitlements_are_enforced_against_real_usage():
     with TemporaryDirectory() as tmp:
         store = AuthStore(Path(tmp) / "auth.db")

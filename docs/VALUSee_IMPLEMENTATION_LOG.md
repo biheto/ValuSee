@@ -96,6 +96,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Buying guides/topics use a governed draft/review/published/offline lifecycle. Only published records appear on the consumer home page, and optional source URLs remain visible.
 - Mobile navigation, responsive product cards, explicit empty/error states, and a source-aware product-detail drawer complete the first consumer UX pass.
 - Savings and after-sales now form an auditable loop: monitor groups/frequencies, budget pools, a deduplicated savings ledger, 90-day price calendar, typed private attachments, user-reported price-protection outcomes, and authenticated iCalendar deadline export.
+- Membership has enforceable quotas plus owner-scoped billing orders and immutable price snapshots. Until an approved payment provider is configured, orders remain `pending_external_payment` and never activate Pro or claim a successful charge.
 
 | Area | Status | Notes |
 | --- | --- | --- |

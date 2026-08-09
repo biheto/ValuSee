@@ -84,6 +84,12 @@ class AuthStore:
                 request_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,plan_code TEXT NOT NULL,
                 status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_billing_order(
+                order_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,plan_code TEXT NOT NULL,billing_cycle TEXT NOT NULL,
+                amount REAL NOT NULL,currency TEXT NOT NULL,status TEXT NOT NULL,payment_provider TEXT,
+                external_reference TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_billing_order_owner ON valuesee_billing_order(user_id,created_at)")
             conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_user_profile(
                 user_id TEXT PRIMARY KEY,bio TEXT NOT NULL,locale TEXT NOT NULL,currency TEXT NOT NULL,
                 avatar_backend TEXT,avatar_key TEXT,avatar_content_type TEXT,avatar_sha256 TEXT,updated_at TEXT NOT NULL
@@ -342,6 +348,34 @@ class AuthStore:
             conn.execute("INSERT INTO valuesee_upgrade_request VALUES(?,?,?,?,?,?)", (request_id, user_id, plan_code, "pending", now, now))
         return {"request_id": request_id, "user_id": user_id, "plan_code": plan_code, "status": "pending", "created_at": now, "updated_at": now}
 
+    def create_billing_order(self, user_id: str, plan_code: str, billing_cycle: str) -> dict[str, Any]:
+        prices = {("pro", "monthly"): 19.0, ("pro", "yearly"): 168.0}
+        if (plan_code, billing_cycle) not in prices:
+            raise ValueError("unsupported plan or billing cycle")
+        now, order_id = utc_now_iso(), f"bill_{uuid4().hex}"
+        with self._session() as conn:
+            existing = conn.execute("SELECT * FROM valuesee_billing_order WHERE user_id=? AND plan_code=? AND billing_cycle=? AND status='pending_external_payment' ORDER BY created_at DESC LIMIT 1", (user_id, plan_code, billing_cycle)).fetchone()
+            if existing:
+                return dict(existing)
+            conn.execute("INSERT INTO valuesee_billing_order VALUES(?,?,?,?,?,?,?,?,?,?,?)", (order_id, user_id, plan_code, billing_cycle, prices[(plan_code, billing_cycle)], "CNY", "pending_external_payment", None, None, now, now))
+            row = conn.execute("SELECT * FROM valuesee_billing_order WHERE order_id=?", (order_id,)).fetchone()
+        return dict(row)
+
+    def list_billing_orders(self, user_id: str) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute("SELECT * FROM valuesee_billing_order WHERE user_id=? ORDER BY created_at DESC", (user_id,)).fetchall()]
+
+    def cancel_billing_order(self, user_id: str, order_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM valuesee_billing_order WHERE order_id=? AND user_id=?", (order_id, user_id)).fetchone()
+            if not row:
+                return None
+            if row["status"] != "pending_external_payment":
+                raise ValueError("only pending payment orders can be cancelled")
+            conn.execute("UPDATE valuesee_billing_order SET status='cancelled',updated_at=? WHERE order_id=?", (utc_now_iso(), order_id))
+            updated = conn.execute("SELECT * FROM valuesee_billing_order WHERE order_id=?", (order_id,)).fetchone()
+        return dict(updated)
+
     def create_family(self, owner_id: str, name: str) -> dict[str, Any]:
         family_id, now = f"fam_{uuid4().hex}", utc_now_iso()
         with self._session() as conn:
@@ -518,6 +552,7 @@ class AuthStore:
             "sessions": ("valuesee_session", "user_id"),
             "subscriptions": ("valuesee_subscription", "user_id"),
             "upgrade_requests": ("valuesee_upgrade_request", "user_id"),
+            "billing_orders": ("valuesee_billing_order", "user_id"),
             "account_profile": ("valuesee_user_profile", "user_id"),
             "account_audits": ("valuesee_user_audit", "user_id"),
             "monitor_preferences": ("shopping_monitor_preference", "user_id"),
@@ -566,7 +601,7 @@ class AuthStore:
             "shopping_product_record", "shopping_review_report", "shopping_notification_delivery",
             "shopping_share",
             "shopping_purchase_attachment", "shopping_price_protection_claim", "shopping_support_ticket",
-            "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request",
+            "valuesee_session", "valuesee_subscription", "valuesee_upgrade_request", "valuesee_billing_order",
             "valuesee_user_profile", "valuesee_user_audit",
             "shopping_monitor_preference", "shopping_budget_pool", "shopping_savings_ledger",
         )

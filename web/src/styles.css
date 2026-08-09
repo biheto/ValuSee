@@ -185,6 +185,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .price-calendar article { display:grid; gap:3px; min-height:65px; padding:7px; border:1px solid #e5ece7; border-radius:7px; background:#f4f8f5; }
 .price-calendar span,.price-calendar small { color:#82908a; font-size:9px; }
 .price-calendar b { color:#d85d68; font-size:11px; }
+.membership-orders { margin-top:16px; padding:20px; }
+.membership-orders article { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid rgba(18,55,46,.1); }
+.membership-orders article>div { display:grid; gap:4px; flex:1; }
+.membership-orders article span,.membership-orders article>b { color:#73827c; font-size:11px; }
 .savings-ledger article { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid #e5ece7; }
 .savings-ledger strong,.savings-ledger span { display:block; }
 .savings-ledger span { margin-top:3px; color:#85918c; font-size:10px; }

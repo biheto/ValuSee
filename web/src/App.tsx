@@ -2525,22 +2525,29 @@ function MembershipPanel() {
       benefits: string[];
     }>
   >([]);
+  const [orders, setOrders] = useState<Array<{ order_id: string; plan_code: string; billing_cycle: string; amount: number; currency: string; status: string; created_at: string }>>([]);
   const [notice, setNotice] = useState("");
   useEffect(() => {
-    void Promise.all([request<{ plan_code: string; limits: Record<string, number> }>("/api/v1/membership"), request<{ plans: typeof plans; payment_available: boolean }>("/api/v1/membership/plans")])
-      .then(([member, catalog]) => {
+    void Promise.all([request<{ plan_code: string; limits: Record<string, number> }>("/api/v1/membership"), request<{ plans: typeof plans; payment_available: boolean }>("/api/v1/membership/plans"), request<{ orders: typeof orders }>("/api/v1/membership/orders")])
+      .then(([member, catalog, billing]) => {
         setStatus(member);
         setPlans(catalog.plans);
+        setOrders(billing.orders);
       })
       .catch(() => setNotice("登录后可查看会员权益。"));
   }, []);
   async function requestPro() {
-    const result = await request<{ status: string }>("/api/v1/membership/upgrade-requests", {
+    const result = await request<{ order: (typeof orders)[number]; payment_available: boolean; message: string }>("/api/v1/membership/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_code: "pro" }),
+      body: JSON.stringify({ plan_code: "pro", billing_cycle: "monthly" }),
     });
-    setNotice(result.status === "pending" ? "已加入 Pro 开通候补，支付接入后会通知你。" : "申请已记录。");
+    setOrders((current) => current.some((item) => item.order_id === result.order.order_id) ? current : [result.order, ...current]);
+    setNotice(result.message);
+  }
+  async function cancelOrder(orderId: string) {
+    const result = await request<{ order: (typeof orders)[number] }>(`/api/v1/membership/orders/${encodeURIComponent(orderId)}/cancel`, { method: "POST" });
+    setOrders((current) => current.map((item) => item.order_id === orderId ? result.order : item));
   }
   return (
     <section className="page-section">
@@ -2567,7 +2574,7 @@ function MembershipPanel() {
             </ul>
             {plan.code === "pro" && status?.plan_code !== "pro" && (
               <button className="primary-button" onClick={() => void requestPro()}>
-                加入开通候补
+                创建月付订单
               </button>
             )}
           </article>
@@ -2581,6 +2588,7 @@ function MembershipPanel() {
           <b>{status.limits.family_members} 位家庭成员</b>
         </div>
       )}
+      {orders.length > 0 && <section className="panel membership-orders"><h2>订单记录</h2>{orders.map((order) => <article key={order.order_id}><div><strong>{order.plan_code.toUpperCase()} · {order.billing_cycle === "monthly" ? "月付" : "年付"}</strong><span>{money(order.amount)} · {date(order.created_at)}</span></div><b>{order.status === "pending_external_payment" ? "待外部支付渠道" : order.status}</b>{order.status === "pending_external_payment" && <button className="soft-button" onClick={() => void cancelOrder(order.order_id)}>取消</button>}</article>)}</section>}
     </section>
   );
 }
