@@ -60,6 +60,11 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - Product normalization and evidence-based review-risk assertions: passed.
 - Web `npm run build`: passed.
 - Production Compose configuration validation: passed.
+- Account email verification and single-use password reset: passed.
+- Family owner/member authorization and role management: passed.
+- Canonical product/SKU create-query-delete flow: passed.
+- Admin-triggered RAG release benchmark: completed with 100% success rate on the isolated clean-install fixture.
+- Local `/health`, `/ready`, consumer Web, and `/admin` smoke checks: passed on port 8200.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
 See `docs/VALUSee_IMPLEMENTATION_LOG.md` for the feature-by-feature history and commit record.
