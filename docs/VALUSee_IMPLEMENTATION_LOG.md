@@ -54,6 +54,9 @@ The first release focuses on digital products and small appliances. The system m
 - Product URL parsing at `POST /api/v1/shopping/parse-url`. The parser identifies common platform domains and returns an editable draft. It deliberately does not invent price or SKU facts.
 - Local report restoration after page refresh.
 - Consumer UI no longer exposes internal Agent execution terminology in the primary journey. The decision timeline is presented as buyer-facing evidence checks, technical controls remain under `/admin`, and the default comparison list no longer loads `example.com` demo listings or implied prices.
+- Product details now use stable owner-scoped `/product/{product_ref}` routes backed by normalized records from favorites, recent views, comparisons, reports, monitors, and purchases. A refreshed URL restores the same user-owned product instead of relying on transient drawer state.
+- Product detail aggregates only persisted evidence: extension/user price snapshots render as a trend line, same-SKU source offers remain separate from alternate SKUs, and source-bearing review defect evidence includes sample size and confidence. Missing evidence remains an explicit empty state.
+- The comparison workbench supports drag and keyboard-friendly button ordering, difference-only specification views, collapsible dimensions, revocable share links, PNG snapshots, and print/PDF output with source-freshness warnings.
 
 ### Brand assets
 

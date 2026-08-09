@@ -222,6 +222,17 @@ class ShoppingStore:
                 expires_at TEXT NOT NULL,revoked_at TEXT
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_shopping_share_owner ON shopping_share(user_id,created_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_product_record(
+                product_ref TEXT NOT NULL,user_id TEXT NOT NULL,canonical_key TEXT NOT NULL,family_key TEXT NOT NULL,
+                product_json TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+                PRIMARY KEY(product_ref,user_id)
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_product_record_family ON shopping_product_record(user_id,family_key,updated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_review_report(
+                report_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,product_ref TEXT NOT NULL,product_json TEXT NOT NULL,
+                report_json TEXT NOT NULL,sources_json TEXT NOT NULL,created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_review_report_product ON shopping_review_report(user_id,product_ref,created_at)")
 
     def create_extension_capture(
         self,
@@ -480,6 +491,7 @@ class ShoppingStore:
                     record["last_message"],
                 ),
             )
+        self.upsert_product_record(user_id, product)
         self.record_business_event(user_id, "monitor_created", monitor_id, idempotency_key=f"monitor:{monitor_id}")
         return record
 
@@ -708,6 +720,7 @@ class ShoppingStore:
                     now,
                 ),
             )
+        self.upsert_product_record(user_id, product)
         reference_price = float(product.get("price") or paid_price)
         self.record_business_event(user_id, "purchase_confirmed", purchase_id, max(0.0, reference_price - float(paid_price)), idempotency_key=f"purchase:{purchase_id}")
         return record
@@ -967,7 +980,70 @@ class ShoppingStore:
             saved_id = existing["saved_id"] if existing else saved_id
             conn.execute("""INSERT INTO shopping_saved_item(saved_id,user_id,item_type,reference_key,label,product_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
                 ON CONFLICT(user_id,item_type,reference_key) DO UPDATE SET label=excluded.label,product_json=excluded.product_json,updated_at=excluded.updated_at""", (saved_id, user_id, item_type, reference_key, label.strip() or reference_key, json.dumps(product or {}, ensure_ascii=False), created, now))
-        return {"saved_id": saved_id, "user_id": user_id, "item_type": item_type, "reference_key": reference_key, "label": label.strip() or reference_key, "product": product or {}, "created_at": created, "updated_at": now}
+        product_ref = self.upsert_product_record(user_id, product or {}) if item_type != "brand" and product else None
+        return {"saved_id": saved_id, "user_id": user_id, "item_type": item_type, "reference_key": reference_key, "label": label.strip() or reference_key, "product": product or {}, "product_ref": product_ref, "created_at": created, "updated_at": now}
+
+    @staticmethod
+    def product_ref(product: dict[str, Any]) -> str:
+        url = str(product.get("url") or "").strip().lower()
+        identity = url or "|".join(str(product.get(key) or "").strip().lower() for key in ("brand", "model", "sku"))
+        identity = identity.strip("|") or "|".join(str(product.get(key) or "").strip().lower() for key in ("title", "platform"))
+        if not identity.strip("|"):
+            raise ValueError("product URL, title, or identity is required")
+        return f"prd_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:24]}"
+
+    @staticmethod
+    def _product_keys(product: dict[str, Any]) -> tuple[str, str]:
+        brand = str(product.get("brand") or "").strip().lower()
+        model = str(product.get("model") or "").strip().lower()
+        sku = str(product.get("sku") or "").strip().lower()
+        family = "|".join((brand, model)).strip("|")
+        canonical = "|".join((family, sku)).strip("|") or str(product.get("url") or "").strip().lower()
+        canonical = canonical or "|".join(str(product.get(key) or "").strip().lower() for key in ("title", "platform")).strip("|")
+        return canonical, family or canonical
+
+    def upsert_product_record(self, user_id: str, product: dict[str, Any]) -> str:
+        product_ref = self.product_ref(product)
+        canonical, family = self._product_keys(product)
+        now = utc_now_iso()
+        with self._session() as conn:
+            old = conn.execute("SELECT created_at FROM shopping_product_record WHERE product_ref=? AND user_id=?", (product_ref, user_id)).fetchone()
+            conn.execute("""INSERT INTO shopping_product_record(product_ref,user_id,canonical_key,family_key,product_json,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(product_ref,user_id) DO UPDATE SET canonical_key=excluded.canonical_key,
+                family_key=excluded.family_key,product_json=excluded.product_json,updated_at=excluded.updated_at""",
+                (product_ref, user_id, canonical, family, json.dumps(product, ensure_ascii=False), old["created_at"] if old else now, now))
+        return product_ref
+
+    def product_detail(self, user_id: str, product_ref: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_product_record WHERE product_ref=? AND user_id=?", (product_ref, user_id)).fetchone()
+            if not row:
+                return None
+            records = conn.execute("SELECT * FROM shopping_product_record WHERE user_id=? ORDER BY updated_at DESC LIMIT 500", (user_id,)).fetchall()
+            review = conn.execute("SELECT * FROM shopping_review_report WHERE user_id=? AND product_ref=? ORDER BY created_at DESC LIMIT 1", (user_id, product_ref)).fetchone()
+        product = json.loads(row["product_json"])
+        offers, alternatives = [], []
+        for candidate in records:
+            if candidate["product_ref"] == product_ref:
+                continue
+            item = json.loads(candidate["product_json"])
+            item["product_ref"] = candidate["product_ref"]
+            if candidate["canonical_key"] == row["canonical_key"]:
+                offers.append(item)
+            elif candidate["family_key"] == row["family_key"] or (product.get("brand") and item.get("brand") == product.get("brand")):
+                alternatives.append(item)
+        history = self.price_history(str(product.get("url") or ""), user_id=user_id, limit=365) if str(product.get("url") or "").startswith(("http://", "https://")) else {"points": []}
+        history["snapshots"] = history.get("points", [])
+        review_evidence = _decode_json_columns(review, {"product_json": "product", "report_json": "report", "sources_json": "sources"}) if review else None
+        return {"product_ref": product_ref, "product": product, "offers": offers[:20], "alternatives": alternatives[:8], "price_history": history, "review_evidence": review_evidence, "updated_at": row["updated_at"]}
+
+    def save_review_report(self, user_id: str, product: dict[str, Any], report: dict[str, Any], sources: list[str]) -> dict[str, Any]:
+        product_ref = self.upsert_product_record(user_id, product)
+        record = {"report_id": f"review_{uuid4().hex}", "user_id": user_id, "product_ref": product_ref, "product": product, "report": report, "sources": sources, "created_at": utc_now_iso()}
+        with self._session() as conn:
+            conn.execute("INSERT INTO shopping_review_report(report_id,user_id,product_ref,product_json,report_json,sources_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                (record["report_id"], user_id, product_ref, json.dumps(product, ensure_ascii=False), json.dumps(report, ensure_ascii=False), json.dumps(sources, ensure_ascii=False), record["created_at"]))
+        return record
 
     def list_saved_items(self, user_id: str, item_type: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         sql, params = "SELECT * FROM shopping_saved_item WHERE user_id=?", [user_id]
@@ -1066,6 +1142,9 @@ class ShoppingStore:
             conn.execute("""INSERT INTO shopping_comparison_list(comparison_id,user_id,name,products_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)
                 ON CONFLICT(comparison_id) DO UPDATE SET name=excluded.name,products_json=excluded.products_json,status=excluded.status,updated_at=excluded.updated_at""",
                 (comparison_id, user_id, name.strip() or "未命名对比", json.dumps(products, ensure_ascii=False), "active", created, now))
+        for product in products:
+            if isinstance(product, dict):
+                self.upsert_product_record(user_id, product)
         return {"comparison_id": comparison_id, "user_id": user_id, "name": name.strip() or "未命名对比", "products": products, "status": "active", "created_at": created, "updated_at": now}
 
     def list_comparisons(self, user_id: str) -> list[dict[str, Any]]:
@@ -1082,6 +1161,9 @@ class ShoppingStore:
         with self._session() as conn:
             conn.execute("INSERT INTO shopping_decision_report(report_id,user_id,task_id,goal,products_json,result_json,created_at) VALUES(?,?,?,?,?,?,?)",
                 (record["report_id"], user_id, task_id, goal, json.dumps(products, ensure_ascii=False), json.dumps(result, ensure_ascii=False), record["created_at"]))
+        for product in products:
+            if isinstance(product, dict):
+                self.upsert_product_record(user_id, product)
         return record
 
     def list_reports(self, user_id: str, limit: int = 100) -> list[dict[str, Any]]:

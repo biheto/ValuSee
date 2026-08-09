@@ -119,6 +119,11 @@ if web_dist.exists():
     def admin_index() -> FileResponse:
         return FileResponse(web_dist / "index.html")
 
+    @app.get("/product/{product_ref}", include_in_schema=False)
+    def product_index(product_ref: str) -> FileResponse:
+        del product_ref
+        return FileResponse(web_dist / "index.html")
+
     @app.get("/share/{share_token}", include_in_schema=False)
     def shared_decision_index(share_token: str) -> HTMLResponse:
         share = shopping_store.get_share(share_token)

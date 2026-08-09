@@ -451,7 +451,10 @@ def read_all_shopping_notifications(authorization: str | None = Header(default=N
 def analyze_product_reviews(request: ReviewAnalysisRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     user_id = _request_user(authorization)
     report = analyze_reviews([item.model_dump() for item in request.reviews])
-    return {"user_id": user_id, "product": request.product.model_dump(), "report": report, "sources": sorted({item.source for item in request.reviews})}
+    product = request.product.model_dump()
+    sources = sorted({item.source for item in request.reviews})
+    evidence = shopping_store.save_review_report(user_id, product, report, sources)
+    return {"user_id": user_id, "product": product, "product_ref": evidence["product_ref"], "report": report, "sources": sources, "created_at": evidence["created_at"]}
 
 
 @router.get("/shopping/providers", tags=["Shopping Integrations"])
@@ -992,6 +995,23 @@ def save_shopping_profile(payload: dict[str, object], authorization: str | None 
 @router.get("/shopping/dashboard", tags=["Shopping Account"])
 def shopping_dashboard(authorization: str | None = Header(default=None)) -> dict[str, object]:
     return shopping_store.user_dashboard(_request_user(authorization))
+
+
+@router.post("/shopping/products", tags=["Shopping Product"])
+def register_shopping_product(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        product_ref = shopping_store.upsert_product_record(_request_user(authorization), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"product_ref": product_ref, "detail_url": f"/product/{product_ref}"}
+
+
+@router.get("/shopping/products/{product_ref}", tags=["Shopping Product"])
+def get_shopping_product(product_ref: str, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    detail = shopping_store.product_detail(_request_user(authorization), product_ref)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return detail
 
 
 @router.get("/shopping/saved", tags=["Shopping Account"])
