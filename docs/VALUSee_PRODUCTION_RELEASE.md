@@ -18,9 +18,12 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 - FastAPI API serves the built Web application and `/api/v1` endpoints.
 - `monitor-worker` is an independent restart-safe process. It polls durable snapshots and accepts RabbitMQ price events as an acceleration path; the database scan remains the recovery path.
 - PostgreSQL is selected with `DATABASE_URL` for account, shopping, monitor, purchase, notification, and snapshot records.
+- A private `application-data` volume keeps compatibility state used by the legacy Harness, Skill, Benchmark, and marketplace modules while the container root filesystem remains read-only. Consumer account and shopping records continue to use PostgreSQL.
 - Redis provides distributed rate-limit buckets when `REDIS_URL` is set.
 - RabbitMQ publishes confirmed durable price snapshot events when `RABBITMQ_URL` is set. The worker uses a main queue, delayed retry queue and dead-letter queue; duplicate delivery remains safe because snapshot checks and notifications are idempotent.
 - MinIO/S3 stores uploaded product images when `S3_ENDPOINT_URL` is set. Local development keeps a non-public ignored upload directory.
+- The one-shot `object-storage-init` service creates the configured private bucket idempotently before the API starts; permission failures stop deployment instead of being hidden as missing buckets.
+- Authenticated avatar and purchase-attachment downloads are streamed through the API, so the private object-storage hostname and port are never exposed to browsers.
 - `/health` is a liveness probe. `/ready` checks the configured database and infrastructure dependencies.
 - The monitor worker writes a cycle heartbeat. Its container health check fails when the worker remains alive but stops completing queue/scan cycles.
 - `/api/v1/admin/metrics` exposes business outcomes for the latest reporting window: analysis completion, recommendation acceptance, monitor conversion, feedback resolution, estimated savings, and analysis P95 latency.
@@ -82,7 +85,8 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
 - Consumer expansion acceptance passed favorite/recent persistence, dashboard aggregation, purchase status changes, governed content publication/visibility, frontend response, and test-data cleanup.
 - PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
-- Automated release quality passed with 89 Python tests, the production Vite build, desktop/mobile Playwright consumer journeys, the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
+- Automated release quality passed with 93 Python tests, the production Vite build, desktop/mobile Playwright consumer journeys, the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
+- The full production Compose stack was deployed locally with healthy API, monitor worker, PostgreSQL/pgvector, Redis, RabbitMQ and MinIO services. Application readiness, private object upload/download, account lifecycle, queue checks, and persistent database recovery after a complete Compose stop/start all passed.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
 See `docs/VALUSee_IMPLEMENTATION_LOG.md` for the feature-by-feature history and commit record.

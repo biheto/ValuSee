@@ -33,14 +33,13 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      object-storage-init:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp
     volumes:
-      - upload-cache:/app/data/uploads
-      - attachment-cache:/app/data/attachments
+      - application-data:/app/data
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -127,10 +126,27 @@ services:
       timeout: 5s
       retries: 10
 
+  object-storage-init:
+    image: valuesee-api
+    command: ["python", "-c", "from app.core.object_storage import ensure_bucket_exists; ensure_bucket_exists()"]
+    restart: "no"
+    environment:
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: valuesee-uploads
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    depends_on:
+      minio:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   postgres-data:
   redis-data:
   rabbitmq-data:
   minio-data:
-  upload-cache:
-  attachment-cache:
+  application-data:

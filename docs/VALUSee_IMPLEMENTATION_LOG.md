@@ -102,6 +102,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Customer support now tracks a 24-hour SLA, first response, assignment, closure/reopen state, and 1-5 satisfaction feedback; customer and administrator permissions are enforced separately.
 - Product records now retain immutable change versions with source confidence. Price observations need a three-point baseline before extreme deviations are queued for administrator review and audit instead of silently contaminating trusted history.
 - Account dashboard KPI cards now navigate to savings, reports, favorites, and purchases with mouse and keyboard support. Account-related destination pages expose a consistent back action, and browser history now clears product/content overlays correctly on `popstate`.
+- The production Compose stack now runs end to end locally: PostgreSQL/pgvector, Redis, RabbitMQ, MinIO, the API, and the independent monitor worker pass readiness checks and retain data across a full stop/start. A one-shot bucket initializer and API-proxied private downloads keep object storage internal.
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -117,7 +118,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
 | Family collaboration | MVP complete | Consumer UI supports family creation, member listing, adding registered members, owner-controlled editor/member roles, and member removal. Server-side checks prevent members from changing roles or removing the owner. |
 | Historical prices | MVP complete | Extension observations persist source, URL, time, region, membership, discount conditions, landed price, low/average price, and percentile. |
-| Production storage | Runtime-ready | `DATABASE_URL` switches shopping and account stores to PostgreSQL; Redis rate limiting, RabbitMQ event publication, and S3/MinIO upload storage are wired, with a production Compose profile and health checks. |
+| Production storage | Locally verified | `DATABASE_URL` switches shopping and account stores to PostgreSQL; Redis rate limiting, RabbitMQ event publication, private S3/MinIO storage, bucket initialization, health checks, and persistent restart recovery passed against the production Compose stack. |
 | Review risk analysis | MVP complete | Source-bearing reviews are weighted by verified purchase and rating, clustered into defect groups, and returned with evidence and confidence. |
 | Observability | MVP complete | Health/readiness probes, structured Worker logs, durable task records, idempotency keys, source evidence, account-scoped business events, admin metrics, savings and feedback outcomes are present; external metrics/alerting wiring remains deployment-specific. |
 | Monitor operations | MVP complete | Consumer and admin UI support stateful pause/resume/retry/target editing/delete actions with audit records and owner checks. |

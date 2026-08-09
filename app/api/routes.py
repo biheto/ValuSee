@@ -7,10 +7,10 @@ import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from uuid import uuid4
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Request, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
 from app.auth.service import auth_store, bearer_subject
@@ -57,7 +57,7 @@ from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.core.config import settings
 from app.core.infrastructure import publish_monitor_event
-from app.core.object_storage import create_download_url, delete_stored_object, persist_upload
+from app.core.object_storage import delete_stored_object, persist_upload, read_stored_object
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -457,12 +457,10 @@ def get_account_avatar(authorization: str | None = Header(default=None)):
     avatar = auth_store.account_avatar(_request_user(authorization))
     if not avatar:
         raise HTTPException(status_code=404, detail="Avatar not found")
-    target = create_download_url(str(avatar["avatar_backend"]), str(avatar["avatar_key"]))
-    if not target:
+    content = read_stored_object(str(avatar["avatar_backend"]), str(avatar["avatar_key"]))
+    if content is None:
         raise HTTPException(status_code=404, detail="Avatar file unavailable")
-    if avatar["avatar_backend"] == "s3":
-        return RedirectResponse(target, status_code=307)
-    return FileResponse(target, media_type=str(avatar["avatar_content_type"]))
+    return Response(content=content, media_type=str(avatar["avatar_content_type"]))
 
 
 @router.get("/auth/bindings", tags=["Account"])
@@ -1603,12 +1601,15 @@ def download_purchase_attachment(attachment_id: str, authorization: str | None =
     record = shopping_store.get_purchase_attachment(_request_user(authorization), attachment_id)
     if not record:
         raise HTTPException(status_code=404, detail="附件不存在")
-    target = create_download_url(str(record["storage_backend"]), str(record["storage_key"]))
-    if not target:
+    content = read_stored_object(str(record["storage_backend"]), str(record["storage_key"]))
+    if content is None:
         raise HTTPException(status_code=404, detail="附件文件不可用")
-    if record["storage_backend"] == "s3":
-        return RedirectResponse(target, status_code=307)
-    return FileResponse(target, media_type=str(record["content_type"]), filename=str(record["original_name"]))
+    filename = quote(str(record["original_name"]).replace("\r", "").replace("\n", ""), safe="")
+    return Response(
+        content=content,
+        media_type=str(record["content_type"]),
+        headers={"Content-Disposition": f"attachment; filename=attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 @router.post("/shopping/support/tickets", tags=["Customer Support"])
