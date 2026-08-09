@@ -174,10 +174,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .admin-doc-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; color: #3a917d; font-size: 11px; font-weight: 900; text-decoration: none; }
 .governance-stack { display: grid; gap: 16px; }
 .admin-inline-form { display: grid; grid-template-columns: 1fr 1fr 1.3fr auto; gap: 8px; padding: 10px 0 14px; border-top: 1px solid #edf1ed; }
-.admin-inline-form input { min-width: 0; width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid #dde7e1; border-radius: 8px; background: rgba(255,255,255,.78); font-size: 12px; }
+.admin-inline-form input,.admin-inline-form select { min-width: 0; width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid #dde7e1; border-radius: 8px; background: rgba(255,255,255,.78); font-size: 12px; }
 .admin-inline-form button,.admin-row-buttons button { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 8px; color: #fff; background: #398f7c; }
 .admin-row-buttons { display: flex; gap: 6px; flex: 0 0 auto; }
 .admin-row-buttons button { width: 30px; height: 30px; color: #317e70; background: #e6f7f0; }
+.admin-sub-row { margin-left: 18px; padding: 9px 0 9px 12px; border-left: 2px solid #e5eee8; }
+.benchmark-runner { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px 0 14px; border-top: 1px solid #edf1ed; }
+.benchmark-runner select { min-height: 36px; padding: 0 10px; border: 1px solid #dde7e1; border-radius: 8px; background: rgba(255,255,255,.78); }
+.benchmark-runner button { min-height: 36px; padding: 0 13px; border-radius: 8px; color: #fff; background: #398f7c; font-size: 12px; font-weight: 900; }
 .family-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 10px 0 14px; }
 .family-form input { min-width: 0; width: 100%; }
 .family-list,.family-members { display: grid; gap: 8px; }

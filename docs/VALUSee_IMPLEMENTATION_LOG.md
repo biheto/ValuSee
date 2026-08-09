@@ -36,6 +36,7 @@ The first release focuses on digital products and small appliances. The system m
 - Added an admin-owned canonical commerce catalog with product and SKU CRUD. Product records store normalized brand/model/category/specifications; SKU records store variants, source URLs, and status so matching can be corrected without changing raw marketplace observations.
 - Added provider health checks that call the configured adapter's authenticated `/health` endpoint and return only status/error type, never credentials. Added protected admin endpoints for prompt version listing/saving/activation and benchmark run listing.
 - Added an interactive Business Governance tab to `/admin`: operators can create/delete canonical products, inspect SKU counts, publish and activate Prompt versions, pause/resume/retry price monitors, and inspect Benchmark runs without calling APIs manually.
+- Business Governance now supports creating/deleting concrete SKU variants under a canonical product and launching MCP, LLM, RAG, Workflow, or Collaboration benchmarks from the console. Runs are persisted and immediately appear in the results list.
 - Added explicit JD, Taobao/Tmall, and Pinduoduo authorization slots in both the consumer search area and admin source view. They remain visibly pending until a real provider is configured and never fall back to invented listings.
 
 ### Consumer decision workbench

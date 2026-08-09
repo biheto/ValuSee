@@ -25,6 +25,11 @@ export function AdminGovernance() {
   const [agent, setAgent] = useState('recommendation');
   const [promptVersion, setPromptVersion] = useState('recommendation.v1');
   const [promptTitle, setPromptTitle] = useState('购物推荐 Prompt');
+  const [skuProductId, setSkuProductId] = useState('');
+  const [skuCode, setSkuCode] = useState('');
+  const [skuVariant, setSkuVariant] = useState('');
+  const [benchmarkType, setBenchmarkType] = useState('rag');
+  const [benchmarkBusy, setBenchmarkBusy] = useState(false);
 
   async function load() {
     setError('');
@@ -36,6 +41,7 @@ export function AdminGovernance() {
         api<{ monitors: Item[] }>('/api/v1/admin/monitors'),
       ]);
       setProducts(catalog.products); setPrompts(promptData.prompts); setBenchmarks(benchmarkData.runs); setMonitors(monitorData.monitors);
+      if (!skuProductId && catalog.products[0]) setSkuProductId(String(catalog.products[0].product_id));
     } catch (err) { setError(err instanceof Error ? err.message : '治理数据加载失败'); }
   }
   useEffect(() => { void load(); }, []);
@@ -48,6 +54,8 @@ export function AdminGovernance() {
     } catch (err) { setError(err instanceof Error ? err.message : '商品保存失败'); }
   }
   async function deleteProduct(id: string) { await api(`/api/v1/admin/catalog/products/${encodeURIComponent(id)}`, { method: 'DELETE' }); await load(); }
+  async function saveSku(event: FormEvent) { event.preventDefault(); setError(''); try { await api('/api/v1/admin/catalog/skus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: skuProductId, sku: skuCode, variant: skuVariant, specs: {}, status: 'active' }) }); setSkuCode(''); setSkuVariant(''); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'SKU 保存失败'); } }
+  async function deleteSku(id: string) { await api(`/api/v1/admin/catalog/skus/${encodeURIComponent(id)}`, { method: 'DELETE' }); await load(); }
   async function savePrompt(event: FormEvent) {
     event.preventDefault(); setError('');
     try {
@@ -59,16 +67,17 @@ export function AdminGovernance() {
     await api(`/api/v1/admin/monitors/${encodeURIComponent(id)}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, reason: '管理端操作' }) });
     await load();
   }
+  async function runBenchmark() { setBenchmarkBusy(true); setError(''); try { await api('/api/v1/admin/benchmarks/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ benchmark_type: benchmarkType, name: `${benchmarkType.toUpperCase()} 运营评测`, iterations: 1 }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : '评测运行失败'); } finally { setBenchmarkBusy(false); } }
 
   return <section className="admin-content governance-stack">
     {error && <div className="admin-error">{error}</div>}
     <div className="admin-grid">
-      <section className="admin-panel"><div className="admin-panel-title"><h2>标准商品与 SKU</h2><span>{products.length} 个商品</span></div><form className="admin-inline-form" onSubmit={saveProduct}><input required placeholder="品牌" value={brand} onChange={(e) => setBrand(e.target.value)} /><input required placeholder="标准型号" value={model} onChange={(e) => setModel(e.target.value)} /><input required placeholder="商品名称" value={title} onChange={(e) => setTitle(e.target.value)} /><button title="新增标准商品"><Plus size={15} /></button></form>{products.length ? products.map((item) => <div className="admin-row" key={String(item.product_id)}><div><strong>{String(item.title)}</strong><span>{String(item.brand)} · {String(item.model)} · {Array.isArray(item.skus) ? item.skus.length : 0} 个 SKU</span></div><button className="admin-icon-button" title="删除商品" onClick={() => void deleteProduct(String(item.product_id))}><Trash2 size={14} /></button></div>) : <div className="admin-empty">尚未建立标准商品库</div>}</section>
+      <section className="admin-panel"><div className="admin-panel-title"><h2>标准商品与 SKU</h2><span>{products.length} 个商品</span></div><form className="admin-inline-form" onSubmit={saveProduct}><input required placeholder="品牌" value={brand} onChange={(e) => setBrand(e.target.value)} /><input required placeholder="标准型号" value={model} onChange={(e) => setModel(e.target.value)} /><input required placeholder="商品名称" value={title} onChange={(e) => setTitle(e.target.value)} /><button title="新增标准商品"><Plus size={15} /></button></form>{products.length > 0 && <form className="admin-inline-form" onSubmit={saveSku}><select required value={skuProductId} onChange={(e) => setSkuProductId(e.target.value)}>{products.map((item) => <option key={String(item.product_id)} value={String(item.product_id)}>{String(item.title)}</option>)}</select><input required placeholder="SKU 编码" value={skuCode} onChange={(e) => setSkuCode(e.target.value)} /><input required placeholder="版本 / 颜色 / 套装" value={skuVariant} onChange={(e) => setSkuVariant(e.target.value)} /><button title="新增 SKU"><Plus size={15} /></button></form>}{products.length ? products.map((item) => <div key={String(item.product_id)}><div className="admin-row"><div><strong>{String(item.title)}</strong><span>{String(item.brand)} · {String(item.model)} · {Array.isArray(item.skus) ? item.skus.length : 0} 个 SKU</span></div><button className="admin-icon-button" title="删除商品" onClick={() => void deleteProduct(String(item.product_id))}><Trash2 size={14} /></button></div>{Array.isArray(item.skus) && item.skus.map((sku) => { const row = sku as Item; return <div className="admin-row admin-sub-row" key={String(row.sku_id)}><div><strong>{String(row.sku)}</strong><span>{String(row.variant || '标准版本')}</span></div><button className="admin-icon-button" title="删除 SKU" onClick={() => void deleteSku(String(row.sku_id))}><Trash2 size={13} /></button></div>; })}</div>) : <div className="admin-empty">尚未建立标准商品库</div>}</section>
       <section className="admin-panel"><div className="admin-panel-title"><h2>Prompt 发布</h2><span>{prompts.length} 个版本</span></div><form className="admin-inline-form" onSubmit={savePrompt}><input required placeholder="Agent" value={agent} onChange={(e) => setAgent(e.target.value)} /><input required placeholder="版本" value={promptVersion} onChange={(e) => setPromptVersion(e.target.value)} /><input required placeholder="标题" value={promptTitle} onChange={(e) => setPromptTitle(e.target.value)} /><button title="保存并激活"><Plus size={15} /></button></form>{prompts.slice(0, 8).map((item) => <div className="admin-row" key={`${item.agent}-${item.prompt_version}`}><div><strong>{String(item.title)}</strong><span>{String(item.agent)} · {String(item.prompt_version)}</span></div><b className={item.is_active ? 'status-ok' : ''}>{item.is_active ? '使用中' : '历史版'}</b></div>)}</section>
     </div>
     <div className="admin-grid">
       <section className="admin-panel"><div className="admin-panel-title"><h2>价格监控治理</h2><span>{monitors.length} 条</span></div>{monitors.length ? monitors.map((item) => { const id = String(item.monitor_id); const status = String(item.status); const product = item.product as Item | undefined; return <div className="admin-row" key={id}><div><strong>{String(product?.title ?? id)}</strong><span>目标 ¥{String(item.target_price)} · 当前 ¥{String(item.current_final_price)} · {status}</span></div><div className="admin-row-buttons">{status === 'paused' || status === 'expired' ? <button title="恢复" onClick={() => void monitorAction(id, 'resume')}><Play size={14} /></button> : <button title="暂停" onClick={() => void monitorAction(id, 'pause')}><Pause size={14} /></button>}<button title="重试" onClick={() => void monitorAction(id, 'retry')}><RefreshCw size={14} /></button></div></div>; }) : <div className="admin-empty">暂无监控任务</div>}</section>
-      <section className="admin-panel"><div className="admin-panel-title"><h2>Benchmark 结果</h2><span>{benchmarks.length} 次</span></div>{benchmarks.length ? benchmarks.slice(0, 10).map((item) => <div className="admin-row" key={String(item.run_id)}><div><strong>{String(item.name)}</strong><span>{String(item.benchmark_type)} · {String(item.status)}</span></div><b>{String(item.finished_at ?? item.started_at ?? '')}</b></div>) : <div className="admin-empty">暂无评测记录</div>}</section>
+      <section className="admin-panel"><div className="admin-panel-title"><h2>Benchmark 结果</h2><span>{benchmarks.length} 次</span></div><div className="benchmark-runner"><select value={benchmarkType} onChange={(e) => setBenchmarkType(e.target.value)}><option value="rag">RAG 检索</option><option value="llm">LLM Prompt</option><option value="workflow">Workflow</option><option value="collaboration">多 Agent 协作</option><option value="mcp">工具调用</option></select><button onClick={() => void runBenchmark()} disabled={benchmarkBusy}>{benchmarkBusy ? '运行中…' : '立即评测'}</button></div>{benchmarks.length ? benchmarks.slice(0, 10).map((item) => <div className="admin-row" key={String(item.run_id)}><div><strong>{String(item.name)}</strong><span>{String(item.benchmark_type)} · {String(item.status)}</span></div><b>{String(item.finished_at ?? item.started_at ?? '')}</b></div>) : <div className="admin-empty">暂无评测记录</div>}</section>
     </div>
   </section>;
 }

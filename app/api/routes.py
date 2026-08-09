@@ -449,6 +449,31 @@ def admin_benchmarks(limit: int = 100, benchmark_type: str | None = None, author
     return {"runs": task_store.list_benchmark_runs(limit=max(1, min(limit, 500)), benchmark_type=benchmark_type)}
 
 
+@router.post("/admin/benchmarks/run", tags=["Admin Console"])
+def admin_run_benchmark(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    _require_admin(authorization)
+    benchmark_type = str(payload.get("benchmark_type") or "shopping").strip().lower()
+    request = BenchmarkRunRequest(
+        name=str(payload.get("name") or f"{benchmark_type.title()} Benchmark"),
+        iterations=int(payload.get("iterations") or 1),
+        cases=payload.get("cases") if isinstance(payload.get("cases"), list) else [],
+    )
+    runners = {
+        "mcp": run_mcp_benchmark,
+        "llm": run_llm_benchmark,
+        "rag": run_rag_benchmark,
+        "workflow": run_workflow_benchmark,
+        "collaboration": run_collaboration_benchmark,
+    }
+    runner = runners.get(benchmark_type)
+    if not runner:
+        raise HTTPException(status_code=422, detail="benchmark_type must be mcp, llm, rag, workflow, or collaboration")
+    try:
+        return {"run": runner(request.model_dump())}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/admin/overview", tags=["Admin Console"])
 def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
