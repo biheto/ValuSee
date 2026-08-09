@@ -351,6 +351,42 @@ def admin_traces(limit: int = 100, agent: str | None = None, authorization: str 
     return {"traces": task_store.list_llm_traces(limit=max(1, min(limit, 500)), agent=agent)}
 
 
+@router.get("/admin/monitors", tags=["Admin Console"])
+def admin_monitors(limit: int = 200, authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    return {
+        "actor_id": actor_id,
+        "monitors": shopping_store.list_monitors()[:max(1, min(limit, 1000))],
+        "actions": shopping_store.list_monitor_actions(limit=max(1, min(limit, 1000))),
+    }
+
+
+@router.post("/admin/monitors/{monitor_id}/action", tags=["Admin Console"])
+def admin_monitor_action(
+    monitor_id: str,
+    payload: dict[str, object],
+    authorization: str | None = Header(default=None),
+) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    action = str(payload.get("action") or "").strip().lower()
+    reason = str(payload.get("reason") or "").strip()
+    if action == "delete":
+        if not shopping_store.delete_monitor(monitor_id, actor_id=actor_id, reason=reason):
+            raise HTTPException(status_code=404, detail="Monitor not found")
+        return {"monitor_id": monitor_id, "action": action, "status": "deleted"}
+    transitions = {"pause": "paused", "resume": "watching", "retry": "watching", "expire": "expired"}
+    status = transitions.get(action)
+    if not status:
+        raise HTTPException(status_code=422, detail="action must be pause, resume, retry, expire, or delete")
+    try:
+        monitor = shopping_store.update_monitor_status(monitor_id, status, actor_id=actor_id, reason=reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not monitor:
+        raise HTTPException(status_code=404, detail="Monitor not found")
+    return {"monitor_id": monitor_id, "action": action, "monitor": monitor}
+
+
 @router.post("/shopping/providers/{provider_name}/lookup", tags=["Shopping Integrations"])
 def lookup_commerce_product(provider_name: str, request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> dict[str, object]:
     _request_user(authorization)

@@ -127,6 +127,19 @@ class ShoppingStore:
                     idempotency_key TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,read_at TEXT
                 )"""
             )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS shopping_monitor_action(
+                    action_id TEXT PRIMARY KEY,
+                    monitor_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    from_status TEXT,
+                    to_status TEXT,
+                    reason TEXT,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_monitor_action_monitor ON shopping_monitor_action(monitor_id, created_at)")
 
     def create_extension_capture(
         self,
@@ -401,6 +414,54 @@ class ShoppingStore:
                 (monitor_id,),
             ).fetchone()
         return _row_to_monitor(row) if row else None
+
+    def update_monitor_status(self, monitor_id: str, status: str, *, actor_id: str, reason: str = "") -> dict[str, Any] | None:
+        allowed = {
+            "watching": {"paused", "expired", "target_reached"},
+            "target_reached": {"watching", "paused", "expired"},
+            "paused": {"watching", "expired"},
+            "expired": {"watching"},
+        }
+        monitor = self.get_monitor(monitor_id)
+        if not monitor:
+            return None
+        if status not in allowed.get(monitor["status"], set()):
+            raise ValueError(f"invalid monitor transition: {monitor['status']} -> {status}")
+        now = utc_now_iso()
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE shopping_price_monitor SET status=?, updated_at=?, last_message=? WHERE monitor_id=?",
+                (status, now, reason or f"状态已更新为 {status}", monitor_id),
+            )
+            conn.execute(
+                "INSERT INTO shopping_monitor_action(action_id,monitor_id,actor_id,action,from_status,to_status,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (f"mact_{uuid4().hex}", monitor_id, actor_id, status, monitor["status"], status, reason, now),
+            )
+        return self.get_monitor(monitor_id)
+
+    def delete_monitor(self, monitor_id: str, *, actor_id: str, reason: str = "") -> bool:
+        monitor = self.get_monitor(monitor_id)
+        if not monitor:
+            return False
+        now = utc_now_iso()
+        with self._session() as conn:
+            conn.execute(
+                "INSERT INTO shopping_monitor_action(action_id,monitor_id,actor_id,action,from_status,to_status,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (f"mact_{uuid4().hex}", monitor_id, actor_id, "delete", monitor["status"], None, reason, now),
+            )
+            conn.execute("DELETE FROM shopping_price_monitor WHERE monitor_id=?", (monitor_id,))
+        return True
+
+    def list_monitor_actions(self, monitor_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        query = "SELECT * FROM shopping_monitor_action"
+        params: list[Any] = []
+        if monitor_id:
+            query += " WHERE monitor_id=?"
+            params.append(monitor_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(max(1, min(limit, 1000)))
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
 
     def record_price_check(
         self,

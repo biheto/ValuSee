@@ -70,3 +70,33 @@ def test_price_check_updates_monitor_when_target_reached():
         assert monitor["status"] == "target_reached"
         assert monitor["current_final_price"] == 89
         assert len(checks) == 1
+
+
+def test_monitor_admin_actions_are_stateful_and_audited():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "valuesee-test.db")
+        record = store.create_monitor(
+            user_id="u1", product=_product(), target_price=99,
+            current_final_price=129, monitor_days=30, notify_channel="in_app",
+        )
+        paused = store.update_monitor_status(record["monitor_id"], "paused", actor_id="admin", reason="来源暂时不可用")
+        assert paused and paused["status"] == "paused"
+        resumed = store.update_monitor_status(record["monitor_id"], "watching", actor_id="admin", reason="已恢复")
+        assert resumed and resumed["status"] == "watching"
+        actions = store.list_monitor_actions(record["monitor_id"])
+        assert [item["action"] for item in actions][:2] == ["watching", "paused"]
+
+
+def test_monitor_invalid_transition_is_rejected():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "valuesee-test.db")
+        record = store.create_monitor(
+            user_id="u1", product=_product(), target_price=99,
+            current_final_price=129, monitor_days=30, notify_channel="in_app",
+        )
+        try:
+            store.update_monitor_status(record["monitor_id"], "completed", actor_id="admin")
+        except ValueError as exc:
+            assert "invalid monitor transition" in str(exc)
+        else:
+            raise AssertionError("invalid transition should fail")

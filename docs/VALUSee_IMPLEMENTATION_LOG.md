@@ -31,6 +31,7 @@ The first release focuses on digital products and small appliances. The system m
 - Added `/admin` as a separate ValuSee Admin Console with protected overview, Agent task list, LLM Trace usage, commerce-source status, MCP status, and refresh controls.
 - Production admin access requires `VALUSee_ADMIN_EMAILS`; development keeps a local preview for verification.
 - Admin Agent task rows now support detail drill-down into persisted task payloads/artifacts for operational debugging and review.
+- Added protected monitor operations for administrators: pause, resume, retry, expire, and delete. Each action validates the monitor state transition and writes an immutable action record with actor, reason, previous status, next status, and timestamp. This gives operations a recovery path when a commerce source or scheduled check fails.
 
 ### Consumer decision workbench
 
@@ -71,6 +72,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | Production storage | Runtime-ready | `DATABASE_URL` switches shopping and account stores to PostgreSQL; Redis rate limiting, RabbitMQ event publication, and S3/MinIO upload storage are wired, with a production Compose profile and health checks. |
 | Review risk analysis | MVP complete | Source-bearing reviews are weighted by verified purchase and rating, clustered into defect groups, and returned with evidence and confidence. |
 | Observability | Foundation present | Health/readiness probes, structured Worker logs, durable task records, idempotency keys, and source evidence are present; external metrics/alerting wiring remains deployment-specific. |
+| Monitor operations | MVP complete | Admin API supports stateful pause/resume/retry/expire/delete actions with audit records; a dedicated UI control surface remains the next console refinement. |
 
 ## Next implementation order
 
