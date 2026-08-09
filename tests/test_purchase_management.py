@@ -83,6 +83,24 @@ def test_support_ticket_conversation_is_scoped_and_stateful():
         assert user_reply["status"] == "open" and len(user_reply["messages"]) == 3
 
 
+def test_price_protection_claim_is_scoped_and_records_savings_once():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "valuesee-test.db")
+        purchase = _purchase(store)
+        claim = store.save_price_protection_claim("u1", str(purchase["purchase_id"]), {"status": "succeeded", "approved_amount": 20, "requested_amount": 20})
+        assert claim["evidence_source"] == "user_reported"
+        assert store.list_price_protection_claims("u1", str(purchase["purchase_id"]))[0]["approved_amount"] == 20
+        assert store.list_price_protection_claims("u2", str(purchase["purchase_id"])) == []
+        store.save_price_protection_claim("u1", str(purchase["purchase_id"]), {"claim_id": claim["claim_id"], "status": "succeeded", "approved_amount": 20, "requested_amount": 20})
+        assert store.list_savings("u1")["total"] == 30
+        try:
+            store.save_price_protection_claim("u2", str(purchase["purchase_id"]), {"status": "submitted", "requested_amount": 20})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("another user must not create a claim")
+
+
 def test_account_export_and_delete_cover_support_conversation():
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "valuesee-test.db"

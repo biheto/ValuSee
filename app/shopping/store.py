@@ -96,6 +96,12 @@ class ShoppingStore:
                 storage_key TEXT NOT NULL,created_at TEXT NOT NULL
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_purchase_attachment_owner ON shopping_purchase_attachment(user_id,purchase_id,created_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_price_protection_claim(
+                claim_id TEXT PRIMARY KEY,purchase_id TEXT NOT NULL,user_id TEXT NOT NULL,status TEXT NOT NULL,
+                requested_amount REAL NOT NULL,approved_amount REAL NOT NULL,evidence_source TEXT NOT NULL,
+                notes TEXT NOT NULL,submitted_at TEXT NOT NULL,resolved_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_price_protection_owner ON shopping_price_protection_claim(user_id,purchase_id,updated_at)")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_support_ticket(
                 ticket_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,purchase_id TEXT,category TEXT NOT NULL,
                 subject TEXT NOT NULL,status TEXT NOT NULL,priority TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
@@ -898,6 +904,48 @@ class ShoppingStore:
         with self._session() as conn:
             row = conn.execute("SELECT * FROM shopping_purchase_attachment WHERE attachment_id=? AND user_id=?", (attachment_id, user_id)).fetchone()
         return dict(row) if row else None
+
+    def save_price_protection_claim(self, user_id: str, purchase_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        status = str(payload.get("status") or "submitted")
+        if status not in {"submitted", "succeeded", "rejected", "cancelled"}:
+            raise ValueError("invalid price protection status")
+        requested = max(0.0, round(float(payload.get("requested_amount") or 0), 2))
+        approved = max(0.0, round(float(payload.get("approved_amount") or 0), 2))
+        if status == "succeeded" and approved <= 0:
+            raise ValueError("approved amount is required for a successful claim")
+        now = utc_now_iso()
+        with self._session() as conn:
+            purchase = conn.execute("SELECT product_json FROM shopping_purchase_record WHERE purchase_id=? AND user_id=?", (purchase_id, user_id)).fetchone()
+            if not purchase:
+                raise ValueError("purchase not found")
+            claim_id = str(payload.get("claim_id") or f"claim_{uuid4().hex}")
+            old = conn.execute("SELECT * FROM shopping_price_protection_claim WHERE claim_id=?", (claim_id,)).fetchone()
+            if old and (old["user_id"] != user_id or old["purchase_id"] != purchase_id):
+                raise ValueError("claim does not belong to purchase")
+            created_at = old["created_at"] if old else now
+            submitted_at = old["submitted_at"] if old else now
+            resolved_at = now if status in {"succeeded", "rejected", "cancelled"} else None
+            conn.execute("""INSERT INTO shopping_price_protection_claim(
+                claim_id,purchase_id,user_id,status,requested_amount,approved_amount,evidence_source,notes,
+                submitted_at,resolved_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(claim_id) DO UPDATE SET status=excluded.status,requested_amount=excluded.requested_amount,
+                approved_amount=excluded.approved_amount,evidence_source=excluded.evidence_source,notes=excluded.notes,
+                resolved_at=excluded.resolved_at,updated_at=excluded.updated_at""",
+                (claim_id, purchase_id, user_id, status, requested, approved, "user_reported", str(payload.get("notes") or "")[:1000], submitted_at, resolved_at, created_at, now))
+            row = conn.execute("SELECT * FROM shopping_price_protection_claim WHERE claim_id=?", (claim_id,)).fetchone()
+            product = json.loads(purchase["product_json"])
+        if status == "succeeded":
+            self.record_savings(user_id, "price_protection", claim_id, approved, f"保价节省 · {product.get('title') or '商品'}", resolved_at)
+        return dict(row)
+
+    def list_price_protection_claims(self, user_id: str, purchase_id: str | None = None) -> list[dict[str, Any]]:
+        query, params = "SELECT * FROM shopping_price_protection_claim WHERE user_id=?", [user_id]
+        if purchase_id:
+            query += " AND purchase_id=?"
+            params.append(purchase_id)
+        query += " ORDER BY updated_at DESC"
+        with self._session() as conn:
+            return [dict(row) for row in conn.execute(query, params).fetchall()]
 
     def create_support_ticket(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         subject, content = str(payload.get("subject") or "").strip(), str(payload.get("content") or "").strip()

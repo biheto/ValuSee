@@ -10,7 +10,7 @@ from uuid import uuid4
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
 from app.auth.service import auth_store, bearer_subject
@@ -1450,6 +1450,8 @@ def update_purchase_record(purchase_id: str, payload: dict[str, object], authori
 
 @router.post("/shopping/purchases/{purchase_id}/attachments", tags=["Shopping Purchase"])
 async def upload_purchase_attachment(purchase_id: str, file: UploadFile = File(...), attachment_type: str = "evidence", authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if attachment_type not in {"invoice", "order", "price_protection", "return", "warranty", "evidence"}:
+        raise HTTPException(status_code=422, detail="invalid attachment type")
     allowed = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
     content_type = (file.content_type or "").lower()
     if content_type not in allowed:
@@ -1481,6 +1483,37 @@ async def upload_purchase_attachment(purchase_id: str, file: UploadFile = File(.
 @router.get("/shopping/purchases/{purchase_id}/attachments", tags=["Shopping Purchase"])
 def list_purchase_attachments(purchase_id: str, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
     return shopping_store.list_purchase_attachments(_request_user(authorization), purchase_id)
+
+
+@router.get("/shopping/purchases/{purchase_id}/price-protection", tags=["Shopping Purchase"])
+def list_price_protection_claims(purchase_id: str, authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    return shopping_store.list_price_protection_claims(_request_user(authorization), purchase_id)
+
+
+@router.post("/shopping/purchases/{purchase_id}/price-protection", tags=["Shopping Purchase"])
+def save_price_protection_claim(purchase_id: str, payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.save_price_protection_claim(_request_user(authorization), purchase_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/shopping/purchases/calendar.ics", tags=["Shopping Purchase"])
+def export_purchase_calendar(authorization: str | None = Header(default=None)) -> PlainTextResponse:
+    def escape(value: object) -> str:
+        return str(value or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ValuSee//Shopping Calendar//ZH-CN", "CALSCALE:GREGORIAN"]
+    labels = {"price_protection_deadline": "保价截止", "return_deadline": "退货截止", "warranty_deadline": "保修到期", "consumable_reminder_at": "耗材更换"}
+    for purchase in shopping_store.list_purchases(_request_user(authorization)):
+        title = purchase.get("product", {}).get("title") or "已购商品"
+        for field, label in labels.items():
+            value = purchase.get(field)
+            if not value:
+                continue
+            day = str(value)[:10].replace("-", "")
+            lines.extend(["BEGIN:VEVENT", f"UID:{purchase['purchase_id']}-{field}@valuesee", f"DTSTART;VALUE=DATE:{day}", f"SUMMARY:{escape(label)} · {escape(title)}", f"DESCRIPTION:{escape(purchase.get('platform'))} | ValuSee 购后提醒", "END:VEVENT"])
+    lines.append("END:VCALENDAR")
+    return PlainTextResponse("\r\n".join(lines) + "\r\n", media_type="text/calendar", headers={"Content-Disposition": 'attachment; filename="valuesee-shopping.ics"'})
 
 
 @router.get("/shopping/attachments/{attachment_id}/download", tags=["Shopping Purchase"])

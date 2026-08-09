@@ -2598,6 +2598,7 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
       }>
     >
   >({});
+  const [attachmentKinds, setAttachmentKinds] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const loadTickets = async () => setTickets(await request<SupportTicket[]>("/api/v1/shopping/support/tickets"));
   useEffect(() => {
@@ -2616,7 +2617,7 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
   async function upload(purchaseId: string, file: File) {
     const form = new FormData();
     form.append("file", file);
-    const type = file.type === "application/pdf" ? "invoice" : "evidence";
+    const type = attachmentKinds[purchaseId] || (file.type === "application/pdf" ? "invoice" : "evidence");
     await request(`/api/v1/shopping/purchases/${encodeURIComponent(purchaseId)}/attachments?attachment_type=${type}`, { method: "POST", body: form });
     await loadAttachments(purchaseId);
     setNotice("凭证已安全保存。");
@@ -2652,6 +2653,30 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
       body: JSON.stringify({ status }),
     });
     await onRefresh();
+  }
+  async function savePriceProtection(purchase: Purchase) {
+    const amount = Number(window.prompt("请输入平台实际退回的保价金额", "0"));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    await request(`/api/v1/shopping/purchases/${encodeURIComponent(purchase.purchase_id)}/price-protection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "succeeded", requested_amount: amount, approved_amount: amount, notes: "用户根据平台保价结果手动确认" }),
+    });
+    await updateStatus(purchase.purchase_id, "completed");
+    setNotice(`已记录保价节省 ${money(amount)}，来源标记为用户自报。`);
+  }
+  async function downloadCalendar() {
+    const headers = new Headers();
+    const token = localStorage.getItem("valuesee-token");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch("/api/v1/shopping/purchases/calendar.ics", { headers });
+    if (!response.ok) throw new Error("日历导出失败");
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "valuesee-shopping.ics";
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
   async function createTicket(purchase: Purchase) {
     const subject = window.prompt("问题标题，例如：商品降价需要保价帮助");
@@ -2720,6 +2745,7 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
         <div className="panel list-panel">
           <h3>
             购买记录 <span>{purchases.length}</span>
+            <button className="soft-button" type="button" onClick={() => void downloadCalendar()}><Download size={14} />导出提醒日历</button>
           </h3>
           {purchases.length ? (
             purchases.map((item) => (
@@ -2746,11 +2772,15 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
                     <option value="warranty">保修中</option>
                     <option value="completed">已完成</option>
                   </select>
+                  <select aria-label="凭证类型" value={attachmentKinds[item.purchase_id] || "evidence"} onChange={(event) => setAttachmentKinds((current) => ({ ...current, [item.purchase_id]: event.target.value }))}>
+                    <option value="evidence">通用凭证</option><option value="invoice">发票</option><option value="order">订单截图</option><option value="price_protection">保价证据</option><option value="return">退货材料</option><option value="warranty">保修材料</option>
+                  </select>
                   <label className="soft-button">
                     <Paperclip size={15} />
                     上传凭证
                     <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(e) => e.target.files?.[0] && void upload(item.purchase_id, e.target.files[0])} />
                   </label>
+                  <button className="soft-button" type="button" onClick={() => void savePriceProtection(item)}><Receipt size={15} />记录保价成功</button>
                   <button
                     className="soft-button"
                     onClick={() => {
@@ -2767,7 +2797,7 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
                     {attachments[item.purchase_id].map((file) => (
                       <a key={file.attachment_id} href={`/api/v1/shopping/attachments/${file.attachment_id}/download`} target="_blank" rel="noreferrer">
                         <Paperclip size={13} />
-                        {file.original_name}
+                        <span>{file.attachment_type} · {file.original_name}</span>
                       </a>
                     ))}
                   </div>
