@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr t
 COPY pyproject.toml README.md LICENSE ./
 COPY app ./app
 COPY --from=web-builder /build/web/dist ./web/dist
-RUN pip install --no-cache-dir ".[ocr]" \
+RUN pip install --no-cache-dir ".[ocr,llm]" \
     && mkdir -p /app/data/uploads \
     && chown -R valuesee:valuesee /app
 USER valuesee

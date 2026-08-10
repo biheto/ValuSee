@@ -104,6 +104,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Account dashboard KPI cards now navigate to savings, reports, favorites, and purchases with mouse and keyboard support. Account-related destination pages expose a consistent back action, and browser history now clears product/content overlays correctly on `popstate`.
 - The production Compose stack now runs end to end locally: PostgreSQL/pgvector, Redis, RabbitMQ, MinIO, the API, and the independent monitor worker pass readiness checks and retain data across a full stop/start. A one-shot bucket initializer and API-proxied private downloads keep object storage internal.
 - Administrators can disable MFA with a current TOTP/recovery code or, from an already MFA-verified session, by re-entering the account password. Invalid passwords leave MFA enabled and the fallback does not weaken admin login enforcement.
+- Production LLM configuration now passes OpenAI-compatible credentials, default/per-Agent model selection, governed memory extraction, embeddings, and optional cost estimates into both API and worker containers. The image includes the actual `langchain-openai` adapter; an empty key remains an explicit fallback mode.
 
 | Area | Status | Notes |
 | --- | --- | --- |

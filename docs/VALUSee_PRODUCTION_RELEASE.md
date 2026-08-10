@@ -45,6 +45,17 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 
 ## External Credentials Required
 
+### LLM configuration
+
+The production image includes the OpenAI-compatible LangChain adapter. Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` for a compatible gateway, and select the default model with `DEV_AGENT_LLM_MODEL`. Per-Agent overrides and embedding settings are listed in `.env.production.example`. An empty key intentionally keeps deterministic fallback mode; startup and non-LLM workflows remain available.
+
+After changing model configuration, recreate the API and worker containers and verify the provider inside the container without printing the secret:
+
+```powershell
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.production.yml exec -T api python -c "from app.providers.llm_provider import llm_provider; s=llm_provider.status(); print({'enabled':s['enabled'],'model':s['model'],'source':s['source']})"
+```
+
 The platform adapter boundary is implemented at `app/shopping/providers.py`. Real JD/Taobao/affiliate use requires an approved provider contract and credentials. Configure authorized providers with `VALUSee_COMMERCE_PROVIDERS` as a JSON array; ValuSee does not claim to provide live platform data without those credentials.
 
 Use `.env.commerce.example` as the private credential checklist. JD/Taobao/Pinduoduo `App Secret`/`Client Secret` values are not directly interchangeable with the unified `token` field: each platform still needs a signed adapter that maps its official response into ValuSee's product schema. The application intentionally returns an empty source state until that adapter and authorization are both available.
