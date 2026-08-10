@@ -47,6 +47,8 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 
 The `valu-see` Vercel project is connected to `github.com/biheto/ValuSee` with `web/` as its Root Directory. Pushes to `main` create production deployments; pull requests and other branches create isolated previews. Vercel serves only the Vite Web/PWA build. FastAPI, the monitor worker, PostgreSQL, Redis, RabbitMQ and object storage remain on the long-running Docker host.
 
+An optional `valuesee-api` Vercel project can use `api/index.py` for lightweight preview/API validation. It is not a replacement for the Docker backend: Vercel functions have no durable local filesystem and do not run the monitor worker. Do not place production `DATABASE_URL`, queue, or object-storage state on SQLite or `/tmp`.
+
 Set `VITE_API_BASE_URL` in the Vercel Production and Preview environments to the public HTTPS API origin, for example `https://api.valusee.com`. On the API host, add every deployed Web origin that should be trusted to `ALLOWED_ORIGINS`; keep `ALLOWED_HOSTS` scoped to the API hostname. Never point the Vercel build at `127.0.0.1` or a private address.
 
 Local development leaves `VITE_API_BASE_URL` empty and continues to use the Vite `/api` proxy. Vercel project identifiers and OIDC credentials live under ignored `.vercel/` and `.env.local` files and must not be committed.
