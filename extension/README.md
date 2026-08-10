@@ -1,10 +1,10 @@
 # ValuSee Browser Extension
 
-1. Start ValuSee at `http://127.0.0.1:8200`.
+1. Start ValuSee locally or deploy it at `https://valusee.com`.
 2. Open `chrome://extensions` or `edge://extensions`.
 3. Enable Developer mode and choose **Load unpacked**.
 4. Select this `extension/` directory.
-5. Open a supported product detail page and use the ValuSee icon.
+5. Open the extension settings, enter the ValuSee address and sign in. Local development may use `http://127.0.0.1:8000` without a token.
+6. Open a supported product detail page, review the visible SKU, price, discounts, region and membership conditions, then send it to ValuSee.
 
-The extension only reads the page the user is currently viewing. Captured fields enter a `pending_confirmation` inbox and must be confirmed before comparison.
-
+The extension only reads the product page the user is currently viewing. It does not crawl search results or bypass login/captcha controls. Captured fields enter a `pending_confirmation` inbox; a price snapshot is persisted only after final confirmation in ValuSee.

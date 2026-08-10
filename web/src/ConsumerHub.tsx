@@ -6,6 +6,8 @@ export type ConsumerProduct = {
   specs: Record<string, string>; price: number; coupon: number; platform_discount: number;
   member_discount: number; subsidy: number; pay_discount: number; shipping: number; gift_value: number;
   condition: string; official_store: boolean; return_days: number; warranty_months: number; notes: string;
+  store_name?: string; image_url?: string; selected_variant?: string; region?: string; membership?: string;
+  observation_status?: string; evidence?: Record<string, unknown>;
 };
 export type SavedItem = { saved_id: string; item_type: 'favorite' | 'recent' | 'brand'; reference_key: string; label: string; product: ConsumerProduct; group_id?: string | null; group_name?: string | null; updated_at: string };
 export type SavedGroup = { group_id: string; name: string; item_count: number };

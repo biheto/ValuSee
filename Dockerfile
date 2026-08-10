@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr t
     && useradd --create-home --uid 10001 valuesee
 COPY pyproject.toml README.md LICENSE ./
 COPY app ./app
+COPY extension ./extension
 COPY --from=web-builder /build/web/dist ./web/dist
 RUN pip install --no-cache-dir ".[ocr,llm]" \
     && mkdir -p /app/data/uploads \

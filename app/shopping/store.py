@@ -236,6 +236,10 @@ class ShoppingStore:
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_monitor_preference(
                 monitor_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,group_name TEXT NOT NULL,frequency TEXT NOT NULL,updated_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_monitor_poll(
+                monitor_id TEXT PRIMARY KEY,checked_at TEXT NOT NULL,status TEXT NOT NULL,
+                observed_price REAL NOT NULL,message TEXT NOT NULL
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_budget_pool(
                 pool_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,target_amount REAL NOT NULL,
                 spent_amount REAL NOT NULL,currency TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
@@ -332,21 +336,31 @@ class ShoppingStore:
             for row in rows
         ]
 
-    def confirm_extension_capture(self, capture_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+    def confirm_extension_capture(self, capture_id: str, user_id: str | None = None, product: dict[str, Any] | None = None) -> dict[str, Any] | None:
         with self._session() as conn:
+            query = "SELECT * FROM shopping_extension_capture WHERE capture_id=?"
+            params: tuple[Any, ...] = (capture_id,)
             if user_id:
-                conn.execute("UPDATE shopping_extension_capture SET status='imported' WHERE capture_id=? AND user_id=?", (capture_id, user_id))
-                row = conn.execute("SELECT * FROM shopping_extension_capture WHERE capture_id=? AND user_id=?", (capture_id, user_id)).fetchone()
-            else:
-                conn.execute("UPDATE shopping_extension_capture SET status='imported' WHERE capture_id=?", (capture_id,))
+                query += " AND user_id=?"
+                params = (capture_id, user_id)
+            row = conn.execute(query, params).fetchone()
+            if not row:
+                return None
+            confirmed_now = row["status"] == "pending_confirmation"
+            if confirmed_now:
+                stored_product = product or json.loads(row["product_json"])
+                stored_product["observation_status"] = "confirmed"
+                conn.execute(
+                    "UPDATE shopping_extension_capture SET status='imported',product_json=? WHERE capture_id=?",
+                    (json.dumps(stored_product, ensure_ascii=False), capture_id),
+                )
                 row = conn.execute("SELECT * FROM shopping_extension_capture WHERE capture_id=?", (capture_id,)).fetchone()
-        if not row:
-            return None
         return {
             "capture_id": row["capture_id"], "user_id": row["user_id"],
             "status": row["status"], "product": json.loads(row["product_json"]),
             "source": row["source"], "captured_at": row["captured_at"],
             "created_at": row["created_at"],
+            "confirmed_now": confirmed_now,
         }
 
     def record_price_snapshot(
@@ -368,6 +382,11 @@ class ShoppingStore:
             "conditions": {
                 key: float(product.get(key, 0) or 0)
                 for key in ("coupon", "platform_discount", "member_discount", "subsidy", "pay_discount", "shipping", "gift_value")
+            } | {
+                "sku": str(product.get("sku", "")),
+                "selected_variant": str(product.get("selected_variant", "")),
+                "confirmation_status": str(product.get("observation_status", "requires_confirmation")),
+                "evidence": product.get("evidence") if isinstance(product.get("evidence"), dict) else {},
             },
             "source": source, "captured_at": captured_at or utc_now_iso(),
         }
@@ -391,6 +410,29 @@ class ShoppingStore:
                 if ratio < 0.4 or ratio > 2.5:
                     confidence = _source_confidence(source)
                     conn.execute("INSERT INTO shopping_price_anomaly VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (f"anomaly_{uuid4().hex}", record["snapshot_id"], user_id, record["product_url"], record["final_price"], round(baseline, 2), round(ratio, 4), source, confidence, "pending", None, "", record["captured_at"], None))
+        return record
+
+    def get_monitor_poll(self, monitor_id: str) -> dict[str, Any] | None:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_monitor_poll WHERE monitor_id=?", (monitor_id,)).fetchone()
+        return dict(row) if row else None
+
+    def record_monitor_poll(self, monitor_id: str, *, checked_at: str, status: str, observed_price: float, message: str) -> dict[str, Any]:
+        record = {
+            "monitor_id": monitor_id,
+            "checked_at": checked_at,
+            "status": status,
+            "observed_price": round(float(observed_price), 2),
+            "message": message[:500],
+        }
+        with self._session() as conn:
+            conn.execute(
+                """INSERT INTO shopping_monitor_poll(monitor_id,checked_at,status,observed_price,message)
+                VALUES(?,?,?,?,?) ON CONFLICT(monitor_id) DO UPDATE SET
+                checked_at=excluded.checked_at,status=excluded.status,
+                observed_price=excluded.observed_price,message=excluded.message""",
+                tuple(record.values()),
+            )
         return record
 
     def price_history(self, product_url: str, user_id: str | None = None, limit: int = 365) -> dict[str, Any]:
@@ -1763,7 +1805,7 @@ def _monitor_message(final_price: float, target_price: float) -> str:
 
 
 def _notification_target(kind: str) -> str:
-    if kind in {"price_reached", "price_drop", "monitor"}:
+    if kind in {"price_reached", "price_drop", "monitor", "price_confirmation_required", "recapture_required"}:
         return "/?view=monitors"
     if kind in {"price_protection", "return_deadline", "warranty_deadline", "after_sales"}:
         return "/?view=purchases"

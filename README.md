@@ -37,6 +37,7 @@ The consumer product now provides a complete shopping information architecture:
 
 - **Discover**: natural-language search, category shortcuts, recently viewed products, account savings summary, and governed buying guides. Empty rankings stay empty until traceable data exists.
 - **Smart comparison**: paste links, upload screenshots, confirm specification and discount fields, detect SKU differences, highlight risk, and generate an account-backed decision report.
+- **Browser-assisted capture**: while the user is viewing a JD, Taobao/Tmall, or Pinduoduo product page, the Manifest V3 extension extracts only visible title, selected SKU, price, discounts, store, image, region, membership conditions, specifications, source URL, and capture time. The user edits the observation before sending it, and ValuSee requires final confirmation before writing price history.
 - **Product details**: inspect landed-price breakdown, specification/version, historical observations, source link, store status, return and warranty terms, then favorite or add the product to comparison.
 - **Savings center**: create, edit, pause, resume, and delete durable target-price monitors.
 - **Orders and after-sales**: record the paid price and manage received, price-protection, return, warranty, and completed states with visible deadlines.
@@ -46,7 +47,9 @@ The consumer product now provides a complete shopping information architecture:
 
 The separate admin console governs canonical products/SKUs, commerce source health, prompts, benchmarks, monitors, user corrections, business metrics, and published discovery content.
 
-The release intentionally supports user-supplied product information and manual price confirmation. It does not perform automatic checkout, payment, refunds, or large-scale crawling. This keeps recommendations explainable and puts platform data access on a compliant path: user-provided links first, browser extension and authorized platform APIs next.
+The initial invitation release does not require an authorized commerce provider. It performs bounded, cached, user-triggered parsing of supported public product URLs and falls back explicitly to browser capture, screenshot OCR, or manual confirmation when a page returns login, captcha, or dynamic empty content. It does not offer whole-platform search, automatic checkout, payment, refunds, affiliate links, or large-scale crawling. Authorized platform APIs remain a later expansion path rather than a launch dependency.
+
+For target-price monitoring without platform APIs, the durable worker checks only URLs that a user explicitly follows and clamps even a “realtime” preference to a six-hour public-page interval. A possible change creates a pending observation and asks the user to verify the current SKU, region, login state, and discounts with the extension. Unconfirmed public observations never trigger a purchase recommendation or enter trusted price history.
 
 Core message:
 

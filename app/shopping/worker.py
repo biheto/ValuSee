@@ -16,6 +16,7 @@ from app.core.infrastructure import (
     declare_monitor_queues,
 )
 from app.shopping.store import shopping_store
+from app.shopping.monitor_collector import collect_public_monitor_updates
 
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -31,8 +32,12 @@ def _stop(*_: object) -> None:
 
 
 def run_once() -> dict[str, int]:
-    result = shopping_store.process_latest_snapshots()
-    logger.info("monitor cycle processed=%s notifications=%s", result["processed"], result["notifications"])
+    collection = collect_public_monitor_updates(shopping_store)
+    result = {**shopping_store.process_latest_snapshots(), **collection}
+    logger.info(
+        "monitor cycle processed=%s notifications=%s public_checked=%s pending_confirmations=%s",
+        result["processed"], result["notifications"], result["public_checked"], result["pending_confirmations"],
+    )
     return result
 
 

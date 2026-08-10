@@ -88,7 +88,6 @@ type Capture = {
   captured_at: string;
 };
 type Notification = ConsumerNotification;
-type ProductSearchResult = { provider: string; kind: string; product: Product };
 type SavedReport = {
   report_id: string;
   task_id: string;
@@ -445,13 +444,20 @@ export function App() {
   }
   async function importCapture(capture: Capture) {
     try {
-      await request(`/api/v1/shopping/extension/captures/${capture.capture_id}/confirm`, { method: "POST" });
-      setProducts((items) => [...items, capture.product]);
+      const data = await request<Capture>(`/api/v1/shopping/extension/captures/${capture.capture_id}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product: capture.product }),
+      });
+      setProducts((items) => [...items, data.product]);
       setCaptures((items) => items.filter((item) => item.capture_id !== capture.capture_id));
-      setMessage("已将浏览器采集商品加入候选清单，请确认字段。");
+      setMessage("采集信息已确认并形成可追溯价格记录，商品已加入候选清单。");
     } catch (err) {
       setError(err instanceof Error ? err.message : "导入采集商品失败");
     }
+  }
+  function updateCapture(captureId: string, patch: Partial<Product>) {
+    setCaptures((items) => items.map((item) => item.capture_id === captureId ? { ...item, product: { ...item.product, ...patch } } : item));
   }
   async function addProduct(product: Product, openDetail = false) {
     setProducts((items) => (items.some((item) => item.url && item.url === product.url) ? items : [...items, product]));
@@ -937,7 +943,10 @@ export function App() {
               <ChevronRight size={17} />
             </button>
           </section>
-          <ProductSearchPanel onAdd={(product) => void addProduct(product, true)} />
+          <CapturePathPanel
+            onFocusLink={() => document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus()}
+            onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()}
+          />
           {products.length > 0 && (
             <div className="comparison-savebar">
               <div>
@@ -973,14 +982,17 @@ export function App() {
               </div>
               <div className="capture-items">
                 {captures.map((capture) => (
-                  <article key={capture.capture_id}>
-                    <div>
-                      <b>{capture.product.title}</b>
-                      <small>
-                        {capture.product.platform} · {capture.product.price ? money(capture.product.price) : "价格待确认"}
-                      </small>
+                  <article key={capture.capture_id} className="capture-review-card">
+                    <label>商品标题<input value={capture.product.title} onChange={(event) => updateCapture(capture.capture_id, { title: event.target.value })} /></label>
+                    <div className="capture-review-grid">
+                      <label>当前价格<input type="number" min={0} value={capture.product.price} onChange={(event) => updateCapture(capture.capture_id, { price: Number(event.target.value) })} /></label>
+                      <label>SKU<input value={capture.product.sku} onChange={(event) => updateCapture(capture.capture_id, { sku: event.target.value })} /></label>
+                      <label>已选规格<input value={capture.product.selected_variant || ""} onChange={(event) => updateCapture(capture.capture_id, { selected_variant: event.target.value })} /></label>
+                      <label>地区<input value={capture.product.region || "unknown"} onChange={(event) => updateCapture(capture.capture_id, { region: event.target.value })} /></label>
+                      <label>会员条件<input value={capture.product.membership || "unknown"} onChange={(event) => updateCapture(capture.capture_id, { membership: event.target.value })} /></label>
                     </div>
-                    <button onClick={() => void importCapture(capture)}>加入候选</button>
+                    <small>{capture.product.platform} · 采集于 {date(capture.captured_at)} · 确认后才写入价格历史</small>
+                    <button onClick={() => void importCapture(capture)}>确认并加入候选</button>
                   </article>
                 ))}
               </div>
@@ -1030,6 +1042,22 @@ export function App() {
                       <label>
                         型号
                         <input value={product.model} onChange={(e) => updateProduct(index, { model: e.target.value })} />
+                      </label>
+                      <label>
+                        SKU
+                        <input value={product.sku} onChange={(e) => updateProduct(index, { sku: e.target.value })} />
+                      </label>
+                      <label>
+                        已选规格
+                        <input value={product.selected_variant || ""} onChange={(e) => updateProduct(index, { selected_variant: e.target.value })} />
+                      </label>
+                      <label>
+                        地区
+                        <input value={product.region || "unknown"} onChange={(e) => updateProduct(index, { region: e.target.value })} />
+                      </label>
+                      <label>
+                        会员条件
+                        <input value={product.membership || "unknown"} onChange={(e) => updateProduct(index, { membership: e.target.value })} />
                       </label>
                       <label>
                         页面价格
@@ -2961,92 +2989,20 @@ function AccountDialog({ mode, email, password, displayName, onEmail, onPassword
     </div>
   );
 }
-function ProductSearchPanel({ onAdd }: { onAdd: (product: Product) => void }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ProductSearchResult[]>([]);
-  const [sources, setSources] = useState<Array<{ provider: string; status: string; count?: number; error?: string }>>([]);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (query.trim().length < 2) return;
-    setLoading(true);
-    setMessage("");
-    try {
-      const data = await request<{
-        results: ProductSearchResult[];
-        sources: Array<{
-          provider: string;
-          status: string;
-          count?: number;
-          error?: string;
-        }>;
-        message: string;
-      }>("/api/v1/shopping/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query.trim(), limit: 12 }),
-      });
-      setResults(data.results);
-      setSources(data.sources);
-      setMessage(data.message);
-    } catch (err) {
-      setResults([]);
-      setMessage(err instanceof Error ? err.message : "商品搜索失败");
-    } finally {
-      setLoading(false);
-    }
-  }
+function CapturePathPanel({ onFocusLink, onUploadScreenshot }: { onFocusLink: () => void; onUploadScreenshot: () => void }) {
   return (
     <section className="product-search-panel">
       <div className="product-search-copy">
-        <span className="section-kicker">商品来源</span>
-        <h2>先找到商品，再帮你看值不值得买</h2>
-        <p>只展示已授权来源返回的真实商品，并保留平台、价格和原始链接。没有可用来源时，请粘贴商品链接或使用浏览器扩展采集。</p>
+        <span className="section-kicker">真实数据入口</span>
+        <h2>把你正在纠结的商品交给 ValuSee</h2>
+        <p>初期不搜索或伪造全平台商品。链接公开信息不完整时，使用扩展读取你当前看到的 SKU、地区价和会员优惠，或上传截图识别。</p>
       </div>
-      <form className="product-search-form" onSubmit={submit}>
-        <Search size={18} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：AirPods Pro 2 USB-C、27 英寸 4K 显示器" />
-        <button disabled={loading}>{loading ? "搜索中…" : "搜索商品"}</button>
-      </form>
-      <div className="platform-readiness">
-        <span>京东 · 待授权</span>
-        <span>淘宝 / 天猫 · 待授权</span>
-        <span>拼多多 · 待授权</span>
+      <div className="capture-path-grid">
+        <button type="button" onClick={onFocusLink}><Link2 size={20} /><strong>粘贴商品链接</strong><span>按需读取公开页面，缺失字段由你确认</span></button>
+        <a href="/api/v1/downloads/browser-extension"><Download size={20} /><strong>安装浏览器扩展</strong><span>读取当前可见 SKU、价格与优惠</span></a>
+        <button type="button" onClick={onUploadScreenshot}><Camera size={20} /><strong>上传商品截图</strong><span>OCR 识别后进入同一确认流程</span></button>
       </div>
-      {message && <div className="search-message">{message}</div>}
-      {sources.length > 0 && (
-        <div className="source-status">
-          {sources.map((source) => (
-            <span key={source.provider} className={source.status === "ok" ? "source-ok" : "source-error"}>
-              {source.provider} · {source.status === "ok" ? `${source.count ?? 0} 条` : "暂不可用"}
-            </span>
-          ))}
-        </div>
-      )}
-      {results.length > 0 && (
-        <div className="product-search-results">
-          {results.map((item) => (
-            <article className="product-search-result" key={`${item.provider}-${item.product.url}`}>
-              <div>
-                <strong>{item.product.title}</strong>
-                <span>
-                  {item.product.platform || item.provider} · {item.product.price ? money(item.product.price) : "价格待确认"} · {item.product.model || "型号待确认"}
-                </span>
-              </div>
-              <div className="product-search-actions">
-                <a href={item.product.url} target="_blank" rel="noreferrer">
-                  <ExternalLink size={14} />
-                  打开商品
-                </a>
-                <button type="button" onClick={() => onAdd(item.product)}>
-                  加入比较
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
+      <div className="platform-readiness"><span>不批量爬取</span><span>不绕过登录/验证码</span><span>确认后才沉淀价格</span></div>
     </section>
   );
 }

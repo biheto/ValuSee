@@ -4,6 +4,8 @@ import json
 import hashlib
 import os
 import time
+import zipfile
+from io import BytesIO
 from collections.abc import AsyncIterator
 from pathlib import Path
 from uuid import uuid4
@@ -35,6 +37,7 @@ from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
 from app.shopping.notifications import send_transactional_email
 from app.shopping.providers import configured_providers
+from app.shopping.public_pages import fetch_public_product
 from app.shopping.catalog import commerce_catalog
 from app.graphs.collaboration_runner import run_collaboration_task
 from app.graphs.workflow_compiler import (
@@ -77,6 +80,7 @@ from app.schemas.shopping import (
     ShoppingDecisionRequest,
     ShoppingExtensionCaptureRequest,
     ShoppingExtensionCaptureResponse,
+    ShoppingExtensionConfirmRequest,
     ShoppingImageResponse,
     ShoppingProductInput,
     ShoppingParseUrlRequest,
@@ -140,6 +144,25 @@ from app.schemas.studio import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
+
+
+@router.get("/downloads/browser-extension", tags=["Shopping Integrations"])
+def download_browser_extension() -> StreamingResponse:
+    extension_dir = Path(__file__).resolve().parents[2] / "extension"
+    required = {"manifest.json", "background.js", "content.js", "popup.html", "popup.js", "popup.css"}
+    if not extension_dir.is_dir() or not required.issubset({item.name for item in extension_dir.iterdir()}):
+        raise HTTPException(status_code=404, detail="浏览器扩展安装包暂不可用")
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for path in sorted(extension_dir.rglob("*")):
+            if path.is_file() and path.name != "README.md" and path.stat().st_size <= 2 * 1024 * 1024:
+                bundle.write(path, path.relative_to(extension_dir))
+    archive.seek(0)
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="valuesee-browser-extension.zip"', "Cache-Control": "no-store"},
+    )
 
 
 def _request_user(authorization: str | None) -> str:
@@ -484,30 +507,30 @@ def delete_account(authorization: str | None = Header(default=None)) -> dict[str
 
 
 @router.post("/shopping/parse-url", response_model=ShoppingParseUrlResponse, tags=["Shopping Decision"])
-def parse_shopping_url(request: ShoppingParseUrlRequest) -> ShoppingParseUrlResponse:
+def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> ShoppingParseUrlResponse:
+    _request_user(authorization)
     parsed = urlparse(request.url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=422, detail="请输入有效的商品链接")
 
-    host = parsed.netloc.lower().removeprefix("www.")
-    platform = next(
-        (name for key, name in (("jd.", "京东"), ("taobao.", "淘宝"), ("tmall.", "天猫"), ("pinduoduo.", "拼多多"), ("douyin.", "抖音")) if key in host),
-        host,
-    )
-    slug = parsed.path.rstrip("/").split("/")[-1] or host
-    title = request.title.strip() or f"来自 {platform} 的商品（待确认）"
-    product = ShoppingProductInput(
-        title=title,
-        platform=platform,
-        url=request.url,
-        model=slug[:80],
-        condition="new",
-        notes="链接已保存。请确认商品标题、型号和页面价格后再分析。",
-    )
+    try:
+        result = fetch_public_product(request.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    fetch_status = str(result.pop("fetch_status", "public_partial"))
+    cached = bool(result.pop("cached", False))
+    result.pop("fetch_error", None)
+    if request.title.strip():
+        result["title"] = request.title.strip()
+    product = ShoppingProductInput(**result)
+    complete = fetch_status == "parsed"
     return ShoppingParseUrlResponse(
         product=product,
-        source=host,
-        message="已读取链接来源，商品价格和规格需要你确认。",
+        source=parsed.netloc.lower().removeprefix("www."),
+        message="已读取公开页面，请确认 SKU、地区、会员条件和优惠。" if complete else "公开页面未返回完整商品信息，请使用浏览器扩展、截图 OCR 或手动补充。",
+        fetch_status=fetch_status,
+        cached=cached,
+        fallback_actions=[] if complete else ["browser_extension", "screenshot_ocr", "manual_confirmation"],
     )
 
 
@@ -534,16 +557,6 @@ def create_extension_capture(request: ShoppingExtensionCaptureRequest, authoriza
         source=request.source,
         captured_at=request.captured_at,
     )
-    if request.product.price > 0:
-        breakdown = final_price_from_breakdown(request.product.model_dump())
-        snapshot = shopping_store.record_price_snapshot(
-            user_id=user_id,
-            product=request.product.model_dump(),
-            final_price=breakdown["final_price"],
-            source=request.source,
-            captured_at=request.captured_at,
-        )
-        publish_monitor_event({"type": "price_snapshot", "snapshot_id": snapshot["snapshot_id"]})
     return ShoppingExtensionCaptureResponse(**record)
 
 
@@ -555,10 +568,25 @@ def list_extension_captures(user_id: str | None = None, authorization: str | Non
 
 
 @router.post("/shopping/extension/captures/{capture_id}/confirm", response_model=ShoppingExtensionCaptureResponse, tags=["Shopping Decision"])
-def confirm_extension_capture(capture_id: str, authorization: str | None = Header(default=None)) -> ShoppingExtensionCaptureResponse:
-    record = shopping_store.confirm_extension_capture(capture_id, _request_user(authorization))
+def confirm_extension_capture(capture_id: str, request: ShoppingExtensionConfirmRequest | None = None, authorization: str | None = Header(default=None)) -> ShoppingExtensionCaptureResponse:
+    user_id = _request_user(authorization)
+    product = request.product.model_dump() if request and request.product else None
+    record = shopping_store.confirm_extension_capture(capture_id, user_id, product)
     if not record:
         raise HTTPException(status_code=404, detail="扩展采集记录不存在")
+    confirmed_product = record["product"]
+    if record["confirmed_now"] and float(confirmed_product.get("price", 0) or 0) > 0:
+        breakdown = final_price_from_breakdown(confirmed_product)
+        snapshot = shopping_store.record_price_snapshot(
+            user_id=user_id,
+            product=confirmed_product,
+            final_price=breakdown["final_price"],
+            source=str(record["source"]),
+            captured_at=str(record["captured_at"]),
+            region=str(confirmed_product.get("region") or "unknown"),
+            membership=str(confirmed_product.get("membership") or "unknown"),
+        )
+        publish_monitor_event({"type": "price_snapshot", "snapshot_id": snapshot["snapshot_id"]})
     return ShoppingExtensionCaptureResponse(**record)
 
 

@@ -26,6 +26,13 @@ class ShoppingProductInput(BaseModel):
     official_store: bool = False
     return_days: int = 7
     warranty_months: int = 12
+    store_name: str = ""
+    image_url: str = ""
+    selected_variant: str = ""
+    region: str = "unknown"
+    membership: str = "unknown"
+    observation_status: str = "requires_confirmation"
+    evidence: dict[str, Any] = Field(default_factory=dict)
     notes: str = ""
 
 
@@ -45,6 +52,9 @@ class ShoppingParseUrlResponse(BaseModel):
     product: ShoppingProductInput
     source: str
     message: str
+    fetch_status: str = "not_attempted"
+    cached: bool = False
+    fallback_actions: list[str] = Field(default_factory=list)
 
 
 class ShoppingImageResponse(BaseModel):
@@ -76,6 +86,11 @@ class ShoppingExtensionCaptureResponse(BaseModel):
     source: str
     captured_at: str
     created_at: str
+    confirmed_now: bool = False
+
+
+class ShoppingExtensionConfirmRequest(BaseModel):
+    product: Optional[ShoppingProductInput] = None
 
 
 class ShoppingProfile(BaseModel):

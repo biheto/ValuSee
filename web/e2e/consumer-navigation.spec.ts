@@ -70,3 +70,22 @@ test('mobile bottom navigation exposes all core consumer journeys', async ({ pag
     await expect(page.getByRole('heading', { name: heading })).toBeVisible();
   }
 });
+
+test('product acquisition exposes working link, extension, and screenshot paths', async ({ page }, testInfo) => {
+  await page.goto('/');
+  if (testInfo.project.name.includes('mobile')) {
+    await page.locator('.mobile-nav').getByRole('button', { name: '对比', exact: true }).click();
+  } else {
+    await page.getByRole('button', { name: '智能对比', exact: true }).click();
+  }
+  await expect(page.getByRole('heading', { name: '把你正在纠结的商品交给 ValuSee' })).toBeVisible();
+
+  await page.getByRole('button', { name: /粘贴商品链接/ }).click();
+  await expect(page.getByRole('textbox', { name: '粘贴淘宝、京东、拼多多商品链接' })).toBeFocused();
+  await expect(page.getByRole('link', { name: /安装浏览器扩展/ })).toHaveAttribute('href', '/api/v1/downloads/browser-extension');
+
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /上传商品截图/ }).click();
+  const chooser = await chooserPromise;
+  expect(chooser.isMultiple()).toBe(false);
+});

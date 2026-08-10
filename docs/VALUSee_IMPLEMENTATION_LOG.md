@@ -106,6 +106,9 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 - Administrators can disable MFA with a current TOTP/recovery code or, from an already MFA-verified session, by re-entering the account password. Invalid passwords leave MFA enabled and the fallback does not weaken admin login enforcement.
 - Production LLM configuration now passes OpenAI-compatible credentials, default/per-Agent model selection, governed memory extraction, embeddings, and optional cost estimates into both API and worker containers. The image includes the actual `langchain-openai` adapter; an empty key remains an explicit fallback mode.
 - Production configuration is now consolidated into one private `.env.production` file and one tracked `.env.production.example` template. SMTP, signed notification relay, and authorized commerce adapter settings are forwarded by Compose; broad `.env.*` ignore rules prevent future local/staging credential files from being committed, while explicit `*.example` exceptions preserve safe templates.
+- The invitation-release acquisition path now works without commerce-platform authorization: supported user-submitted URLs use bounded cached public HTML/JSON-LD parsing with SSRF and redirect controls; incomplete/login/captcha pages fall back to extension capture, OCR, or manual confirmation. The consumer UI no longer presents whole-platform search as an initial capability.
+- Browser extension v0.2 connects to a real ValuSee account, extracts the currently visible SKU, selected variant, price, discounts, store, image, region, membership conditions and specifications, and provides an editable pre-send review. A second Web confirmation is required before a price snapshot is persisted; snapshots retain SKU, confirmation status and evidence.
+- The monitor worker now performs low-frequency checks only for product URLs explicitly followed by a user. Public changes create pending confirmation observations, while blocked or personalized pages request an extension recapture. Neither path silently marks the target reached or contaminates trusted history.
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -113,9 +116,9 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | URL input | MVP complete | User-supplied URL parsing; price/spec confirmation remains explicit. |
 | Screenshot OCR | MVP complete | Secure upload, SHA-256, MIME/size validation, optional Tesseract adapter, explicit fallback, and editable product draft are implemented. |
 | Product understanding model | MVP complete | OCR text normalization extracts title, known brand, model token, visible price, category hints, and an editable candidate requiring confirmation when evidence is weak. |
-| Browser extension | MVP complete | Load-unpacked Manifest V3 package reads user-visible fields on supported product pages and writes a confirmation inbox. |
+| Browser extension | MVP complete | Downloadable Manifest V3 package connects to the user's account, provides editable visible-page capture, and writes a final-confirmation inbox. |
 | Authorized commerce APIs | Adapter-ready | Provider boundary and configuration are documented; live JD/Taobao/affiliate credentials and approval are external release prerequisites. |
-| Price monitor scheduler | MVP complete | Independent restart-safe worker consumes new price snapshots, deduplicates checks, updates monitors, and emits notifications. |
+| Price monitor scheduler | MVP complete | Independent restart-safe worker consumes confirmed snapshots and low-frequency public checks. Unconfirmed changes request extension verification instead of triggering a target-price decision. |
 | Notifications | MVP complete | Durable idempotent in-app notifications, browser polling, configurable TLS SMTP email, and signed Webhook delivery are implemented. |
 | Notification delivery | MVP complete | Account-email delivery through configurable TLS SMTP and signed Webhook delivery are implemented. Failed external delivery never removes the canonical in-app notification; SMS/mobile Push can be attached behind the signed Webhook after a provider is purchased. |
 | Accounts and family isolation | MVP complete | Registration/login, PBKDF2 password hashing, signed sessions, production auth enforcement, user-scoped shopping data, and family ownership/membership tables are implemented. |
@@ -133,10 +136,10 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 
 ## Next implementation order
 
-1. Configure approved commerce providers and validate signed response adapters in staging.
-2. Deploy the production Compose stack behind TLS and verify SMTP/Webhook notification channels.
-3. Replace local development defaults with production secrets, domain allowlists, backups, monitoring, and alerting.
-4. Populate real source-bearing historical prices/reviews through approved APIs, user observations, or extension captures.
+1. Deploy the free invitation release on an overseas origin behind TLS and verify extension login/capture plus SMTP/Webhook notification channels.
+2. Replace local development defaults with production secrets, domain allowlists, backups, monitoring, and alerting.
+3. Accumulate consented, source-bearing price observations through user links, OCR, and confirmed extension captures.
+4. Configure approved commerce providers only when platform authorization becomes available; keep the no-provider path functional.
 
 ## Verification rule
 

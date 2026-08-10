@@ -45,6 +45,8 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 
 ## External Credentials Required
 
+The free invitation release can launch without JD/Taobao/Pinduoduo credentials. In that mode, the consumer acquisition path is user-submitted URLs, bounded public-page parsing, editable browser capture, screenshot OCR, and manual confirmation. Whole-platform search and affiliate link generation remain unavailable, and the UI states that boundary explicitly.
+
 ### LLM configuration
 
 The production image includes the OpenAI-compatible LangChain adapter. Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` for a compatible gateway, and select the default model with `DEV_AGENT_LLM_MODEL`. Per-Agent overrides and embedding settings are listed in `.env.production.example`. An empty key intentionally keeps deterministic fallback mode; startup and non-LLM workflows remain available.
@@ -96,8 +98,9 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
 - Consumer expansion acceptance passed favorite/recent persistence, dashboard aggregation, purchase status changes, governed content publication/visibility, frontend response, and test-data cleanup.
 - PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
-- Automated release quality passed with 94 Python tests, the production Vite build, desktop/mobile Playwright consumer journeys, the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
+- Automated release quality passed with 101 Python tests, the production Vite build, desktop/mobile Playwright consumer journeys (including link, extension-download, and screenshot acquisition paths), the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
 - The full production Compose stack was deployed locally with healthy API, monitor worker, PostgreSQL/pgvector, Redis, RabbitMQ and MinIO services. Application readiness, private object upload/download, account lifecycle, queue checks, and persistent database recovery after a complete Compose stop/start all passed.
+- The running production image served a validated Manifest V3 extension archive. Public-page monitor observations remain pending until user confirmation; blocked, login-only, or personalized prices trigger an extension recapture reminder instead of entering trusted history.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.
 
 See `docs/VALUSee_IMPLEMENTATION_LOG.md` for the feature-by-feature history and commit record.
