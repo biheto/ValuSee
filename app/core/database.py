@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from app.core.paths import runtime_root
+
 
 class ConnectionAdapter:
     def __init__(self, connection: Any, backend: str):
@@ -34,7 +36,8 @@ def connect_database(sqlite_path: str | Path) -> ConnectionAdapter:
         connection = psycopg.connect(database_url, row_factory=dict_row)
         return ConnectionAdapter(connection, "postgresql")
 
-    path = Path(os.getenv("VALUSee_SQLITE_PATH", "").strip() or sqlite_path)
+    configured_path = os.getenv("VALUSee_SQLITE_PATH", "").strip()
+    path = Path(configured_path) if configured_path else runtime_root() / sqlite_path
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=30)
     connection.row_factory = sqlite3.Row

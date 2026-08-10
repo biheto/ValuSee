@@ -61,6 +61,7 @@ from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.core.config import settings
 from app.core.infrastructure import publish_monitor_event
 from app.core.object_storage import delete_stored_object, persist_upload, read_stored_object
+from app.core.paths import runtime_data_dir
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -462,7 +463,7 @@ async def upload_account_avatar(file: UploadFile = File(...), authorization: str
     user_id = _request_user(authorization)
     if not auth_store.get_user(user_id):
         raise HTTPException(status_code=401, detail="请先登录后上传头像")
-    upload_dir = Path.cwd() / "data" / "attachments"; upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = runtime_data_dir("attachments")
     path = upload_dir / f"avatar-{uuid4().hex}{allowed[content_type]}"; path.write_bytes(content)
     storage = persist_upload(path, content_type, prefix="account-avatars")
     if storage["backend"] == "s3":
@@ -1575,8 +1576,7 @@ async def upload_purchase_attachment(purchase_id: str, file: UploadFile = File(.
     if not signatures[content_type]:
         raise HTTPException(status_code=415, detail="文件内容与声明类型不一致")
     user_id = _request_user(authorization)
-    upload_dir = Path.cwd() / "data" / "attachments"
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = runtime_data_dir("attachments")
     stored_path = upload_dir / f"{uuid4().hex}{allowed[content_type]}"
     stored_path.write_bytes(content)
     storage = persist_upload(stored_path, content_type, prefix="purchase-attachments")

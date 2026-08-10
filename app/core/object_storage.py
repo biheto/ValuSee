@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from app.core.paths import runtime_root
+
 
 def _s3_client():
     import boto3
@@ -32,9 +34,10 @@ def ensure_bucket_exists() -> None:
 
 def persist_upload(local_path: Path, content_type: str, prefix: str = "product-images") -> dict[str, str]:
     endpoint = os.getenv("S3_ENDPOINT_URL", "").strip()
-    bucket = os.getenv("S3_BUCKET", "valuesee-uploads")
-    if not endpoint:
-        return {"backend": "local", "key": str(local_path.relative_to(Path.cwd())).replace("\\", "/")}
+    configured_bucket = os.getenv("S3_BUCKET", "").strip()
+    bucket = configured_bucket or "valuesee-uploads"
+    if not endpoint and not configured_bucket:
+        return {"backend": "local", "key": str(local_path.relative_to(runtime_root())).replace("\\", "/")}
 
     client = _s3_client()
     ensure_bucket_exists()
@@ -45,10 +48,12 @@ def persist_upload(local_path: Path, content_type: str, prefix: str = "product-i
 
 def read_stored_object(backend: str, key: str) -> bytes | None:
     if backend == "local":
-        path = (Path.cwd() / key).resolve()
-        root = (Path.cwd() / "data" / "attachments").resolve()
+        root = runtime_root().resolve()
+        path = (root / key).resolve()
+        allowed_roots = [(root / "data" / name).resolve() for name in ("attachments", "uploads")]
         try:
-            return path.read_bytes() if path.is_relative_to(root) and path.is_file() else None
+            allowed = any(path.is_relative_to(candidate) for candidate in allowed_roots)
+            return path.read_bytes() if allowed and path.is_file() else None
         except OSError:
             return None
     if backend != "s3":
@@ -70,9 +75,10 @@ def read_stored_object(backend: str, key: str) -> bytes | None:
 def delete_stored_object(backend: str, key: str) -> bool:
     try:
         if backend == "local":
-            path = (Path.cwd() / key).resolve()
-            root = (Path.cwd() / "data" / "attachments").resolve()
-            if not path.is_relative_to(root):
+            root = runtime_root().resolve()
+            path = (root / key).resolve()
+            allowed_roots = [(root / "data" / name).resolve() for name in ("attachments", "uploads")]
+            if not any(path.is_relative_to(candidate) for candidate in allowed_roots):
                 return False
             path.unlink(missing_ok=True)
             return True

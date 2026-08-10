@@ -49,6 +49,8 @@ The `valu-see` Vercel project is connected to `github.com/biheto/ValuSee` with `
 
 An optional `valuesee-api` Vercel project can use `api/index.py` for lightweight preview/API validation. It is not a replacement for the Docker backend: Vercel functions have no durable local filesystem and do not run the monitor worker. Do not place production `DATABASE_URL`, queue, or object-storage state on SQLite or `/tmp`.
 
+For a Vercel API preview, configure `APP_ENV=preview`, `VALUSee_SQLITE_PATH=/tmp/valuesee.db`, explicit `ALLOWED_HOSTS` and `ALLOWED_ORIGINS`, then deploy from the repository root. Mutable files automatically use `/tmp/valuesee` when `VERCEL=1`; this prevents read-only filesystem failures but does not make those files durable. A production API must set an external PostgreSQL `DATABASE_URL` and S3-compatible storage. Set `S3_BUCKET` to enable S3 mode, plus `S3_REGION` and credentials (or an attached IAM role); use `S3_ENDPOINT_URL` only for non-AWS providers such as MinIO. Keep `S3_BUCKET` unset when intentionally using ephemeral preview storage.
+
 Set `VITE_API_BASE_URL` in the Vercel Production and Preview environments to the public HTTPS API origin, for example `https://api.valusee.com`. On the API host, add every deployed Web origin that should be trusted to `ALLOWED_ORIGINS`; keep `ALLOWED_HOSTS` scoped to the API hostname. Never point the Vercel build at `127.0.0.1` or a private address.
 
 Local development leaves `VITE_API_BASE_URL` empty and continues to use the Vite `/api` proxy. Vercel project identifiers and OIDC credentials live under ignored `.vercel/` and `.env.local` files and must not be committed.

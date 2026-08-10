@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "langgraph>=0.2.60",
     "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
     "pydantic>=2.8.0",
     "pydantic-settings>=2.4.0",
     "python-multipart>=0.0.9",
@@ -15,7 +16,8 @@ dependencies = [
     "redis>=5.0.0",
     "pika>=1.3.2",
     "boto3>=1.35.0",
-    "cryptography>=44.0.0"
+    "cryptography>=44.0.0",
+    "Pillow>=10.4.0"
 ]
 
 [project.optional-dependencies]

@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.object_storage import persist_upload
+from app.core.paths import runtime_data_dir
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -28,8 +29,7 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str)
         raise ValueError("图片内容与声明类型不一致")
     _validate_image_pixels(content)
     digest = hashlib.sha256(content).hexdigest()
-    upload_dir = Path.cwd() / "data" / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = runtime_data_dir("uploads")
     stored_name = f"img_{uuid4().hex}{ALLOWED_IMAGE_TYPES[content_type]}"
     stored_path = upload_dir / stored_name
     stored_path.write_bytes(content)
