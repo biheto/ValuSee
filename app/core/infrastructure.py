@@ -176,12 +176,13 @@ def infrastructure_health() -> dict[str, dict[str, Any]]:
         except Exception as exc:
             checks["rabbitmq"] = {"status": "error", "detail": type(exc).__name__}
     endpoint = os.getenv("S3_ENDPOINT_URL", "").strip()
-    if endpoint:
+    bucket = os.getenv("S3_BUCKET", "").strip()
+    if endpoint or bucket:
         try:
             import boto3
 
             client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=os.getenv("S3_ACCESS_KEY"), aws_secret_access_key=os.getenv("S3_SECRET_KEY"), region_name=os.getenv("S3_REGION", "us-east-1"))
-            client.head_bucket(Bucket=os.getenv("S3_BUCKET", "valuesee-uploads"))
+            client.head_bucket(Bucket=bucket or "valuesee-uploads")
             checks["object_storage"] = {"status": "ok"}
         except Exception as exc:
             checks["object_storage"] = {"status": "error", "detail": type(exc).__name__}

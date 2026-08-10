@@ -55,6 +55,18 @@ Set `VITE_API_BASE_URL` in the Vercel Production and Preview environments to the
 
 Local development leaves `VITE_API_BASE_URL` empty and continues to use the Vite `/api` proxy. Vercel project identifiers and OIDC credentials live under ignored `.vercel/` and `.env.local` files and must not be committed.
 
+### Split production topology
+
+For the Vercel Web/API plus long-running worker topology:
+
+1. Connect a managed PostgreSQL resource to `valuesee-api` and expose its pooled TLS URL as `DATABASE_URL`. Use the same URL in the worker's private `.env.worker` file.
+2. Create a private S3-compatible bucket. For Cloudflare R2, set `S3_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, and `S3_REGION=auto` on the API project. Do not make the bucket public; files are downloaded through authenticated API routes.
+3. On the Ubuntu worker host, clone the repository, create `.env.worker` from `.env.worker.example`, and run `sh scripts/deploy-worker.sh`. Only outbound HTTPS/PostgreSQL access is required; the worker publishes no port.
+4. Set the API project to `APP_ENV=production` only after `DATABASE_URL`, object storage, production secrets, `VALUSee_ADMIN_EMAILS`, `ALLOWED_HOSTS`, `ALLOWED_ORIGINS`, and `VALUSee_PUBLIC_BASE_URL` are configured and `/ready` passes.
+5. In Cloudflare DNS use `A api 76.76.21.21` with DNS-only mode during Vercel certificate validation. After Vercel reports the domain valid, the Web build can use `VITE_API_BASE_URL=https://api.valusee.com`.
+
+The worker deliberately treats RabbitMQ as optional. Its periodic PostgreSQL scan is the durable recovery mechanism, so a single worker can launch without exposing Redis, RabbitMQ, PostgreSQL, or an administration port on the worker host.
+
 ## External Credentials Required
 
 The free invitation release can launch without JD/Taobao/Pinduoduo credentials. In that mode, the consumer acquisition path is user-submitted URLs, bounded public-page parsing, editable browser capture, screenshot OCR, and manual confirmation. Whole-platform search and affiliate link generation remain unavailable, and the UI states that boundary explicitly.
