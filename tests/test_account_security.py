@@ -112,6 +112,18 @@ def test_admin_totp_enrollment_revokes_old_sessions_and_recovery_codes_are_singl
         assert store.verify_admin_mfa(user["user_id"], recovery) is False
 
 
+def test_admin_can_disable_mfa_with_current_password_after_verified_login():
+    with TemporaryDirectory() as tmp:
+        store = AuthStore(Path(tmp) / "auth.db")
+        user = store.register("admin-disable@example.com", "strong-password", "Admin")
+        setup = store.setup_admin_mfa(user["user_id"], user["email"])
+        assert store.confirm_admin_mfa(user["user_id"], _totp(setup["secret"])) is True
+        assert store.disable_admin_mfa(user["user_id"], password="wrong-password") is False
+        assert store.admin_mfa_status(user["user_id"])["enabled"] is True
+        assert store.disable_admin_mfa(user["user_id"], password="strong-password") is True
+        assert store.admin_mfa_status(user["user_id"])["enabled"] is False
+
+
 def test_admin_api_requires_mfa_after_enrollment(monkeypatch, tmp_path):
     store = AuthStore(tmp_path / "admin-mfa.db")
     user = store.register("mfa-admin@example.com", "strong-password", "MFA Admin")
@@ -132,6 +144,13 @@ def test_admin_api_requires_mfa_after_enrollment(monkeypatch, tmp_path):
     assert client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password"}).status_code == 401
     login = client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password", "mfa_code": _totp(setup["secret"])})
     assert login.status_code == 200 and login.json()["mfa_verified"] is True
+    disabled = client.request(
+        "DELETE",
+        "/api/v1/admin/security/mfa",
+        headers={"Authorization": f"Bearer {verified_token}"},
+        json={"password": "strong-password"},
+    )
+    assert disabled.status_code == 200 and disabled.json()["enabled"] is False
 
 
 def test_free_plan_entitlements_are_enforced_against_real_usage():

@@ -139,6 +139,16 @@ class AuthStore:
             return None
         return _public_user(row)
 
+    def verify_user_password(self, user_id: str, password: str) -> bool:
+        if not password:
+            return False
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT password_hash FROM valuesee_user WHERE user_id=? AND status='active'",
+                (user_id,),
+            ).fetchone()
+        return bool(row and verify_password(password, str(row["password_hash"])))
+
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         with self._session() as conn:
             row = conn.execute("SELECT * FROM valuesee_user WHERE user_id = ?", (user_id,)).fetchone()
@@ -339,8 +349,9 @@ class AuthStore:
                     return True
         return False
 
-    def disable_admin_mfa(self, user_id: str, code: str) -> bool:
-        if not self._verify_admin_mfa(user_id, code, allow_recovery=True):
+    def disable_admin_mfa(self, user_id: str, code: str = "", password: str = "") -> bool:
+        verified = self._verify_admin_mfa(user_id, code, allow_recovery=True) if code.strip() else False
+        if not verified and not self.verify_user_password(user_id, password):
             return False
         with self._session() as conn:
             conn.execute("DELETE FROM valuesee_admin_mfa WHERE user_id=?", (user_id,))

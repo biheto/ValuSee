@@ -753,8 +753,12 @@ def admin_mfa_confirm(payload: dict[str, object], request: Request, authorizatio
 @router.delete("/admin/security/mfa", tags=["Admin Security"])
 def admin_mfa_disable(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     user_id = _require_admin(authorization)
-    if not auth_store.disable_admin_mfa(user_id, str(payload.get("code") or "")):
-        raise HTTPException(status_code=422, detail="动态验证码或恢复码无效")
+    if not auth_store.disable_admin_mfa(
+        user_id,
+        str(payload.get("code") or ""),
+        str(payload.get("password") or ""),
+    ):
+        raise HTTPException(status_code=422, detail="动态验证码、恢复码或账户密码无效")
     shopping_store.record_admin_audit(user_id, "admin.mfa.disabled", "user", user_id, {})
     return {"enabled": False}
 
