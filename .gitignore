@@ -1,5 +1,7 @@
 .env
-.env.production
+.env.*
+!.env.example
+!.env.*.example
 .venv/
 .python/
 .cache/
