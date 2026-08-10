@@ -2,6 +2,7 @@ import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Com
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
+import { apiUrl } from "./runtime";
 
 type Product = ConsumerProduct;
 type Decision = {
@@ -191,7 +192,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const token = localStorage.getItem("valuesee-token");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(apiUrl(path), { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(String(body.detail ?? `请求失败（${response.status}）`));
@@ -2695,7 +2696,7 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
     const headers = new Headers();
     const token = localStorage.getItem("valuesee-token");
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    const response = await fetch(path, { headers });
+    const response = await fetch(apiUrl(path), { headers });
     if (!response.ok) throw new Error("附件下载失败");
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -2999,7 +3000,7 @@ function CapturePathPanel({ onFocusLink, onUploadScreenshot }: { onFocusLink: ()
       </div>
       <div className="capture-path-grid">
         <button type="button" onClick={onFocusLink}><Link2 size={20} /><strong>粘贴商品链接</strong><span>按需读取公开页面，缺失字段由你确认</span></button>
-        <a href="/api/v1/downloads/browser-extension"><Download size={20} /><strong>安装浏览器扩展</strong><span>读取当前可见 SKU、价格与优惠</span></a>
+        <a href={apiUrl("/api/v1/downloads/browser-extension")}><Download size={20} /><strong>安装浏览器扩展</strong><span>读取当前可见 SKU、价格与优惠</span></a>
         <button type="button" onClick={onUploadScreenshot}><Camera size={20} /><strong>上传商品截图</strong><span>OCR 识别后进入同一确认流程</span></button>
       </div>
       <div className="platform-readiness"><span>不批量爬取</span><span>不绕过登录/验证码</span><span>确认后才沉淀价格</span></div>

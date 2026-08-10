@@ -1,6 +1,7 @@
 import { Activity, BarChart3, Bot, Database, ExternalLink, Eye, RefreshCw, Server, ShieldCheck, ShoppingBag, Timer, Workflow } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { AdminGovernance } from './AdminGovernance';
+import { apiUrl } from './runtime';
 
 type Overview = {
   health: Record<string, number>;
@@ -17,7 +18,7 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const token = localStorage.getItem('valuesee-token');
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(apiUrl(path), { ...init, headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(String(body.detail ?? `请求失败：${response.status}`));
   return body as T;

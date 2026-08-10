@@ -21,3 +21,5 @@ web/playwright-report/
 web/test-results/
 __pycache__/
 *.pyc
+.vercel/
+.vercel-web-check/

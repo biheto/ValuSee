@@ -43,6 +43,14 @@ The Web client is also installable as a PWA. Its offline shell contains no priva
 6. Run `scripts/verify-release.ps1` against the TLS origin. Schedule `scripts/backup-production.ps1`, copy encrypted backups off host, and perform a quarterly restore drill with `scripts/restore-production.ps1` in an isolated environment.
    Run `scripts/restore-production.ps1 -BackupDirectory <path> -VerifyOnly` daily to verify checksums and archive safety without modifying production.
 
+## Vercel Web Deployment
+
+The `valu-see` Vercel project is connected to `github.com/biheto/ValuSee` with `web/` as its Root Directory. Pushes to `main` create production deployments; pull requests and other branches create isolated previews. Vercel serves only the Vite Web/PWA build. FastAPI, the monitor worker, PostgreSQL, Redis, RabbitMQ and object storage remain on the long-running Docker host.
+
+Set `VITE_API_BASE_URL` in the Vercel Production and Preview environments to the public HTTPS API origin, for example `https://api.valusee.com`. On the API host, add every deployed Web origin that should be trusted to `ALLOWED_ORIGINS`; keep `ALLOWED_HOSTS` scoped to the API hostname. Never point the Vercel build at `127.0.0.1` or a private address.
+
+Local development leaves `VITE_API_BASE_URL` empty and continues to use the Vite `/api` proxy. Vercel project identifiers and OIDC credentials live under ignored `.vercel/` and `.env.local` files and must not be committed.
+
 ## External Credentials Required
 
 The free invitation release can launch without JD/Taobao/Pinduoduo credentials. In that mode, the consumer acquisition path is user-submitted URLs, bounded public-page parsing, editable browser capture, screenshot OCR, and manual confirmation. Whole-platform search and affiliate link generation remain unavailable, and the UI states that boundary explicitly.

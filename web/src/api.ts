@@ -37,8 +37,8 @@ import {
   WorkflowRecord,
   WorkflowValidation,
 } from './types';
+import { API_BASE } from './runtime';
 
-const API_BASE = '';
 
 async function consumeEventStream(response: Response, onEvent: (event: AgentEvent | Record<string, unknown>) => void) {
   if (!response.ok || !response.body) throw await apiError(response, 'Task stream failed');
