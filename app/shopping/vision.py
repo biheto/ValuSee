@@ -26,7 +26,7 @@ headphone、keyboard、router、robot_vacuum、coffee_machine、unknown。confid
 标题应是商品标题，不要把页面导航、文件名、订单编号或广告语当成标题。"""
 
 
-def inspect_product_image(content: bytes, content_type: str, original_name: str) -> dict[str, Any]:
+def inspect_product_image(content: bytes, content_type: str, original_name: str, *, client_ocr_text: str = "") -> dict[str, Any]:
     del original_name
     _validate_upload(content, content_type)
     _validate_image_pixels(content)
@@ -37,11 +37,18 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str)
     stored_path.write_bytes(content)
     storage = persist_upload(stored_path, content_type)
 
-    vision_payload, provider, warning = _extract_with_vision(content, content_type)
-    if vision_payload:
+    supplied_text = client_ocr_text.strip()[:30_000]
+    if supplied_text:
+        vision_payload, provider = {}, "browser:tesseract.js"
+        warning = "截图文字已在你的浏览器中识别，请核对商品和价格。"
+        text = supplied_text
+        product = normalize_product_text(text)
+    else:
+        vision_payload, provider, warning = _extract_with_vision(content, content_type)
+    if not supplied_text and vision_payload:
         text = str(vision_payload.get("ocr_text") or "").strip()
         product = normalize_vision_product(vision_payload)
-    else:
+    elif not supplied_text:
         text, provider, local_warning = _extract_with_tesseract(stored_path)
         warning = _join_warnings(warning, local_warning)
         product = normalize_product_text(text)
@@ -178,9 +185,17 @@ def normalize_vision_product(payload: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_product_text(text: str, fallback_title: str = "") -> dict[str, Any]:
     del fallback_title
+    lines = [" ".join(line.split()) for line in text.replace("\u3000", " ").splitlines() if line.strip()]
     clean = " ".join(text.replace("\u3000", " ").split())
-    price_match = re.search(r"(?:(?:￥|¥|RMB)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元)", clean, re.IGNORECASE)
+    price_match = re.search(r"(?:当前价格|到手价|成交价|current price)\s*[:：]?\s*(?:￥|¥|RMB)?\s*(\d+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
+    if not price_match:
+        price_match = re.search(r"(?:(?:￥|¥|RMB)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元)", clean, re.IGNORECASE)
     model_match = re.search(r"\b((?:AirPods\s+Pro\s+\d+)|(?:[A-Z]{1,8}[- ]?\d{2,}[A-Z0-9-]*))\b", clean, re.IGNORECASE)
+    sku_match = re.search(r"(?:SKU|商品编号|货号)\s*[:：]?\s*([A-Z0-9][A-Z0-9/_-]{3,})", clean, re.IGNORECASE)
+    if not sku_match:
+        sku_match = re.search(r"\b([A-Z0-9]{4,}/[A-Z0-9]{1,12})\b", clean, re.IGNORECASE)
+    coupon_match = re.search(r"(?:优惠券|领券|coupon)\s*[:：]?\s*(?:￥|¥|RMB)?\s*(\d+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
+    selected_match = re.search(r"(?:已选|选择|selected)\s*[:：]\s*([^\n]{2,160})", text, re.IGNORECASE)
     brands = ("Apple", "华为", "小米", "荣耀", "联想", "戴尔", "三星", "索尼", "美的", "海尔", "科沃斯", "石头", "OPPO", "vivo")
     brand = next((item for item in brands if item.lower() in clean.lower()), "")
     category = _detect_category(clean)
@@ -198,13 +213,13 @@ def normalize_product_text(text: str, fallback_title: str = "") -> dict[str, Any
         if token.lower() in clean.lower():
             specs.setdefault("detected", []).append(value)
     return {
-        "title": clean[:120] if clean else "截图商品（待确认）", "category": category, "platform": "", "url": "",
-        "brand": brand, "model": model_match.group(1) if model_match else "", "sku": "", "specs": specs,
+        "title": _title_from_ocr(lines) or "截图商品（待确认）", "category": category, "platform": _platform_from_text(clean), "url": "",
+        "brand": brand, "model": model_match.group(1) if model_match else "", "sku": sku_match.group(1) if sku_match else "", "specs": specs,
         "price": float(price_match.group(1) or price_match.group(2)) if price_match else 0.0,
-        "coupon": 0.0, "platform_discount": 0.0, "member_discount": 0.0, "subsidy": 0.0,
+        "coupon": float(coupon_match.group(1)) if coupon_match else 0.0, "platform_discount": 0.0, "member_discount": 0.0, "subsidy": 0.0,
         "pay_discount": 0.0, "shipping": 0.0, "gift_value": 0.0, "condition": "new",
-        "official_store": False, "return_days": 7, "warranty_months": 12,
-        "store_name": "", "image_url": "", "selected_variant": "", "region": "unknown", "membership": "unknown",
+        "official_store": bool(re.search(r"官方旗舰|官方店|自营|official store", clean, re.IGNORECASE)), "return_days": 7, "warranty_months": 12,
+        "store_name": "", "image_url": "", "selected_variant": selected_match.group(1).strip() if selected_match else "", "region": "unknown", "membership": "unknown",
         "observation_status": "requires_confirmation", "evidence": {"type": "local_ocr"},
         "notes": "由截图 OCR 生成，请核对型号、规格与价格后再分析。",
     }
@@ -219,6 +234,35 @@ def _detect_category(text: str) -> str:
     }
     lowered = text.lower()
     return next((name for name, terms in categories.items() if any(term.lower() in lowered for term in terms)), "unknown")
+
+
+def _title_from_ocr(lines: list[str]) -> str:
+    ignored = re.compile(r"^(?:sku|当前价格|到手价|价格|优惠券|优惠|coupon|current price|selected|已选|店铺|official store)\s*[:：]", re.IGNORECASE)
+    product_terms = ("手机", "笔记本", "显示器", "耳机", "键盘", "路由器", "扫地机器人", "咖啡机", "iphone", "macbook", "airpods", "thinkpad", "monitor")
+    brand_terms = ("apple", "华为", "小米", "荣耀", "联想", "戴尔", "dell", "三星", "索尼", "sony", "美的", "海尔", "科沃斯", "石头", "oppo", "vivo")
+    candidates = []
+    for index, line in enumerate(lines[:80]):
+        value = line.strip(" -_|·")[:200]
+        if len(value) < 4 or ignored.search(value) or re.fullmatch(r"[￥¥$]?\s*[\d,.]+(?:\s*元)?", value):
+            continue
+        lowered = value.lower()
+        score = min(len(value), 80) / 20 - index * 0.03
+        score += 5 if any(term in lowered for term in product_terms) else 0
+        score += 4 if any(term in lowered for term in brand_terms) else 0
+        score += 2 if re.search(r"[A-Za-z]+[- ]?\d{2,}", value) else 0
+        candidates.append((score, value))
+    return max(candidates, default=(0, ""))[1][:120]
+
+
+def _platform_from_text(text: str) -> str:
+    lowered = text.lower()
+    for platform, terms in {
+        "京东": ("京东", "jd.com", "jd product"), "淘宝": ("淘宝", "taobao"),
+        "天猫": ("天猫", "tmall"), "拼多多": ("拼多多", "pinduoduo"),
+    }.items():
+        if any(term.lower() in lowered for term in terms):
+            return platform
+    return ""
 
 
 def _extract_with_tesseract(path: Path) -> tuple[str, str, str]:

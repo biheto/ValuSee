@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 from urllib.parse import quote, urlparse
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Header, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Header, Request, UploadFile
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from app.agents.marketplace_tools import check_permission, list_tools
@@ -600,10 +600,12 @@ def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | No
 
 
 @router.post("/shopping/parse-image", response_model=ShoppingImageResponse, tags=["Shopping Decision"])
-async def parse_shopping_image(file: UploadFile = File(...)) -> ShoppingImageResponse:
+async def parse_shopping_image(file: UploadFile = File(...), ocr_text: str = Form(default="")) -> ShoppingImageResponse:
     try:
+        if len(ocr_text) > 30_000:
+            raise ValueError("OCR 文本不能超过 30000 个字符")
         content = await file.read()
-        result = inspect_product_image(content, file.content_type or "", file.filename or "product-image")
+        result = inspect_product_image(content, file.content_type or "", file.filename or "product-image", client_ocr_text=ocr_text)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:

@@ -114,7 +114,7 @@ Runtime branding no longer depends on loading the large PNG logo, wordmark, or m
 | --- | --- | --- |
 | Consumer analysis UI | MVP complete | Web workbench is buildable and uses the shopping APIs. |
 | URL input | MVP complete | User-supplied URL parsing; price/spec confirmation remains explicit. |
-| Screenshot OCR | Productized | Secure upload, SHA-256, MIME/size validation, multimodal model recognition, local Tesseract fallback, confidence/missing-field reporting, and explicit failure states are implemented. Upload filenames are never used as recognized product titles. |
+| Screenshot OCR | Productized | Secure upload, SHA-256, MIME/size validation, on-device Tesseract.js Chinese/English OCR, optional multimodal enhancement, server Tesseract fallback, confidence/missing-field reporting, and explicit failure states are implemented. OCR assets are self-hosted and upload filenames are never used as recognized product titles. |
 | Product understanding model | Productized | The vision model extracts visible title, brand, model, SKU, selected variant, current price, discounts, store, condition and specifications into an editable candidate. Deterministic OCR normalization remains the fallback and all screenshot results require confirmation. |
 | Browser extension | MVP complete | Downloadable Manifest V3 package connects to the user's account, provides editable visible-page capture, and writes a final-confirmation inbox. |
 | Authorized commerce APIs | Adapter-ready | Provider boundary and configuration are documented; live JD/Taobao/affiliate credentials and approval are external release prerequisites. |

@@ -16,6 +16,7 @@ data/uploads/
 web/node_modules/
 node_modules/
 web/dist/
+web/public/ocr/
 web/tsconfig.tsbuildinfo
 web/playwright-report/
 web/test-results/

@@ -62,6 +62,36 @@ def test_multimodal_result_becomes_an_editable_structured_product(monkeypatch, t
     assert result["missing_fields"] == []
 
 
+def test_browser_ocr_text_skips_external_vision_and_extracts_product(monkeypatch, tmp_path) -> None:
+    prepare_storage(monkeypatch, tmp_path)
+    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args: (_ for _ in ()).throw(AssertionError("vision should not run")))
+    text = """JD Product Detail
+Apple AirPods Pro 2 USB-C
+SKU: MTJV3CH/A
+Apple Official Store
+Current price: RMB 1499
+Coupon: RMB 100
+Selected: White / China Version"""
+
+    result = vision.inspect_product_image(png_bytes(), "image/png", "anything.png", client_ocr_text=text)
+
+    assert result["ocr_provider"] == "browser:tesseract.js"
+    assert result["product"]["title"] == "Apple AirPods Pro 2 USB-C"
+    assert result["product"]["platform"] == "京东"
+    assert result["product"]["price"] == 1499
+    assert result["product"]["coupon"] == 100
+    assert result["product"]["sku"] == "MTJV3CH/A"
+    assert result["product"]["selected_variant"] == "White / China Version"
+    assert result["recognition_status"] == "recognized"
+
+
+def test_ocr_extracts_slash_sku_when_its_chinese_label_is_noisy() -> None:
+    product = vision.normalize_product_text("Apple AirPods Pro 2 USB-C\n商品编亏 MTJV3CH/A\n当前价格 ¥1499")
+
+    assert product["sku"] == "MTJV3CH/A"
+    assert product["price"] == 1499
+
+
 def test_json_fence_from_vision_provider_is_parsed() -> None:
     result = vision._json_object('```json\n{"title":"Dell U2723QE","price":3499}\n```')
 

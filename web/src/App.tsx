@@ -493,6 +493,17 @@ export function App() {
     setLoading(true);
     setError("");
     try {
+      setMessage("正在加载本地 OCR 并识别截图...");
+      let browserOcrText = "";
+      try {
+        const { recognizeProductScreenshot } = await import("./browserOcr");
+        browserOcrText = await recognizeProductScreenshot(file, (progress) => {
+          setMessage(`正在识别截图 ${Math.max(1, Math.round(progress * 100))}%`);
+        });
+      } catch {
+        setMessage("本地 OCR 未完成，正在尝试在线图片识别...");
+      }
+      if (browserOcrText) form.append("ocr_text", browserOcrText.slice(0, 30_000));
       const data = await request<{
         product: Product;
         warning: string;
