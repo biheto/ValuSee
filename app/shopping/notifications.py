@@ -71,6 +71,9 @@ def _deliver_email(notification: dict[str, object]) -> bool:
 
 
 def send_transactional_email(recipient: str, subject: str, content: str) -> bool:
+    transport = os.getenv("VALUSee_EMAIL_TRANSPORT", "smtp").strip().lower()
+    if transport == "console" and os.getenv("APP_ENV", "dev").lower() not in {"prod", "production"}:
+        return bool(recipient)
     host = os.getenv("VALUSee_SMTP_HOST", "").strip()
     if not host or not recipient:
         return False

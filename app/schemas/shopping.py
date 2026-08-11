@@ -241,9 +241,15 @@ class PurchaseResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    display_name: str = ""
+    email: str = Field(..., min_length=5, max_length=254)
+    password: str = Field(..., min_length=8, max_length=200)
+    confirm_password: str = Field(..., min_length=8, max_length=200)
+    verification_code: str = Field(..., pattern=r"^\d{6}$")
+    display_name: str = Field(default="", max_length=60)
+
+
+class RegistrationCodeRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=254)
 
 
 class LoginRequest(BaseModel):
@@ -259,6 +265,7 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirmRequest(BaseModel):
     token: str = Field(..., min_length=20, max_length=500)
     new_password: str = Field(..., min_length=8, max_length=200)
+    confirm_password: str = Field(..., min_length=8, max_length=200)
 
 
 class EmailVerifyConfirmRequest(BaseModel):

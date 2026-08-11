@@ -73,6 +73,11 @@ class AuthStore:
                 token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,purpose TEXT NOT NULL,
                 expires_at TEXT NOT NULL,used_at TEXT,created_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_email_code(
+                email TEXT NOT NULL,purpose TEXT NOT NULL,code_hash TEXT NOT NULL,
+                expires_at TEXT NOT NULL,attempts INTEGER NOT NULL,created_at TEXT NOT NULL,
+                last_sent_at TEXT NOT NULL,PRIMARY KEY(email,purpose)
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_session(
                 session_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,
                 device_name TEXT NOT NULL,ip_address TEXT,status TEXT NOT NULL,created_at TEXT NOT NULL,
@@ -114,7 +119,14 @@ class AuthStore:
                 if "mfa_verified" not in session_columns:
                     conn.execute("ALTER TABLE valuesee_session ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 0")
 
-    def register(self, email: str, password: str, display_name: str) -> dict[str, Any]:
+    def register(
+        self,
+        email: str,
+        password: str,
+        display_name: str,
+        *,
+        email_verified: bool = False,
+    ) -> dict[str, Any]:
         normalized = email.strip().lower()
         if "@" not in normalized or len(normalized) > 254:
             raise ValueError("请输入有效邮箱")
@@ -125,7 +137,15 @@ class AuthStore:
             try:
                 conn.execute(
                     "INSERT INTO valuesee_user(user_id,email,password_hash,display_name,status,created_at,email_verified) VALUES(?,?,?,?,?,?,?)",
-                    (user_id, normalized, hash_password(password), display_name.strip() or normalized.split("@")[0], "active", now, 0),
+                    (
+                        user_id,
+                        normalized,
+                        hash_password(password),
+                        display_name.strip() or normalized.split("@")[0],
+                        "active",
+                        now,
+                        1 if email_verified else 0,
+                    ),
                 )
             except Exception as exc:
                 if is_integrity_error(exc):
@@ -159,6 +179,79 @@ class AuthStore:
         with self._session() as conn:
             row = conn.execute("SELECT * FROM valuesee_user WHERE email=? AND status='active'", (email.strip().lower(),)).fetchone()
         return _public_user(row) if row else None
+
+    def issue_email_code(
+        self,
+        email: str,
+        purpose: str,
+        *,
+        ttl_minutes: int = 10,
+        cooldown_seconds: int = 60,
+    ) -> str:
+        normalized = email.strip().lower()
+        if "@" not in normalized or len(normalized) > 254:
+            raise ValueError("请输入有效邮箱")
+        now = datetime.now(timezone.utc)
+        with self._session() as conn:
+            previous = conn.execute(
+                "SELECT last_sent_at FROM valuesee_email_code WHERE email=? AND purpose=?",
+                (normalized, purpose),
+            ).fetchone()
+            if previous and (now - _parse_utc(previous["last_sent_at"])).total_seconds() < cooldown_seconds:
+                raise ValueError("验证码发送过于频繁，请稍后再试")
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            expires_at = (now + timedelta(minutes=max(5, min(ttl_minutes, 30)))).replace(
+                microsecond=0
+            ).isoformat().replace("+00:00", "Z")
+            sent_at = now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            conn.execute(
+                """INSERT INTO valuesee_email_code(
+                    email,purpose,code_hash,expires_at,attempts,created_at,last_sent_at
+                ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(email,purpose) DO UPDATE SET
+                    code_hash=excluded.code_hash,expires_at=excluded.expires_at,
+                    attempts=0,created_at=excluded.created_at,last_sent_at=excluded.last_sent_at""",
+                (
+                    normalized,
+                    purpose,
+                    _email_code_hash(normalized, purpose, code),
+                    expires_at,
+                    0,
+                    sent_at,
+                    sent_at,
+                ),
+            )
+        return code
+
+    def consume_email_code(self, email: str, purpose: str, code: str) -> bool:
+        normalized = email.strip().lower()
+        supplied = code.strip()
+        now = datetime.now(timezone.utc)
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT code_hash,expires_at,attempts FROM valuesee_email_code WHERE email=? AND purpose=?",
+                (normalized, purpose),
+            ).fetchone()
+            if not row or int(row["attempts"]) >= 5 or _parse_utc(row["expires_at"]) < now:
+                return False
+            expected = _email_code_hash(normalized, purpose, supplied)
+            if not hmac.compare_digest(str(row["code_hash"]), expected):
+                conn.execute(
+                    "UPDATE valuesee_email_code SET attempts=attempts+1 WHERE email=? AND purpose=?",
+                    (normalized, purpose),
+                )
+                return False
+            conn.execute(
+                "DELETE FROM valuesee_email_code WHERE email=? AND purpose=?",
+                (normalized, purpose),
+            )
+        return True
+
+    def delete_email_code(self, email: str, purpose: str) -> None:
+        with self._session() as conn:
+            conn.execute(
+                "DELETE FROM valuesee_email_code WHERE email=? AND purpose=?",
+                (email.strip().lower(), purpose),
+            )
 
     def account_profile(self, user_id: str) -> dict[str, Any]:
         user = self.get_user(user_id)
@@ -797,6 +890,11 @@ def _verify_totp(secret: str, code: str, at: int | None = None) -> bool:
 
 def _recovery_hash(code: str) -> str:
     return hmac.new(_jwt_secret(), f"recovery:{code.strip().lower()}".encode(), hashlib.sha256).hexdigest()
+
+
+def _email_code_hash(email: str, purpose: str, code: str) -> str:
+    value = f"email-code:{email.strip().lower()}:{purpose}:{code.strip()}".encode()
+    return hmac.new(_jwt_secret(), value, hashlib.sha256).hexdigest()
 
 
 def issue_token(user_id: str, expires_seconds: int = 86_400, session_id: str | None = None) -> str:

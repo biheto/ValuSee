@@ -28,6 +28,7 @@ export default defineConfig({
         APP_ENV: 'test',
         VALUSee_JWT_SECRET: 'e2e-only-secret-not-for-production-use',
         VALUSee_SQLITE_PATH: '.test-tmp/e2e-valuesee.db',
+        VALUSee_EMAIL_TRANSPORT: 'console',
       },
     },
     {

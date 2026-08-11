@@ -62,9 +62,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .product-search-actions a { display: inline-flex; align-items: center; gap: 4px; color: #2d927e; font-size: 11px; font-weight: 900; text-decoration: none; }
 .profile-button { color: #e05264; background: rgba(255, 255, 255, .65); }
 .account-backdrop { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:20px; background:rgba(36,43,40,.28); backdrop-filter:blur(8px); }
-.account-dialog { width:min(410px,100%); padding:24px; border:1px solid rgba(255,255,255,.9); border-radius:22px; background:rgba(255,253,248,.96); box-shadow:0 30px 80px rgba(37,45,41,.24); }
+.account-dialog { width:min(410px,100%); max-height:calc(100vh - 40px); overflow-y:auto; padding:24px; border:1px solid rgba(255,255,255,.9); border-radius:22px; background:rgba(255,253,248,.96); box-shadow:0 30px 80px rgba(37,45,41,.24); }
 .account-dialog h2 { margin:0; text-align:center; } .account-dialog>p { margin:7px 0 18px; color:#7a8581; font-size:12px; text-align:center; }
 .account-dialog form { display:grid; gap:12px; } .account-dialog label { display:grid; gap:6px; color:#68736f; font-size:12px; font-weight:800; } .account-dialog input { width:100%; }
+.account-code-field { display:grid; grid-template-columns:minmax(0,1fr) 108px; gap:8px; }
+.account-code-field button { min-height:42px; border:1px solid rgba(27,104,85,.2); border-radius:9px; color:#176e5a; background:#eaf7f1; font-size:12px; font-weight:800; }
+.account-code-field button:disabled { color:#8a9691; background:#f0f3f1; cursor:not-allowed; }
+.account-inline-notice { padding:10px 11px; border-radius:8px; color:#176e5a; background:#eaf7f1; font-size:12px; line-height:1.55; }
+.account-inline-notice.error { color:#9b3b46; background:#ffe7e7; }
 .account-switch { display:block; margin:13px auto 0; color:#566762; background:transparent; font-size:12px; } .account-switch.danger { color:#c85462; }
 .toast, .error-banner { display: flex; align-items: center; gap: 9px; margin: 0 0 14px; padding: 11px 14px; border-radius: 13px; color: #187a67; background: #e6fbf4; font-size: 13px; font-weight: 700; }
 .toast button { margin-left: auto; color: inherit; background: transparent; font-size: 12px; }

@@ -272,8 +272,14 @@ export function App() {
   const [accountMode, setAccountMode] = useState<"login" | "register" | "forgot" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [resetToken, setResetToken] = useState(new URLSearchParams(window.location.search).get("reset_token") || "");
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountNotice, setAccountNotice] = useState("");
+  const [accountNoticeError, setAccountNoticeError] = useState(false);
+  const [registrationCodeCooldown, setRegistrationCodeCooldown] = useState(0);
   const [accountName, setAccountName] = useState(localStorage.getItem("valuesee-account-name") || "本地账户");
   const [navigationVariant, setNavigationVariant] = useState("control");
 
@@ -375,11 +381,23 @@ export function App() {
         .catch((err) => setError(err instanceof Error ? err.message : "邮箱验证失败"));
       window.history.replaceState({}, "", window.location.pathname);
     }
-    if (params.get("reset_token")) {
+    const nextResetToken = params.get("reset_token");
+    if (nextResetToken) {
+      setResetToken(nextResetToken);
       setAccountMode("reset");
       setAccountOpen(true);
+      setAccountNotice("重置链接已验证，请输入两次新密码。");
+      setAccountNoticeError(false);
     }
   }, []);
+  useEffect(() => {
+    if (registrationCodeCooldown <= 0) return;
+    const timer = window.setInterval(
+      () => setRegistrationCodeCooldown((seconds) => Math.max(0, seconds - 1)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [registrationCodeCooldown]);
 
   async function runDecision(event?: FormEvent) {
     event?.preventDefault();
@@ -748,7 +766,9 @@ export function App() {
   }
   async function submitAccount(event: FormEvent) {
     event.preventDefault();
-    setError("");
+    setAccountNotice("");
+    setAccountNoticeError(false);
+    setAccountBusy(true);
     try {
       if (accountMode === "forgot") {
         await request("/api/v1/auth/password/reset/request", {
@@ -756,21 +776,27 @@ export function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
         });
-        setMessage("如果邮箱已注册，重置邮件将很快送达。");
-        setAccountMode("login");
+        setAccountNotice("如果该邮箱已注册，重置邮件将很快送达，请检查收件箱和垃圾邮件。");
         return;
       }
       if (accountMode === "reset") {
+        if (password !== confirmPassword) throw new Error("两次输入的密码不一致");
         await request("/api/v1/auth/password/reset/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: resetToken, new_password: password }),
+          body: JSON.stringify({ token: resetToken, new_password: password, confirm_password: confirmPassword }),
         });
-        setMessage("密码已更新，请重新登录。");
+        setAccountNotice("密码已更新，请使用新密码登录。");
         setResetToken("");
+        setPassword("");
+        setConfirmPassword("");
         setAccountMode("login");
         window.history.replaceState({}, "", window.location.pathname);
         return;
+      }
+      if (accountMode === "register") {
+        if (password !== confirmPassword) throw new Error("两次输入的密码不一致");
+        if (!/^\d{6}$/.test(verificationCode)) throw new Error("请输入邮件中的 6 位验证码");
       }
       const data = await request<{
         access_token: string;
@@ -778,17 +804,81 @@ export function App() {
       }>(`/api/v1/auth/${accountMode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, display_name: displayName }),
+        body: JSON.stringify({
+          email,
+          password,
+          confirm_password: confirmPassword,
+          verification_code: verificationCode,
+          display_name: displayName,
+        }),
       });
       localStorage.setItem("valuesee-token", data.access_token);
       localStorage.setItem("valuesee-account-name", data.user.display_name);
       setAccountName(data.user.display_name);
       setAccountOpen(false);
-      setMessage(accountMode === "login" ? "登录成功。" : "账户创建成功，请查收验证邮件。");
+      setMessage(accountMode === "login" ? "登录成功。" : "邮箱验证完成，账户创建成功。");
       await refreshRecords();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "账户操作失败");
+      setAccountNotice(err instanceof Error ? err.message : "账户操作失败");
+      setAccountNoticeError(true);
+    } finally {
+      setAccountBusy(false);
     }
+  }
+  async function requestRegistrationCode() {
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      setAccountNotice("请先输入有效邮箱。");
+      setAccountNoticeError(true);
+      return;
+    }
+    setAccountBusy(true);
+    setAccountNotice("");
+    setAccountNoticeError(false);
+    try {
+      const result = await request<{ retry_after?: number; verification_code?: string }>(
+        "/api/v1/auth/register/code/request",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        },
+      );
+      setRegistrationCodeCooldown(result.retry_after || 60);
+      if (result.verification_code) setVerificationCode(result.verification_code);
+      setAccountNotice("验证码已发送，10 分钟内有效。");
+    } catch (err) {
+      setAccountNotice(err instanceof Error ? err.message : "验证码发送失败");
+      setAccountNoticeError(true);
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+  function changeAccountMode(nextMode: "login" | "register" | "forgot" | "reset") {
+    setAccountMode(nextMode);
+    setAccountNotice("");
+    setAccountNoticeError(false);
+    setPassword("");
+    setConfirmPassword("");
+    setVerificationCode("");
+  }
+  function openAccount() {
+    const urlResetToken = new URLSearchParams(window.location.search).get("reset_token");
+    setAccountMode(urlResetToken ? "reset" : "login");
+    if (urlResetToken) setResetToken(urlResetToken);
+    setAccountNotice(urlResetToken ? "重置链接已验证，请输入两次新密码。" : "");
+    setAccountNoticeError(false);
+    setPassword("");
+    setConfirmPassword("");
+    setVerificationCode("");
+    setAccountOpen(true);
+  }
+  function closeAccount() {
+    setAccountOpen(false);
+    setAccountNotice("");
+    setAccountNoticeError(false);
+    setPassword("");
+    setConfirmPassword("");
+    setVerificationCode("");
   }
   function logout() {
     localStorage.removeItem("valuesee-token");
@@ -844,11 +934,11 @@ export function App() {
             </button>
           ))}
         </nav>
-        <button className="profile-button" onClick={() => setAccountOpen(true)}>
+        <button className="profile-button" onClick={openAccount}>
           {accountName}
         </button>
       </header>
-      {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} displayName={displayName} onEmail={setEmail} onPassword={setPassword} onDisplayName={setDisplayName} onMode={setAccountMode} onSubmit={submitAccount} onClose={() => setAccountOpen(false)} onLogout={logout} />}
+      {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} confirmPassword={confirmPassword} verificationCode={verificationCode} displayName={displayName} busy={accountBusy} notice={accountNotice} noticeError={accountNoticeError} codeCooldown={registrationCodeCooldown} onEmail={setEmail} onPassword={setPassword} onConfirmPassword={setConfirmPassword} onVerificationCode={setVerificationCode} onDisplayName={setDisplayName} onMode={changeAccountMode} onRequestCode={requestRegistrationCode} onSubmit={submitAccount} onClose={closeAccount} onLogout={logout} />}
       {message && (
         <div className="toast">
           <CheckCircle2 size={16} />
@@ -885,7 +975,7 @@ export function App() {
       )}
       {view === "saved" && <SavedPage items={savedItems} groups={savedGroups} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} onCreateGroup={(name) => void createSavedGroup(name)} onBulk={(ids, action, groupId) => void bulkSaved(ids, action, groupId)} />}
       {view === "messages" && <MessagesPage notifications={notifications} onRead={(id) => void readMessage(id)} onReadAll={() => void readAllMessages()} onDelete={(id) => void deleteMessage(id)} onRetry={(id) => void retryMessage(id)} onBulk={(ids, action) => void bulkMessages(ids, action)} onNavigate={navigateTarget} />}
-      {view === "account" && <AccountHome name={accountName} dashboard={dashboard} onNavigate={(next) => setView(next as View)} onLogin={() => setAccountOpen(true)} />}
+      {view === "account" && <AccountHome name={accountName} dashboard={dashboard} onNavigate={(next) => setView(next as View)} onLogin={openAccount} />}
       {view === "profile" && (
         <AccountProfilePanel
           onName={(name) => {
@@ -2936,15 +3026,17 @@ function PurchaseCenter({ purchases, products, purchaseProduct, paidPrice, onPur
     </section>
   );
 }
-function AccountDialog({ mode, email, password, displayName, onEmail, onPassword, onDisplayName, onMode, onSubmit, onClose, onLogout }: { mode: "login" | "register" | "forgot" | "reset"; email: string; password: string; displayName: string; onEmail: (value: string) => void; onPassword: (value: string) => void; onDisplayName: (value: string) => void; onMode: (mode: "login" | "register" | "forgot" | "reset") => void; onSubmit: (event: FormEvent) => void; onClose: () => void; onLogout: () => void }) {
+function AccountDialog({ mode, email, password, confirmPassword, verificationCode, displayName, busy, notice, noticeError, codeCooldown, onEmail, onPassword, onConfirmPassword, onVerificationCode, onDisplayName, onMode, onRequestCode, onSubmit, onClose, onLogout }: { mode: "login" | "register" | "forgot" | "reset"; email: string; password: string; confirmPassword: string; verificationCode: string; displayName: string; busy: boolean; notice: string; noticeError: boolean; codeCooldown: number; onEmail: (value: string) => void; onPassword: (value: string) => void; onConfirmPassword: (value: string) => void; onVerificationCode: (value: string) => void; onDisplayName: (value: string) => void; onMode: (mode: "login" | "register" | "forgot" | "reset") => void; onRequestCode: () => void; onSubmit: (event: FormEvent) => void; onClose: () => void; onLogout: () => void }) {
   const title = mode === "login" ? "登录 ValuSee" : mode === "register" ? "创建账户" : mode === "forgot" ? "找回密码" : "设置新密码";
   const submitLabel = mode === "login" ? "登录" : mode === "register" ? "注册" : mode === "forgot" ? "发送重置邮件" : "更新密码";
+  const confirmsPassword = mode === "register" || mode === "reset";
+  const passwordMismatch = confirmsPassword && confirmPassword.length > 0 && password !== confirmPassword;
   return (
     <div className="account-backdrop" onClick={onClose}>
       <section className="account-dialog" onClick={(event) => event.stopPropagation()}>
         <BrandWordmark />
         <h2>{title}</h2>
-        <p>{mode === "forgot" ? "输入注册邮箱，我们会发送一次性重置链接。" : mode === "reset" ? "新密码至少需要 8 个字符。" : "你的监控、购买记录和家庭数据会与账户隔离。"}</p>
+        <p>{mode === "register" ? "验证邮箱后创建账户，购物数据只对你可见。" : mode === "forgot" ? "输入注册邮箱，我们会发送一次性重置链接。" : mode === "reset" ? "请重复输入新密码，确认无误后更新。" : "你的监控、购买记录和家庭数据会与账户隔离。"}</p>
         <form onSubmit={onSubmit}>
           {mode === "register" && (
             <label>
@@ -2958,13 +3050,30 @@ function AccountDialog({ mode, email, password, displayName, onEmail, onPassword
               <input type="email" required value={email} onChange={(e) => onEmail(e.target.value)} />
             </label>
           )}
+          {mode === "register" && (
+            <label>
+              邮箱验证码
+              <span className="account-code-field">
+                <input inputMode="numeric" autoComplete="one-time-code" required pattern="\d{6}" maxLength={6} value={verificationCode} onChange={(event) => onVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+                <button type="button" disabled={busy || codeCooldown > 0} onClick={onRequestCode}>{codeCooldown > 0 ? `${codeCooldown}s` : "获取验证码"}</button>
+              </span>
+            </label>
+          )}
           {mode !== "forgot" && (
             <label>
               密码
               <input type="password" required minLength={8} value={password} onChange={(e) => onPassword(e.target.value)} />
             </label>
           )}
-          <button className="primary-button">{submitLabel}</button>
+          {(mode === "register" || mode === "reset") && (
+            <label>
+              确认密码
+              <input type="password" required minLength={8} aria-invalid={passwordMismatch} aria-describedby="password-match-hint" value={confirmPassword} onChange={(event) => onConfirmPassword(event.target.value)} />
+            </label>
+          )}
+          {passwordMismatch && <div id="password-match-hint" className="account-inline-notice error" role="alert">两次输入的密码不一致</div>}
+          {notice && <div className={`account-inline-notice${noticeError ? " error" : ""}`}>{notice}</div>}
+          <button className="primary-button" disabled={busy || passwordMismatch}>{busy ? "处理中…" : submitLabel}</button>
         </form>
         {mode === "login" && (
           <>

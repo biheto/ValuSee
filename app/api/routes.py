@@ -72,6 +72,7 @@ from app.schemas.shopping import (
     PurchaseCreateRequest,
     PurchaseResponse,
     RegisterRequest,
+    RegistrationCodeRequest,
     LoginRequest,
     PasswordResetRequest,
     PasswordResetConfirmRequest,
@@ -221,20 +222,53 @@ def _raw_bearer(authorization: str | None) -> str | None:
     return authorization[7:].strip() if authorization and authorization.startswith("Bearer ") else None
 
 
+@router.post("/auth/register/code/request", tags=["Account"])
+def request_registration_code(request_body: RegistrationCodeRequest) -> dict[str, object]:
+    if auth_store.get_user_by_email(request_body.email):
+        raise HTTPException(status_code=409, detail="该邮箱已注册，请直接登录")
+    try:
+        code = auth_store.issue_email_code(request_body.email, "register")
+    except ValueError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    delivered = send_transactional_email(
+        request_body.email.strip().lower(),
+        "ValuSee 注册验证码",
+        f"你的注册验证码是：{code}\n\n验证码 10 分钟内有效，请勿转发给任何人。",
+    )
+    if not delivered:
+        auth_store.delete_email_code(request_body.email, "register")
+        raise HTTPException(status_code=503, detail="验证码邮件发送失败，请稍后再试")
+    response: dict[str, object] = {"accepted": True, "expires_in": 600, "retry_after": 60}
+    if settings.app_env.lower() not in {"prod", "production"}:
+        response["verification_code"] = code
+    return response
+
+
 @router.post("/auth/register", tags=["Account"])
 def register_account(request_body: RegisterRequest, request: Request) -> dict[str, object]:
+    if request_body.password != request_body.confirm_password:
+        raise HTTPException(status_code=422, detail="两次输入的密码不一致")
+    if not auth_store.consume_email_code(
+        request_body.email,
+        "register",
+        request_body.verification_code,
+    ):
+        raise HTTPException(status_code=422, detail="验证码无效、已过期或尝试次数过多")
     try:
-        user = auth_store.register(request_body.email, request_body.password, request_body.display_name)
+        user = auth_store.register(
+            request_body.email,
+            request_body.password,
+            request_body.display_name,
+            email_verified=True,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    verify_token = auth_store.create_action_token(user["user_id"], "verify_email", ttl_minutes=1440)
-    base_url = os.getenv("VALUSee_PUBLIC_BASE_URL", "http://127.0.0.1:8200").rstrip("/")
-    send_transactional_email(user["email"], "验证你的 ValuSee 邮箱", f"请在 24 小时内打开：{base_url}/?verify_token={verify_token}")
     device, ip_address = _session_context(request)
-    response: dict[str, object] = {"user": user, "access_token": auth_store.create_session(user["user_id"], device, ip_address), "token_type": "bearer"}
-    if settings.app_env.lower() not in {"prod", "production"}:
-        response["verification_token"] = verify_token
-    return response
+    return {
+        "user": user,
+        "access_token": auth_store.create_session(user["user_id"], device, ip_address),
+        "token_type": "bearer",
+    }
 
 
 @router.post("/auth/login", tags=["Account"])
@@ -277,7 +311,13 @@ def request_password_reset(request: PasswordResetRequest) -> dict[str, object]:
     if user:
         token = auth_store.create_action_token(user["user_id"], "reset_password", ttl_minutes=30)
         base_url = os.getenv("VALUSee_PUBLIC_BASE_URL", "http://127.0.0.1:8200").rstrip("/")
-        send_transactional_email(user["email"], "重置 ValuSee 密码", f"请在 30 分钟内打开：{base_url}/?reset_token={token}")
+        delivered = send_transactional_email(
+            user["email"],
+            "重置 ValuSee 密码",
+            f"请在 30 分钟内打开以下链接重置密码：\n\n{base_url}/?reset_token={token}",
+        )
+        if not delivered:
+            raise HTTPException(status_code=503, detail="重置邮件发送失败，请稍后再试")
         if settings.app_env.lower() not in {"prod", "production"}:
             response["reset_token"] = token
     return response
@@ -285,6 +325,8 @@ def request_password_reset(request: PasswordResetRequest) -> dict[str, object]:
 
 @router.post("/auth/password/reset/confirm", tags=["Account"])
 def confirm_password_reset(request: PasswordResetConfirmRequest) -> dict[str, object]:
+    if request.new_password != request.confirm_password:
+        raise HTTPException(status_code=422, detail="两次输入的密码不一致")
     try:
         updated = auth_store.reset_password(request.token, request.new_password)
     except ValueError as exc:
