@@ -34,7 +34,7 @@ async function captureFixture(page: import('@playwright/test').Page, url: string
   return page.evaluate(() => {
     const target = window as typeof window & { __valueseeListener?: (...args: unknown[]) => void };
     let captured: Capture | undefined;
-    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V4' }, {}, (response: Capture) => { captured = response; });
+    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V5' }, {}, (response: Capture) => { captured = response; });
     if (!captured) throw new Error('collector did not respond');
     return captured;
   });
@@ -103,5 +103,34 @@ test('collects Pinduoduo raw data and normalizes cent price', async ({ page }) =
     </body></html>`);
 
   expect(result.product).toMatchObject({ platform: '拼多多', title: '石头扫地机器人 P20 Pro', price: 2599, sku: '66889900', selected_variant: '白色' });
+  expect(result.diagnostics.missing).toEqual([]);
+});
+
+test('collects Pinduoduo wholesale title, price range and order terms', async ({ page }) => {
+  const result = await captureFixture(page, 'https://pifa.pinduoduo.com/goods/detail?goodsId=99887766', `
+    <html><head><title>车载手机支架手机支架三脚架零件手机支架配件17mm</title></head><body>
+      <nav>拼多多批发首页 我是供货商 购物车(0)</nav>
+      <main>
+        <h2 class="product-title">车载手机支架手机支架三脚架零件手机支架配件17mm球头通用螺母</h2>
+        <section class="wholesale-price">批发价 ¥6.66 - 12.24 原价 ¥7.39 - 13.59 批发规则 ≥2件 9折 起批量 2件</section>
+        <section>型号 全部 支架螺母-（3个装） 支架螺母-（5个装） 支架螺母-（10个装） 支架螺母-（1个装）</section>
+        <aside><strong>店铺信息</strong><a>抄顶峰车品</a><button>联系客服</button></aside>
+      </main>
+    </body></html>`);
+
+  expect(result.product).toMatchObject({
+    platform: '拼多多',
+    title: '车载手机支架手机支架三脚架零件手机支架配件17mm球头通用螺母',
+    price: 6.66,
+    sku: '99887766',
+    store_name: '抄顶峰车品',
+  });
+  expect(result.product.specs).toMatchObject({
+    价格口径: '页面批发价区间最低价，最终价格取决于包装规格与数量',
+    批发价区间: '¥6.66 - ¥12.24',
+    原价区间: '¥7.39 - ¥13.59',
+    起批量: '2件',
+  });
+  expect(result.product.specs.可选包装).toContain('3个装');
   expect(result.diagnostics.missing).toEqual([]);
 });

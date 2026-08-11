@@ -1,6 +1,6 @@
 (() => {
-  if (window.__VALUSeeCollectorV4) return;
-  window.__VALUSeeCollectorV4 = true;
+  if (window.__VALUSeeCollectorV5) return;
+  window.__VALUSeeCollectorV5 = true;
 
   const clean = (value) => String(value || '').trim().replace(/\s+/g, ' ');
   const firstText = (selectors) => {
@@ -19,7 +19,7 @@
       if (/用户评价|宝贝评价|累计评价|全部评价|已售\s*\d|多人评价|加购|购物车|收藏夹|免费开店|帮助中心|搜索本店|搜索$|网页无障碍/i.test(value)) return;
       if (/^(?:淘宝网?|天猫|京东|拼多多|商品详情|店铺首页)$/i.test(value)) return;
       let finalScore = score + Math.min(value.length, 100) / 12;
-      if (node?.matches?.('h1')) finalScore += 20;
+      if (node?.matches?.('h1,h2')) finalScore += 20;
       const className = String(node?.className || '');
       if (/mainTitle|itemTitle|productTitle|goodsName/i.test(className)) finalScore += 8;
       candidates.push({ value, score: finalScore });
@@ -31,6 +31,7 @@
         if (nodeIndex < 40) add(node.getAttribute('content') || node.textContent, Math.max(2, 14 - index * 0.5), node);
       });
     });
+    (document.body?.innerText || '').split(/\r?\n/).slice(0, 180).forEach((line) => add(line, 9));
     add(document.title, 1);
     return candidates.sort((left, right) => right.score - left.score)[0]?.value || '';
   };
@@ -50,6 +51,14 @@
       if (match) return Number(match[1]);
     }
     return 0;
+  };
+  const labeledRange = (value, labels) => {
+    const normalized = clean(value).replace(/,/g, '');
+    for (const label of labels) {
+      const match = normalized.match(new RegExp(`(?:${label})\\s*(?:约|低至)?\\s*[¥￥]?\\s*(\\d+(?:\\.\\d{1,2})?)\\s*(?:-|~|～|至)\\s*[¥￥]?\\s*(\\d+(?:\\.\\d{1,2})?)`, 'i'));
+      if (match) return [Number(match[1]), Number(match[2])].sort((left, right) => left - right);
+    }
+    return [];
   };
   const host = location.hostname.toLowerCase();
   const platform = () => {
@@ -125,9 +134,9 @@
     };
     return {
       ...common,
-      title: ['[class*="goodsName"]', '[class*="GoodsName"]', '[class*="goods-name"]', ...common.title],
-      price: ['[class*="groupPrice"]', '[class*="salePrice"]', '[class*="goodsPrice"]', '[class*="price"] [class*="price"]', ...common.price],
-      store: ['[class*="mallName"]', '[class*="MallName"]', '[class*="shop-name"]', ...common.store],
+      title: ['[class*="goodsName" i]', '[class*="goods-name" i]', '[class*="goods-title" i]', '[class*="product-title" i]', 'main h1', 'main h2', 'h2', ...common.title],
+      price: ['[class*="wholesalePrice" i]', '[class*="priceRange" i]', '[class*="groupPrice" i]', '[class*="salePrice" i]', '[class*="goodsPrice" i]', '[class*="price" i] [class*="price" i]', ...common.price],
+      store: ['[class*="shopInfo" i] [class*="name" i]', '[class*="merchant" i] [class*="name" i]', '[class*="mallName" i]', '[class*="shop-name" i]', ...common.store],
       image: ['[class*="goods-img"] img', '[class*="GoodsGallery"] img', ...common.image],
     };
   };
@@ -155,6 +164,24 @@
     .replace(/\s*(?:客服|进店)\s*$/g, '')
     .trim()
     .slice(0, 100);
+  const storeFromBody = () => {
+    const lines = (document.body?.innerText || '').split(/\r?\n/).map(clean).filter(Boolean);
+    const labelIndex = lines.findIndex((line) => /^店铺信息$/.test(line));
+    if (labelIndex >= 0) {
+      const candidate = lines.slice(labelIndex + 1, labelIndex + 5).find((line) => !/联系客?服|进店|查看|全部商品/.test(line));
+      if (candidate) return candidate.replace(/[>›].*$/, '');
+    }
+    const inline = clean(document.body?.innerText || '').match(/店铺信息\s*([^\n]{2,80}?)(?:联系客?服|进店|$)/);
+    return inline?.[1] || '';
+  };
+  const wholesaleOptions = (value) => {
+    const options = [];
+    for (const match of value.matchAll(/([^\s¥￥]{0,24}[（(]\s*\d+\s*个装\s*[）)])/g)) {
+      const option = clean(match[1]);
+      if (option && !options.includes(option)) options.push(option);
+    }
+    return options.slice(0, 12);
+  };
   const specifications = () => {
     const specs = {};
     const add = (key, value) => {
@@ -182,16 +209,17 @@
   };
   const canonicalUrl = () => {
     const url = new URL(location.href);
-    const allowed = new Set(['id', 'item_id', 'sku', 'skuid', 'goods_id', 'goodsid']);
+    const allowed = new Set(['id', 'item_id', 'sku', 'skuid', 'goods_id', 'goodsid', 'gid']);
     [...url.searchParams.keys()].forEach((key) => { if (!allowed.has(key.toLowerCase())) url.searchParams.delete(key); });
     url.hash = '';
     return url.toString();
   };
   const identity = () => {
     const params = new URL(location.href).searchParams;
-    const queryId = params.get('skuId') || params.get('sku') || params.get('id') || params.get('item_id') || params.get('goods_id') || params.get('goodsId');
+    const queryId = params.get('skuId') || params.get('sku') || params.get('id') || params.get('item_id') || params.get('goods_id') || params.get('goodsId') || params.get('gid');
     if (queryId) return queryId;
     if (platform() === '京东') return location.pathname.match(/\/(\d{5,})(?:\.html)?/)?.[1] || '';
+    if (platform() === '拼多多') return location.pathname.match(/\/(?:goods|detail)\/(\d{5,})/)?.[1] || '';
     return '';
   };
   const collect = () => {
@@ -212,19 +240,31 @@
       ? labeledNumber(priceContextText, ['券后', '到手价?', '折后', '活动价', '促销价'])
         || labeledNumber(bodyText, ['券后', '到手价?', '折后', '活动价', '促销价'])
       : 0;
+    const wholesaleRange = platform() === '拼多多' ? labeledRange(bodyText, ['批发价']) : [];
+    const wholesalePrice = wholesaleRange[0] || 0;
     const originalPrice = labeledNumber(priceContextText, ['优惠前', '原价', '划线价'])
       || labeledNumber(bodyText, ['优惠前', '原价', '划线价']);
+    const originalRange = platform() === '拼多多' ? labeledRange(bodyText, ['原价']) : [];
     const memberPriceText = firstText(['[class*=memberPrice]', '[class*=vipPrice]', '[class*=plus-price]', '[class*=Price][class*=member]']);
     const couponText = firstText(['[class*=coupon] [class*=price]', '[class*=Coupon] [class*=amount]', '.quan-item .text', '[class*=discountCoupon]']);
     const discountText = firstText(['[class*=promotion] [class*=price]', '[class*=Promotion] [class*=amount]', '.prom-item', '[class*=fullReduction]']);
     const imageValue = Array.isArray(structured.image) ? structured.image[0] : structured.image;
     const imageNode = selectors.image.map((selector) => document.querySelector(selector)).find(Boolean);
     const imageUrl = imageValue || imageNode?.getAttribute('content') || imageNode?.currentSrc || imageNode?.src || '';
-    const price = effectivePrice || pagePrice || firstNumber(offers.price || offers.lowPrice || structured.price) || statePrice;
+    const price = effectivePrice || wholesalePrice || pagePrice || firstNumber(offers.price || offers.lowPrice || structured.price) || statePrice;
     const memberPrice = firstNumber(memberPriceText);
     const sku = clean(structured.sku || embeddedString(source, ['skuId', 'skuCode', 'goodsId', 'goods_id']) || identity());
     const specs = specifications();
     if (effectivePrice) specs['价格口径'] = '页面券后/到手价，已包含页面展示优惠';
+    if (wholesaleRange.length) {
+      specs['价格口径'] = '页面批发价区间最低价，最终价格取决于包装规格与数量';
+      specs['批发价区间'] = `¥${wholesaleRange[0]} - ¥${wholesaleRange[1]}`;
+    }
+    if (originalRange.length) specs['原价区间'] = `¥${originalRange[0]} - ¥${originalRange[1]}`;
+    const minimumOrder = labeledNumber(bodyText, ['起批量']);
+    if (minimumOrder) specs['起批量'] = `${minimumOrder}件`;
+    const availableOptions = wholesaleOptions(bodyText);
+    if (availableOptions.length) specs['可选包装'] = availableOptions.join(' / ');
     if (originalPrice > price) specs['优惠前价格'] = originalPrice;
     const includedDiscounts = effectivePrice > 0;
     const result = {
@@ -235,11 +275,11 @@
       coupon: includedDiscounts ? 0 : number(couponText), platform_discount: includedDiscounts ? 0 : number(discountText), member_discount: includedDiscounts ? 0 : memberPrice > 0 && price > memberPrice ? price - memberPrice : 0,
       subsidy: 0, pay_discount: 0, shipping: 0, gift_value: 0, condition: /二手|翻新|拆封/.test(bodyText) ? 'used_or_refurbished' : 'new',
       official_store: /官方旗舰|官方店|京东自营|品牌直营/.test(bodyText), return_days: 7,
-      warranty_months: 12, store_name: storeName(offers.seller?.name || firstText(selectors.store)), image_url: String(imageUrl).slice(0, 1000),
+      warranty_months: 12, store_name: storeName(offers.seller?.name || embeddedString(source, ['mallName', 'shopName', 'storeName', 'merchantName']) || firstText(selectors.store) || storeFromBody()), image_url: String(imageUrl).slice(0, 1000),
       selected_variant: selectedVariant(), region: firstText(selectors.region) || 'unknown',
       membership: memberPriceText ? '页面显示会员条件' : 'unknown', observation_status: 'requires_confirmation',
-      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.1', price_basis: effectivePrice ? 'visible_effective_price' : 'visible_page_price' },
-      notes: `由 ValuSee 扩展读取当前可见页面；${effectivePrice ? '当前价格采用页面券后/到手价，不再重复扣减页面优惠；' : ''}发送前请确认 SKU、地区、会员资格、优惠和价格。`,
+      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.2', price_basis: effectivePrice ? 'visible_effective_price' : wholesalePrice ? 'visible_wholesale_minimum' : 'visible_page_price' },
+      notes: `由 ValuSee 扩展读取当前可见页面；${effectivePrice ? '当前价格采用页面券后/到手价，不再重复扣减页面优惠；' : ''}${wholesalePrice ? '当前价格采用批发区间最低价，最终价格须按包装规格和采购数量确认；' : ''}发送前请确认 SKU、地区、会员资格、优惠和价格。`,
     };
     const missing = [];
     if (!result.title || /^(京东|淘宝网?|天猫|拼多多)(\s*[-_|·].*)?$/.test(result.title)) missing.push('商品标题');
@@ -249,8 +289,8 @@
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'VALUSee_PING_V4' || message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.1' });
-    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V4' || message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
+    if (message?.type === 'VALUSee_PING_V5' || message?.type === 'VALUSee_PING_V4' || message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.2' });
+    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V5' || message?.type === 'VALUSee_COLLECT_PRODUCT_V4' || message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
       try { sendResponse({ ok: true, ...collect() }); }
       catch (error) { sendResponse({ ok: false, error: `页面读取失败：${error.message}` }); }
     }

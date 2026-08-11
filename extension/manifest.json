@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ValuSee 见值",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "将当前商品页的可见价格和规格发送到 ValuSee，先确认再比较。",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [

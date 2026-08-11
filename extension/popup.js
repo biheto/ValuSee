@@ -95,11 +95,11 @@ async function collectCurrentPage() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !isSupportedUrl(tab.url || '')) throw new Error('请打开京东、淘宝、天猫或拼多多商品详情页。');
-    let ready = await sendTabMessage(tab.id, { type: 'VALUSee_PING_V4' });
+    let ready = await sendTabMessage(tab.id, { type: 'VALUSee_PING_V5' });
     if (!ready?.ok) {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
     }
-    const response = await sendTabMessage(tab.id, { type: 'VALUSee_COLLECT_PRODUCT_V4' });
+    const response = await sendTabMessage(tab.id, { type: 'VALUSee_COLLECT_PRODUCT_V5' });
     if (!response?.ok || !response.product) throw new Error(response?.error || '页面采集脚本未响应，请刷新商品页后重试。');
     product = response.product;
     fillEditor(product);
@@ -107,6 +107,7 @@ async function collectCurrentPage() {
     byId('preview').hidden = true;
     const missing = response.diagnostics?.missing || [];
     if (missing.length) setStatus(`已读取页面，但${missing.join('、')}未识别，请补充后发送。`, true);
+    else if (product.evidence?.price_basis === 'visible_wholesale_minimum') setStatus('已识别批发价区间；当前价格是最低价，请选择包装并填写采购数量后再次核对。');
     else setStatus('商品信息已识别，请核对当前规格、价格和优惠。');
   } catch (error) {
     byId('preview').textContent = error.message;
@@ -119,6 +120,7 @@ function fillEditor(value) {
   byId('price').value = value.price || '';
   byId('sku').value = value.sku || '';
   byId('variant').value = value.selected_variant || '';
+  byId('variant').placeholder = !value.selected_variant && value.specs?.['可选包装'] ? `尚未选择；可选：${value.specs['可选包装']}`.slice(0, 120) : '';
   byId('coupon').value = value.coupon || '';
   byId('discount').value = value.platform_discount || '';
   byId('memberDiscount').value = value.member_discount || '';
@@ -126,7 +128,8 @@ function fillEditor(value) {
   byId('region').value = value.region === 'unknown' ? '' : value.region || '';
   byId('membership').value = value.membership === 'unknown' ? '' : value.membership || '';
   const collectorVersion = value.evidence?.collector_version || '未知版本';
-  byId('source').textContent = `${value.platform} · ${value.store_name || '店铺待确认'} · 采集器 ${collectorVersion} · ${new Date().toLocaleString('zh-CN')}`;
+  const priceRange = value.specs?.['批发价区间'] ? ` · ${value.specs['批发价区间']}` : '';
+  byId('source').textContent = `${value.platform} · ${value.store_name || '店铺待确认'}${priceRange} · 采集器 ${collectorVersion} · ${new Date().toLocaleString('zh-CN')}`;
 }
 
 async function sendCapture() {
