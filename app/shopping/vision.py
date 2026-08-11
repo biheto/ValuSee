@@ -23,7 +23,11 @@ subsidy,shipping,store_name,selected_variant,condition,official_store,return_day
 specs,confidence,evidence_notes。
 price 和优惠字段使用数字；看不清时使用 0 或空字符串。category 仅使用 phone、laptop、monitor、
 headphone、keyboard、router、robot_vacuum、coffee_machine、unknown。confidence 为 0 到 1。
-标题应是商品标题，不要把页面导航、文件名、订单编号或广告语当成标题。"""
+标题应是商品标题，不要把用户评价、销量、页面导航、文件名、订单编号、店铺名或广告语当成标题。
+价格必须按视觉标签判断：券后价、到手价或实付价优先作为 price；原价、优惠前价格和划线价不能作为
+当前成交价。不要把评价数量、销量、折扣百分比、月销数字或 SKU 数字识别成价格。selected_variant
+只填写页面当前明确选中的颜色、尺码、容量或套装。OCR 参考文本可能有错，只可用于辅助定位，最终以
+图片的视觉层级、标签和选中状态为准。"""
 
 
 def inspect_product_image(content: bytes, content_type: str, original_name: str, *, client_ocr_text: str = "") -> dict[str, Any]:
@@ -38,17 +42,21 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str,
     storage = persist_upload(stored_path, content_type)
 
     supplied_text = client_ocr_text.strip()[:30_000]
-    if supplied_text:
-        vision_payload, provider = {}, "browser:tesseract.js"
-        warning = "截图文字已在你的浏览器中识别，请核对商品和价格。"
+    vision_payload, provider, warning = _extract_with_vision(content, content_type, supplied_text)
+    if vision_payload:
+        model_text = str(vision_payload.get("ocr_text") or "").strip()
+        text = supplied_text or model_text
+        fusion_text = "\n".join(dict.fromkeys(value for value in (model_text, supplied_text) if value))
+        product = normalize_vision_product({**vision_payload, "ocr_text": fusion_text})
+        if supplied_text:
+            provider = f"{provider}+browser:tesseract.js"
+            warning = _join_warnings(warning, "已使用视觉模型与浏览器 OCR 交叉识别。")
+    elif supplied_text:
+        provider = "browser:tesseract.js"
+        warning = _join_warnings(warning, "视觉模型暂不可用，当前结果仅由浏览器 OCR 推断。")
         text = supplied_text
         product = normalize_product_text(text)
     else:
-        vision_payload, provider, warning = _extract_with_vision(content, content_type)
-    if not supplied_text and vision_payload:
-        text = str(vision_payload.get("ocr_text") or "").strip()
-        product = normalize_vision_product(vision_payload)
-    elif not supplied_text:
         text, provider, local_warning = _extract_with_tesseract(stored_path)
         warning = _join_warnings(warning, local_warning)
         product = normalize_product_text(text)
@@ -100,11 +108,14 @@ def _validate_image_pixels(content: bytes) -> None:
         raise ValueError("图片文件已损坏或格式无效") from exc
 
 
-def _extract_with_vision(content: bytes, content_type: str) -> tuple[dict[str, Any], str, str]:
+def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "") -> tuple[dict[str, Any], str, str]:
     image_content, image_type = _prepare_vision_image(content, content_type)
+    user_prompt = "识别这张用户主动上传的电商商品截图，优先读取当前选中规格、当前成交价、店铺和优惠。"
+    if ocr_hint:
+        user_prompt += f"\n以下是本地 OCR 参考文本，可能存在错字或错序，请与图片核对后再输出：\n{ocr_hint[:8000]}"
     result = llm_provider.analyze_image_with_status(
         VISION_PROMPT,
-        "识别这张用户主动上传的电商商品截图，优先读取当前选中规格、当前成交价、店铺和优惠。",
+        user_prompt,
         image_content,
         image_type,
     )
@@ -157,27 +168,28 @@ def normalize_vision_product(payload: dict[str, Any]) -> dict[str, Any]:
     if category not in allowed_categories:
         category = fallback["category"]
     title = _text(payload.get("title"), 200)
+    fallback_title = fallback["title"] if fallback["title"] != "截图商品（待确认）" else ""
     return {
         **fallback,
-        "title": title or "截图商品（待确认）",
+        "title": title or fallback_title or "截图商品（待确认）",
         "category": category,
-        "platform": _text(payload.get("platform"), 40),
+        "platform": _text(payload.get("platform") or fallback["platform"], 40),
         "brand": _text(payload.get("brand") or fallback["brand"], 80),
         "model": _text(payload.get("model") or fallback["model"], 100),
-        "sku": _text(payload.get("sku"), 100),
+        "sku": _text(payload.get("sku") or fallback["sku"], 100),
         "specs": {**fallback["specs"], **{str(key)[:80]: str(value)[:300] for key, value in list(specs.items())[:30]}},
-        "price": _bounded_number(payload.get("price")),
-        "coupon": _bounded_number(payload.get("coupon")),
-        "platform_discount": _bounded_number(payload.get("platform_discount")),
-        "member_discount": _bounded_number(payload.get("member_discount")),
-        "subsidy": _bounded_number(payload.get("subsidy")),
-        "shipping": _bounded_number(payload.get("shipping")),
+        "price": _bounded_number(payload.get("price") or fallback["price"]),
+        "coupon": _bounded_number(payload.get("coupon") or fallback["coupon"]),
+        "platform_discount": _bounded_number(payload.get("platform_discount") or fallback["platform_discount"]),
+        "member_discount": _bounded_number(payload.get("member_discount") or fallback["member_discount"]),
+        "subsidy": _bounded_number(payload.get("subsidy") or fallback["subsidy"]),
+        "shipping": _bounded_number(payload.get("shipping") or fallback["shipping"]),
         "condition": _text(payload.get("condition"), 40) or "new",
         "official_store": payload.get("official_store") is True,
         "return_days": _bounded_int(payload.get("return_days"), 0, 365, 7),
         "warranty_months": _bounded_int(payload.get("warranty_months"), 0, 240, 12),
-        "store_name": _text(payload.get("store_name"), 100),
-        "selected_variant": _text(payload.get("selected_variant"), 240),
+        "store_name": _text(payload.get("store_name") or fallback["store_name"], 100),
+        "selected_variant": _text(payload.get("selected_variant") or fallback["selected_variant"], 240),
         "evidence": {"type": "user_uploaded_screenshot", "notes": _text(payload.get("evidence_notes"), 500)},
         "notes": "由 AI 截图识别生成，请核对型号、规格、价格和优惠后再分析。",
     }
@@ -187,15 +199,17 @@ def normalize_product_text(text: str, fallback_title: str = "") -> dict[str, Any
     del fallback_title
     lines = [" ".join(line.split()) for line in text.replace("\u3000", " ").splitlines() if line.strip()]
     clean = " ".join(text.replace("\u3000", " ").split())
-    price_match = re.search(r"(?:当前价格|到手价|成交价|current price)\s*[:：]?\s*(?:￥|¥|RMB)?\s*(\d+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
-    if not price_match:
-        price_match = re.search(r"(?:(?:￥|¥|RMB)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元)", clean, re.IGNORECASE)
+    price = _labeled_amount(clean, ("券后价", "券后", "预估到手价", "到手价", "实付价", "成交价", "会员价", "活动价", "促销价", "当前价格", "current price"))
+    if not price:
+        generic_price = re.search(r"(?:(?:￥|¥|RMB)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元)", clean, re.IGNORECASE)
+        price = float(generic_price.group(1) or generic_price.group(2)) if generic_price else 0.0
     model_match = re.search(r"\b((?:AirPods\s+Pro\s+\d+)|(?:[A-Z]{1,8}[- ]?\d{2,}[A-Z0-9-]*))\b", clean, re.IGNORECASE)
     sku_match = re.search(r"(?:SKU|商品编号|货号)\s*[:：]?\s*([A-Z0-9][A-Z0-9/_-]{3,})", clean, re.IGNORECASE)
     if not sku_match:
         sku_match = re.search(r"\b([A-Z0-9]{4,}/[A-Z0-9]{1,12})\b", clean, re.IGNORECASE)
-    coupon_match = re.search(r"(?:优惠券|领券|coupon)\s*[:：]?\s*(?:￥|¥|RMB)?\s*(\d+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
-    selected_match = re.search(r"(?:已选|选择|selected)\s*[:：]\s*([^\n]{2,160})", text, re.IGNORECASE)
+    coupon = _labeled_amount(clean, ("优惠券", "领券", "coupon"))
+    selected_match = re.search(r"(?:已选中?|当前选择|selected)\s*[:：]?\s*([^\n]{2,160})", text, re.IGNORECASE)
+    store_match = re.search(r"(?:店铺|商家)\s*[:：]\s*([^\n]{2,100})", text, re.IGNORECASE)
     brands = ("Apple", "华为", "小米", "荣耀", "联想", "戴尔", "三星", "索尼", "美的", "海尔", "科沃斯", "石头", "OPPO", "vivo")
     brand = next((item for item in brands if item.lower() in clean.lower()), "")
     category = _detect_category(clean)
@@ -215,11 +229,11 @@ def normalize_product_text(text: str, fallback_title: str = "") -> dict[str, Any
     return {
         "title": _title_from_ocr(lines) or "截图商品（待确认）", "category": category, "platform": _platform_from_text(clean), "url": "",
         "brand": brand, "model": model_match.group(1) if model_match else "", "sku": sku_match.group(1) if sku_match else "", "specs": specs,
-        "price": float(price_match.group(1) or price_match.group(2)) if price_match else 0.0,
-        "coupon": float(coupon_match.group(1)) if coupon_match else 0.0, "platform_discount": 0.0, "member_discount": 0.0, "subsidy": 0.0,
+        "price": price,
+        "coupon": coupon, "platform_discount": 0.0, "member_discount": 0.0, "subsidy": 0.0,
         "pay_discount": 0.0, "shipping": 0.0, "gift_value": 0.0, "condition": "new",
         "official_store": bool(re.search(r"官方旗舰|官方店|自营|official store", clean, re.IGNORECASE)), "return_days": 7, "warranty_months": 12,
-        "store_name": "", "image_url": "", "selected_variant": selected_match.group(1).strip() if selected_match else "", "region": "unknown", "membership": "unknown",
+        "store_name": store_match.group(1).strip() if store_match else "", "image_url": "", "selected_variant": selected_match.group(1).strip() if selected_match else "", "region": "unknown", "membership": "unknown",
         "observation_status": "requires_confirmation", "evidence": {"type": "local_ocr"},
         "notes": "由截图 OCR 生成，请核对型号、规格与价格后再分析。",
     }
@@ -237,7 +251,7 @@ def _detect_category(text: str) -> str:
 
 
 def _title_from_ocr(lines: list[str]) -> str:
-    ignored = re.compile(r"^(?:sku|当前价格|到手价|价格|优惠券|优惠|coupon|current price|selected|已选|店铺|official store)\s*[:：]", re.IGNORECASE)
+    ignored = re.compile(r"(?:用户评价|宝贝评价|累计评价|全部评价|月销|已售|人付款|加购|购物车|收藏|客服|好评率|优惠前|原价|划线价|券后|到手价|当前价格|价格|优惠券|领券|优惠|满减|补贴|sku|商品编号|货号|selected|已选|店铺|official store|current price)", re.IGNORECASE)
     product_terms = ("手机", "笔记本", "显示器", "耳机", "键盘", "路由器", "扫地机器人", "咖啡机", "iphone", "macbook", "airpods", "thinkpad", "monitor")
     brand_terms = ("apple", "华为", "小米", "荣耀", "联想", "戴尔", "dell", "三星", "索尼", "sony", "美的", "海尔", "科沃斯", "石头", "oppo", "vivo")
     candidates = []
@@ -252,6 +266,19 @@ def _title_from_ocr(lines: list[str]) -> str:
         score += 2 if re.search(r"[A-Za-z]+[- ]?\d{2,}", value) else 0
         candidates.append((score, value))
     return max(candidates, default=(0, ""))[1][:120]
+
+
+def _labeled_amount(text: str, labels: tuple[str, ...]) -> float:
+    normalized = text.replace(",", "")
+    for label in labels:
+        match = re.search(
+            rf"{re.escape(label)}\s*(?:约|低至|后|为)?\s*[:：]?\s*(?:￥|¥|RMB)?\s*(\d+(?:\.\d{{1,2}})?)",
+            normalized,
+            re.IGNORECASE,
+        )
+        if match:
+            return float(match.group(1))
+    return 0.0
 
 
 def _platform_from_text(text: str) -> str:

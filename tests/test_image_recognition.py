@@ -62,9 +62,9 @@ def test_multimodal_result_becomes_an_editable_structured_product(monkeypatch, t
     assert result["missing_fields"] == []
 
 
-def test_browser_ocr_text_skips_external_vision_and_extracts_product(monkeypatch, tmp_path) -> None:
+def test_browser_ocr_text_falls_back_when_external_vision_is_unavailable(monkeypatch, tmp_path) -> None:
     prepare_storage(monkeypatch, tmp_path)
-    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args: (_ for _ in ()).throw(AssertionError("vision should not run")))
+    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args: ({}, "vision_unavailable", "视觉模型不可用。"))
     text = """JD Product Detail
 Apple AirPods Pro 2 USB-C
 SKU: MTJV3CH/A
@@ -83,6 +83,49 @@ Selected: White / China Version"""
     assert result["product"]["sku"] == "MTJV3CH/A"
     assert result["product"]["selected_variant"] == "White / China Version"
     assert result["recognition_status"] == "recognized"
+
+
+def test_browser_ocr_is_fused_with_visual_result(monkeypatch, tmp_path) -> None:
+    prepare_storage(monkeypatch, tmp_path)
+    captured = {}
+
+    def visual(_content, _content_type, ocr_hint=""):
+        captured["ocr_hint"] = ocr_hint
+        return ({
+            "ocr_text": "券后 ¥83.26",
+            "title": "小个子工装牛仔背带裤短裤女宽松慵懒风可爱减龄学生2026新款夏日",
+            "price": 83.26,
+            "sku": "5807786724999",
+            "platform": "淘宝",
+            "store_name": "WAN 小婉女装",
+            "selected_variant": "牛仔蓝 优质现货",
+            "confidence": 0.94,
+        }, "vision:gpt-4o-mini", "请核对。")
+
+    monkeypatch.setattr(vision, "_extract_with_vision", visual)
+    ocr = "用户评价·400+\n优惠前 ¥98\n券后 ¥83.26\n已选 牛仔蓝 优质现货"
+    result = vision.inspect_product_image(png_bytes(), "image/png", "taobao.png", client_ocr_text=ocr)
+
+    assert captured["ocr_hint"] == ocr
+    assert result["ocr_provider"] == "vision:gpt-4o-mini+browser:tesseract.js"
+    assert result["product"]["price"] == 83.26
+    assert result["product"]["title"].startswith("小个子工装牛仔背带裤")
+    assert result["product"]["selected_variant"] == "牛仔蓝 优质现货"
+
+
+def test_ocr_prefers_effective_price_and_rejects_review_title() -> None:
+    product = vision.normalize_product_text("""淘宝
+用户评价·400+
+小个子工装牛仔背带裤短裤女宽松慵懒风可爱减龄学生2026新款夏日
+优惠前 ¥98
+券后 ¥83.26
+店铺：WAN 小婉女装
+已选：牛仔蓝 优质现货""")
+
+    assert product["title"].startswith("小个子工装牛仔背带裤")
+    assert product["price"] == 83.26
+    assert product["store_name"] == "WAN 小婉女装"
+    assert product["selected_variant"] == "牛仔蓝 优质现货"
 
 
 def test_ocr_extracts_slash_sku_when_its_chinese_label_is_noisy() -> None:

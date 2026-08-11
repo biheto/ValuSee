@@ -1,6 +1,6 @@
 (() => {
-  if (window.__VALUSeeCollectorV3) return;
-  window.__VALUSeeCollectorV3 = true;
+  if (window.__VALUSeeCollectorV4) return;
+  window.__VALUSeeCollectorV4 = true;
 
   const clean = (value) => String(value || '').trim().replace(/\s+/g, ' ');
   const firstText = (selectors) => {
@@ -238,7 +238,7 @@
       warranty_months: 12, store_name: storeName(offers.seller?.name || firstText(selectors.store)), image_url: String(imageUrl).slice(0, 1000),
       selected_variant: selectedVariant(), region: firstText(selectors.region) || 'unknown',
       membership: memberPriceText ? '页面显示会员条件' : 'unknown', observation_status: 'requires_confirmation',
-      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.0', price_basis: effectivePrice ? 'visible_effective_price' : 'visible_page_price' },
+      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.1', price_basis: effectivePrice ? 'visible_effective_price' : 'visible_page_price' },
       notes: `由 ValuSee 扩展读取当前可见页面；${effectivePrice ? '当前价格采用页面券后/到手价，不再重复扣减页面优惠；' : ''}发送前请确认 SKU、地区、会员资格、优惠和价格。`,
     };
     const missing = [];
@@ -249,8 +249,8 @@
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.0' });
-    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
+    if (message?.type === 'VALUSee_PING_V4' || message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.1' });
+    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V4' || message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
       try { sendResponse({ ok: true, ...collect() }); }
       catch (error) { sendResponse({ ok: false, error: `页面读取失败：${error.message}` }); }
     }

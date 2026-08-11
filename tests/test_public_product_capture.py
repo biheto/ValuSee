@@ -149,7 +149,7 @@ def test_browser_extension_download_contains_installable_manifest() -> None:
         assert {"manifest.json", "background.js", "content.js", "popup.html", "popup.js", "popup.css"} <= names
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["manifest_version"] == 3
-        assert manifest["version"] == "0.4.0"
+        assert manifest["version"] == "0.4.1"
         assert "scripting" in manifest["permissions"]
         assert "https://api.valusee.com/*" in manifest["host_permissions"]
         assert "https://*.yangkeduo.com/*" in manifest["host_permissions"]
@@ -158,8 +158,9 @@ def test_browser_extension_download_contains_installable_manifest() -> None:
         assert "/api/v1/auth/me" in popup
         assert "apiCandidatesFor" in popup
         assert "chrome.scripting.executeScript" in popup
-        assert "VALUSee_COLLECT_PRODUCT_V3" in popup
-        assert "VALUSee_COLLECT_PRODUCT_V3" in content
+        assert "VALUSee_COLLECT_PRODUCT_V4" in popup
+        assert "VALUSee_COLLECT_PRODUCT_V4" in content
+        assert "collector_version: '0.4.1'" in content
 
 
 def test_extension_price_is_persisted_only_after_final_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:

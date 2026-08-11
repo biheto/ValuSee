@@ -95,11 +95,11 @@ async function collectCurrentPage() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !isSupportedUrl(tab.url || '')) throw new Error('请打开京东、淘宝、天猫或拼多多商品详情页。');
-    let ready = await sendTabMessage(tab.id, { type: 'VALUSee_PING_V3' });
+    let ready = await sendTabMessage(tab.id, { type: 'VALUSee_PING_V4' });
     if (!ready?.ok) {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
     }
-    const response = await sendTabMessage(tab.id, { type: 'VALUSee_COLLECT_PRODUCT_V3' });
+    const response = await sendTabMessage(tab.id, { type: 'VALUSee_COLLECT_PRODUCT_V4' });
     if (!response?.ok || !response.product) throw new Error(response?.error || '页面采集脚本未响应，请刷新商品页后重试。');
     product = response.product;
     fillEditor(product);
@@ -125,7 +125,8 @@ function fillEditor(value) {
   byId('shipping').value = value.shipping || '';
   byId('region').value = value.region === 'unknown' ? '' : value.region || '';
   byId('membership').value = value.membership === 'unknown' ? '' : value.membership || '';
-  byId('source').textContent = `${value.platform} · ${value.store_name || '店铺待确认'} · ${new Date().toLocaleString('zh-CN')}`;
+  const collectorVersion = value.evidence?.collector_version || '未知版本';
+  byId('source').textContent = `${value.platform} · ${value.store_name || '店铺待确认'} · 采集器 ${collectorVersion} · ${new Date().toLocaleString('zh-CN')}`;
 }
 
 async function sendCapture() {

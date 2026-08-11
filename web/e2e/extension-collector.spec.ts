@@ -34,7 +34,7 @@ async function captureFixture(page: import('@playwright/test').Page, url: string
   return page.evaluate(() => {
     const target = window as typeof window & { __valueseeListener?: (...args: unknown[]) => void };
     let captured: Capture | undefined;
-    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V3' }, {}, (response: Capture) => { captured = response; });
+    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V4' }, {}, (response: Capture) => { captured = response; });
     if (!captured) throw new Error('collector did not respond');
     return captured;
   });
