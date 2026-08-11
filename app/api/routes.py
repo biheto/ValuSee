@@ -59,9 +59,11 @@ from app.providers.llm_provider import llm_provider
 from app.providers.mcp_provider import mcp_provider
 from app.schemas.project import ProjectAnalyzeRequest, ProjectAnalyzeResponse
 from app.core.config import settings
+from app.core.cron_security import verify_cron_signature
 from app.core.infrastructure import publish_monitor_event
 from app.core.object_storage import delete_stored_object, persist_upload, read_stored_object
 from app.core.paths import runtime_data_dir
+from app.shopping.worker import run_once as run_monitor_cycle
 from app.schemas.shopping import (
     PriceMonitorCheckRequest,
     PriceMonitorCheckResponse,
@@ -145,6 +147,26 @@ from app.schemas.studio import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
+
+
+@router.post("/internal/monitor/run", tags=["Operations"], include_in_schema=False)
+def run_scheduled_monitor(
+    request: Request,
+    x_valuesee_timestamp: str | None = Header(default=None, alias="X-ValuSee-Timestamp"),
+    x_valuesee_signature: str | None = Header(default=None, alias="X-ValuSee-Signature"),
+) -> dict[str, object]:
+    secret = os.getenv("VALUSee_CRON_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="scheduled monitor is not configured")
+    if not verify_cron_signature(
+        secret,
+        x_valuesee_timestamp or "",
+        x_valuesee_signature or "",
+        request.method,
+        request.url.path,
+    ):
+        raise HTTPException(status_code=401, detail="invalid scheduled monitor signature")
+    return {"status": "ok", "run_at": utc_now_iso(), "result": run_monitor_cycle()}
 
 
 @router.get("/downloads/browser-extension", tags=["Shopping Integrations"])

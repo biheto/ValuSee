@@ -1,0 +1,10 @@
+name = "valuesee-monitor-cron"
+main = "src/index.js"
+compatibility_date = "2026-08-11"
+workers_dev = false
+
+[vars]
+API_ORIGIN = "https://api.valusee.com"
+
+[triggers]
+crons = ["*/10 * * * *"]

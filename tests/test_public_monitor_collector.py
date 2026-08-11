@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -10,9 +10,15 @@ from app.shopping.store import ShoppingStore
 
 def product() -> dict[str, object]:
     return {
-        "title": "测试耳机", "platform": "京东", "url": "https://item.jd.com/10001.html",
-        "sku": "HEADSET-1", "price": 999, "coupon": 0, "region": "北京",
-        "membership": "unknown", "observation_status": "confirmed",
+        "title": "测试耳机",
+        "platform": "京东",
+        "url": "https://item.jd.com/10001.html",
+        "sku": "HEADSET-1",
+        "price": 999,
+        "coupon": 0,
+        "region": "北京",
+        "membership": "unknown",
+        "observation_status": "confirmed",
     }
 
 
@@ -20,20 +26,33 @@ def test_public_monitor_change_requires_confirmation_before_price_history() -> N
     with TemporaryDirectory() as tmp:
         store = ShoppingStore(Path(tmp) / "monitor.db")
         monitor = store.create_monitor(
-            user_id="owner", product=product(), target_price=899, current_final_price=999,
-            monitor_days=30, notify_channel="in_app",
+            user_id="owner",
+            product=product(),
+            target_price=899,
+            current_final_price=999,
+            monitor_days=30,
+            notify_channel="in_app",
         )
-        now = datetime(2026, 8, 10, 8, tzinfo=timezone.utc)
+        now = datetime(2026, 8, 10, 8, tzinfo=UTC)
         result = collect_public_monitor_updates(
             store,
             fetcher=lambda _url: {
-                **product(), "price": 859, "fetch_status": "parsed", "cached": False,
-                "evidence": {"type": "public_html"}, "notes": "public observation",
+                **product(),
+                "price": 859,
+                "fetch_status": "parsed",
+                "cached": False,
+                "evidence": {"type": "public_html"},
+                "notes": "public observation",
             },
             now=now,
         )
 
-        assert result == {"public_checked": 1, "pending_confirmations": 1, "recapture_reminders": 0}
+        assert result == {
+            "public_checked": 1,
+            "public_failed": 0,
+            "pending_confirmations": 1,
+            "recapture_reminders": 0,
+        }
         assert store.price_history(str(product()["url"]), user_id="owner")["count"] == 0
         captures = store.list_extension_captures("owner")
         assert captures[0]["status"] == "pending_confirmation"
@@ -43,7 +62,9 @@ def test_public_monitor_change_requires_confirmation_before_price_history() -> N
 
         not_due = collect_public_monitor_updates(
             store,
-            fetcher=lambda _url: (_ for _ in ()).throw(AssertionError("must not fetch before interval")),
+            fetcher=lambda _url: (_ for _ in ()).throw(
+                AssertionError("must not fetch before interval")
+            ),
             now=now + timedelta(hours=1),
         )
         assert not_due["public_checked"] == 0
@@ -53,15 +74,58 @@ def test_blocked_monitor_page_creates_extension_recapture_reminder() -> None:
     with TemporaryDirectory() as tmp:
         store = ShoppingStore(Path(tmp) / "monitor.db")
         store.create_monitor(
-            user_id="owner", product=product(), target_price=899, current_final_price=999,
-            monitor_days=30, notify_channel="in_app",
+            user_id="owner",
+            product=product(),
+            target_price=899,
+            current_final_price=999,
+            monitor_days=30,
+            notify_channel="in_app",
         )
         result = collect_public_monitor_updates(
             store,
             fetcher=lambda _url: {"fetch_status": "blocked", "price": 0, "notes": "captcha"},
-            now=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            now=datetime(2026, 8, 10, tzinfo=UTC),
         )
 
         assert result["recapture_reminders"] == 1
         assert store.list_extension_captures("owner") == []
         assert store.list_notifications("owner")[0]["kind"] == "recapture_required"
+
+
+def test_monitor_batch_is_bounded_and_one_fetch_failure_does_not_stop_cycle() -> None:
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "monitor.db")
+        monitor_ids = []
+        for index in range(3):
+            candidate = {**product(), "url": f"https://item.jd.com/1000{index}.html"}
+            monitor = store.create_monitor(
+                user_id="owner",
+                product=candidate,
+                target_price=899,
+                current_final_price=999,
+                monitor_days=30,
+                notify_channel="in_app",
+            )
+            monitor_ids.append(monitor["monitor_id"])
+        calls = 0
+
+        def fetcher(_url: str) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("provider unavailable")
+            return {"fetch_status": "blocked", "price": 0, "notes": "captcha"}
+
+        result = collect_public_monitor_updates(
+            store,
+            fetcher=fetcher,
+            now=datetime(2026, 8, 10, tzinfo=UTC),
+            max_checks=2,
+        )
+
+        assert result["public_checked"] == 2
+        assert result["public_failed"] == 1
+        assert calls == 2
+        assert (
+            sum(store.get_monitor_poll(monitor_id) is not None for monitor_id in monitor_ids) == 2
+        )

@@ -51,9 +51,11 @@ An optional `valuesee-api` Vercel project can use `api/index.py` for lightweight
 
 For a Vercel API preview, configure `APP_ENV=preview`, `VALUSee_SQLITE_PATH=/tmp/valuesee.db`, explicit `ALLOWED_HOSTS` and `ALLOWED_ORIGINS`, then deploy from the repository root. Mutable files automatically use `/tmp/valuesee` when `VERCEL=1`; this prevents read-only filesystem failures but does not make those files durable. A production API must set an external PostgreSQL `DATABASE_URL` and S3-compatible storage. Set `S3_BUCKET` to enable S3 mode, plus `S3_REGION` and credentials (or an attached IAM role); use `S3_ENDPOINT_URL` only for non-AWS providers such as MinIO. Keep `S3_BUCKET` unset when intentionally using ephemeral preview storage.
 
-Set `VITE_API_BASE_URL` in the Vercel Production and Preview environments to the public HTTPS API origin, for example `https://api.valusee.com`. On the API host, add every deployed Web origin that should be trusted to `ALLOWED_ORIGINS`; keep `ALLOWED_HOSTS` scoped to the API hostname. Never point the Vercel build at `127.0.0.1` or a private address.
-
-Local development leaves `VITE_API_BASE_URL` empty and continues to use the Vite `/api` proxy. Vercel project identifiers and OIDC credentials live under ignored `.vercel/` and `.env.local` files and must not be committed.
+The Vercel Web project proxies same-origin `/api/*` requests to `valuesee-api`; do not set
+`VITE_API_BASE_URL` in Production or Preview. This keeps browser requests on `valusee.com` and
+avoids CORS, DNS and stale PWA endpoint failures. Local development uses the equivalent Vite
+`/api` proxy. Vercel project identifiers and OIDC credentials live under ignored `.vercel/` and
+`.env.local` files and must not be committed.
 
 ### Split production topology
 
@@ -66,6 +68,30 @@ For the Vercel Web/API plus long-running worker topology:
 5. In Cloudflare DNS use `A api 76.76.21.21` with DNS-only mode during Vercel certificate validation. After Vercel reports the domain valid, the Web build can use `VITE_API_BASE_URL=https://api.valusee.com`.
 
 The worker deliberately treats RabbitMQ as optional. Its periodic PostgreSQL scan is the durable recovery mechanism, so a single worker can launch without exposing Redis, RabbitMQ, PostgreSQL, or an administration port on the worker host.
+
+### Serverless monitor topology
+
+The current free validation deployment does not require an Ubuntu worker host. Cloudflare Cron
+Worker `valuesee-monitor-cron` invokes `POST /api/v1/internal/monitor/run` every ten minutes. The
+API validates an HMAC-SHA256 signature and a five-minute timestamp window before executing one
+idempotent monitor cycle against Neon PostgreSQL. Individual realtime, daily and weekly monitor
+frequencies are still enforced by the collector, so the scheduler does not over-fetch products.
+
+Generate one 32-byte-or-longer random secret and store it as sensitive
+`VALUSee_CRON_SECRET` in both the Vercel `valuesee-api` Production environment and Cloudflare
+Worker secrets. Never put the value in Git, Worker variables, or frontend environment variables.
+
+```powershell
+cd cloudflare/monitor-cron
+npm install
+npx wrangler login
+npx wrangler secret put VALUSee_CRON_SECRET
+npm run deploy
+```
+
+Use `npx wrangler tail valuesee-monitor-cron` to inspect scheduled executions. A non-2xx API
+response causes a Worker exception and is visible in Cloudflare logs. The in-app notification
+record remains durable in PostgreSQL even when email or Push providers are not configured.
 
 ## External Credentials Required
 
@@ -122,7 +148,7 @@ The system intentionally does not invent prices, reviews, SKU matches, or discou
 - API release acceptance with a temporary account passed profile save, comparison persistence, decision report persistence, monitor edit/pause/delete, feedback lifecycle, account deletion, health, and Web response checks.
 - Consumer expansion acceptance passed favorite/recent persistence, dashboard aggregation, purchase status changes, governed content publication/visibility, frontend response, and test-data cleanup.
 - PWA production build passed with manifest, generated icons, and public-only Service Worker cache rules.
-- Automated release quality passed with 101 Python tests, the production Vite build, desktop/mobile Playwright consumer journeys (including link, extension-download, and screenshot acquisition paths), the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
+- Automated release quality passed with 109 Python tests, including signed scheduled-monitor authorization, the production Vite build, desktop/mobile Playwright consumer journeys (including link, extension-download, and screenshot acquisition paths), the correctness Ruff gate, production Compose parsing, and PowerShell backup/restore/release script parsing. Dependency audits remain enforced by GitHub Actions; the local npm mirror used for this verification does not implement the npm audit endpoint.
 - The full production Compose stack was deployed locally with healthy API, monitor worker, PostgreSQL/pgvector, Redis, RabbitMQ and MinIO services. Application readiness, private object upload/download, account lifecycle, queue checks, and persistent database recovery after a complete Compose stop/start all passed.
 - The running production image served a validated Manifest V3 extension archive. Public-page monitor observations remain pending until user confirmation; blocked, login-only, or personalized prices trigger an extension recapture reminder instead of entering trusted history.
 - The installed environment does not include `pytest`; run the repository suite in CI with `pip install .[dev]`.

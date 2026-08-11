@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import os
 import signal
 import threading
-import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.core.infrastructure import (
     MONITOR_DEAD_QUEUE,
@@ -15,9 +15,8 @@ from app.core.infrastructure import (
     MONITOR_RETRY_QUEUE,
     declare_monitor_queues,
 )
-from app.shopping.store import shopping_store
 from app.shopping.monitor_collector import collect_public_monitor_updates
-
+from app.shopping.store import shopping_store
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("valuesee.shopping.worker")
@@ -35,8 +34,12 @@ def run_once() -> dict[str, int]:
     collection = collect_public_monitor_updates(shopping_store)
     result = {**shopping_store.process_latest_snapshots(), **collection}
     logger.info(
-        "monitor cycle processed=%s notifications=%s public_checked=%s pending_confirmations=%s",
-        result["processed"], result["notifications"], result["public_checked"], result["pending_confirmations"],
+        "monitor cycle processed=%s notifications=%s public_checked=%s public_failed=%s pending_confirmations=%s",
+        result["processed"],
+        result["notifications"],
+        result["public_checked"],
+        result["public_failed"],
+        result["pending_confirmations"],
     )
     return result
 
@@ -60,7 +63,11 @@ def consume_events(handler: Callable[[dict[str, Any]], None], limit: int = 100) 
                 break
             try:
                 payload = json.loads(body.decode("utf-8"))
-                if not isinstance(payload, dict) or payload.get("type") != "price_snapshot" or not payload.get("snapshot_id"):
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("type") != "price_snapshot"
+                    or not payload.get("snapshot_id")
+                ):
                     raise ValueError("invalid price event")
                 handler(payload)
                 channel.basic_ack(method.delivery_tag)
