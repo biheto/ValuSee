@@ -69,6 +69,9 @@ class ShoppingImageResponse(BaseModel):
     product: ShoppingProductInput
     requires_confirmation: bool
     warning: str = ""
+    recognition_status: str = "unavailable"
+    confidence: float = 0.0
+    missing_fields: list[str] = Field(default_factory=list)
 
 
 class ShoppingExtensionCaptureRequest(BaseModel):

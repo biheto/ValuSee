@@ -498,9 +498,17 @@ export function App() {
         warning: string;
         ocr_provider: string;
         requires_confirmation: boolean;
+        recognition_status: "recognized" | "partial" | "unavailable";
+        confidence: number;
+        missing_fields: string[];
       }>("/api/v1/shopping/parse-image", { method: "POST", body: form });
+      if (data.recognition_status === "unavailable" || !hasRecognizedProduct(data.product)) {
+        setError(data.warning || "图片中没有识别到商品信息，请上传包含商品标题、规格和价格的清晰截图。");
+        return;
+      }
       setProducts((items) => [...items, data.product]);
-      setMessage(data.warning || `截图识别完成（${data.ocr_provider}），请确认商品信息。`);
+      const missing = data.missing_fields.length ? `仍需补充：${data.missing_fields.join("、")}。` : "";
+      setMessage(`${data.warning || `截图识别完成（${data.ocr_provider}）。`} ${missing}请确认后再分析。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "截图识别失败");
     } finally {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import time
 from pathlib import Path
@@ -328,6 +329,95 @@ class LLMProvider:
                 "latency_ms": latency_ms,
                 "error_message": str(exc),
             }
+
+    def analyze_image_with_status(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_content: bytes,
+        content_type: str,
+        fallback: str = "",
+        *,
+        agent: str = "product_vision",
+        prompt_version: str = "product_vision.v1",
+    ) -> dict[str, Any]:
+        config = self._config(agent)
+        configured_model = os.getenv("VALUSee_VISION_MODEL", "").strip()
+        if configured_model:
+            config = {**config, "model": configured_model}
+        trace_id = f"llm_{uuid4().hex}"
+        started = time.perf_counter()
+        trace_input = {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "image": {"content_type": content_type, "size_bytes": len(image_content)},
+        }
+        if not config["api_key"]:
+            return self._image_fallback(trace_id, agent, prompt_version, trace_input, fallback, started, None, "OPENAI_API_KEY is not configured")
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+            from langchain_openai import ChatOpenAI
+
+            llm = self._build_chat_openai(ChatOpenAI, config)
+            encoded = base64.b64encode(image_content).decode("ascii")
+            response = llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=[
+                    {"type": "text", "text": user_prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}", "detail": "high"}},
+                ]),
+            ])
+            output_text = self._message_text(getattr(response, "content", ""))
+            latency_ms = self._elapsed_ms(started)
+            token_usage = self._extract_token_usage(response)
+            self._save_trace(
+                trace_id=trace_id, agent=agent, prompt_version=prompt_version, model=config["model"],
+                input_payload=trace_input, output_text=output_text, fallback_used=False,
+                error_message=None, latency_ms=latency_ms, token_usage=token_usage,
+            )
+            return {
+                "text": output_text, "answer_source": "llm", "fallback_used": False,
+                "model": config["model"], "trace_id": trace_id, "latency_ms": latency_ms,
+                "token_usage": token_usage,
+            }
+        except Exception as exc:
+            return self._image_fallback(trace_id, agent, prompt_version, trace_input, fallback, started, config["model"], str(exc))
+
+    def _image_fallback(
+        self,
+        trace_id: str,
+        agent: str,
+        prompt_version: str,
+        trace_input: dict[str, Any],
+        fallback: str,
+        started: float,
+        model: str | None,
+        error_message: str,
+    ) -> dict[str, Any]:
+        latency_ms = self._elapsed_ms(started)
+        self._save_trace(
+            trace_id=trace_id, agent=agent, prompt_version=prompt_version, model=model,
+            input_payload=trace_input, output_text=fallback, fallback_used=True,
+            error_message=error_message, latency_ms=latency_ms, token_usage={},
+        )
+        return {
+            "text": fallback, "answer_source": "fallback", "fallback_used": True,
+            "model": model, "trace_id": trace_id, "latency_ms": latency_ms,
+            "error_message": error_message,
+        }
+
+    def _message_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            values = []
+            for item in content:
+                if isinstance(item, str):
+                    values.append(item)
+                elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                    values.append(item["text"])
+            return "\n".join(values)
+        return str(content or "")
 
     def plan_steps(self, goal: str, context: dict[str, Any], fallback_steps: list[str]) -> list[str]:
         fallback = "\n".join(f"- {item}" for item in fallback_steps)
