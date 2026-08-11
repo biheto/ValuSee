@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import base64
-import sys
-import types
 
 import app.shopping.vision as vision
 from app.providers.llm_provider import LLMProvider
@@ -74,22 +72,12 @@ def test_multimodal_provider_sends_image_without_storing_base64_in_trace(monkeyp
     provider = LLMProvider()
     recorded = {}
 
-    class Response:
-        content = [{"type": "text", "text": '{"title":"AirPods Pro 2"}'}]
-        usage_metadata = {"input_tokens": 20, "output_tokens": 8}
-
-    class FakeModel:
-        def invoke(self, messages):
-            human_content = messages[1].content
-            assert human_content[1]["image_url"]["url"].startswith("data:image/png;base64,")
-            return Response()
-
     monkeypatch.setattr(provider, "_config", lambda _agent=None: {"api_key": "test-key", "model": "vision-test", "base_url": "", "source": "test"})
-    monkeypatch.setattr(provider, "_build_chat_openai", lambda *_args: FakeModel())
+    def fake_invoke(_config, messages):
+        assert messages[1]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+        return {"choices": [{"message": {"content": [{"type": "text", "text": '{"title":"AirPods Pro 2"}'}]}}], "usage": {"input_tokens": 20, "output_tokens": 8}}
+    monkeypatch.setattr(provider, "_invoke_vision_http", fake_invoke)
     monkeypatch.setattr(provider, "_save_trace", lambda **values: recorded.update(values))
-    fake_openai = types.ModuleType("langchain_openai")
-    fake_openai.ChatOpenAI = object
-    monkeypatch.setitem(sys.modules, "langchain_openai", fake_openai)
 
     result = provider.analyze_image_with_status("system", "user", png_bytes(), "image/png")
 
@@ -97,3 +85,13 @@ def test_multimodal_provider_sends_image_without_storing_base64_in_trace(monkeyp
     assert result["text"] == '{"title":"AirPods Pro 2"}'
     assert recorded["input_payload"]["image"]["size_bytes"] == len(png_bytes())
     assert "base64" not in str(recorded["input_payload"])
+
+
+def test_vision_endpoint_normalization_supports_standard_and_gateway_urls() -> None:
+    provider = LLMProvider()
+
+    assert provider._vision_endpoints("") == ["https://api.openai.com/v1/chat/completions"]
+    assert provider._vision_endpoints("https://gateway.example/v1") == ["https://gateway.example/v1/chat/completions"]
+    assert provider._vision_endpoints("https://gateway.example") == [
+        "https://gateway.example/v1/chat/completions", "https://gateway.example/chat/completions",
+    ]

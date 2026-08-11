@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import time
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from app.harness.events import utc_now_iso
@@ -355,21 +358,24 @@ class LLMProvider:
         if not config["api_key"]:
             return self._image_fallback(trace_id, agent, prompt_version, trace_input, fallback, started, None, "OPENAI_API_KEY is not configured")
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage
-            from langchain_openai import ChatOpenAI
-
-            llm = self._build_chat_openai(ChatOpenAI, config)
             encoded = base64.b64encode(image_content).decode("ascii")
-            response = llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=[
-                    {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}", "detail": "high"}},
-                ]),
-            ])
-            output_text = self._message_text(getattr(response, "content", ""))
+            response = self._invoke_vision_http(
+                config,
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}", "detail": "high"}},
+                    ]},
+                ],
+            )
+            choices = response.get("choices") if isinstance(response.get("choices"), list) else []
+            message = choices[0].get("message") if choices and isinstance(choices[0], dict) else {}
+            output_text = self._message_text(message.get("content", "") if isinstance(message, dict) else "")
+            if not output_text:
+                raise ValueError("vision provider returned no message content")
             latency_ms = self._elapsed_ms(started)
-            token_usage = self._extract_token_usage(response)
+            token_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
             self._save_trace(
                 trace_id=trace_id, agent=agent, prompt_version=prompt_version, model=config["model"],
                 input_payload=trace_input, output_text=output_text, fallback_used=False,
@@ -382,6 +388,48 @@ class LLMProvider:
             }
         except Exception as exc:
             return self._image_fallback(trace_id, agent, prompt_version, trace_input, fallback, started, config["model"], str(exc))
+
+    def _invoke_vision_http(self, config: dict[str, str], messages: list[dict[str, Any]]) -> dict[str, Any]:
+        payload = json.dumps({
+            "model": config["model"], "messages": messages,
+            "temperature": 0.1, "max_tokens": 1400,
+        }, ensure_ascii=False).encode("utf-8")
+        errors = []
+        for endpoint in self._vision_endpoints(config.get("base_url", "")):
+            request = Request(
+                endpoint,
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {config['api_key']}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "ValuSee/0.1 product-vision",
+                },
+                method="POST",
+            )
+            try:
+                with urlopen(request, timeout=45) as response:
+                    body = response.read(4 * 1024 * 1024)
+                parsed = json.loads(body.decode("utf-8", errors="replace"))
+                if isinstance(parsed, dict) and isinstance(parsed.get("choices"), list):
+                    return parsed
+                errors.append(f"{endpoint}: invalid response")
+            except HTTPError as exc:
+                detail = exc.read(500).decode("utf-8", errors="replace")
+                errors.append(f"{endpoint}: HTTP {exc.code} {detail[:160]}")
+            except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+                errors.append(f"{endpoint}: {type(exc).__name__}")
+        raise RuntimeError("; ".join(errors)[:800] or "vision provider unavailable")
+
+    def _vision_endpoints(self, base_url: str) -> list[str]:
+        base = base_url.strip().rstrip("/")
+        if not base:
+            return ["https://api.openai.com/v1/chat/completions"]
+        if base.endswith("/chat/completions"):
+            return [base]
+        if base.endswith("/v1"):
+            return [f"{base}/chat/completions"]
+        return [f"{base}/v1/chat/completions", f"{base}/chat/completions"]
 
     def _image_fallback(
         self,
