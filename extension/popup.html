@@ -8,6 +8,7 @@
         <label>ValuSee 地址<input id="appUrl" type="url" placeholder="https://valusee.com" /></label>
         <label>登录邮箱<input id="email" type="email" autocomplete="username" /></label>
         <label>登录密码<input id="password" type="password" autocomplete="current-password" /></label>
+        <label>动态验证码（管理员开启 MFA 后必填）<input id="mfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="32" /></label>
         <button id="connect">连接账户</button><button id="disconnect" class="secondary">断开连接</button>
       </section>
       <section id="editor" hidden>
@@ -21,6 +22,7 @@
         <button id="capture">确认并发送</button>
       </section>
       <div id="preview">正在读取当前商品页...</div>
+      <button id="retry" class="secondary">重新识别当前页</button>
       <button id="open" class="secondary">打开 ValuSee</button><p id="status" role="status"></p>
     </main>
     <script src="popup.js"></script>

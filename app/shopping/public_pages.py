@@ -129,17 +129,17 @@ def parse_product_html(content: str, url: str) -> dict[str, Any]:
     brand = brand_value.get("name", "") if isinstance(brand_value, dict) else str(brand_value or "")
     image_value = product_data.get("image") or parser.meta.get("og:image", "")
     image_url = str(image_value[0] if isinstance(image_value, list) and image_value else image_value or "")
-    embedded_title = _embedded_string(content, ("itemTitle", "rawTitle", "shortTitle", "productTitle", "goodsName"))
+    embedded_title = _embedded_string(content, ("itemTitle", "rawTitle", "shortTitle", "productTitle", "skuName", "goodsName", "goods_name"))
     embedded_brand = _embedded_string(content, ("brandName", "brand"))
     embedded_model = _embedded_string(content, ("model", "productModel"))
-    embedded_sku = _embedded_string(content, ("skuId", "skuCode"))
+    embedded_sku = _embedded_string(content, ("skuId", "skuCode", "goodsId", "goods_id"))
     price = _number(
         offers.get("price")
         or offers.get("lowPrice")
         or product_data.get("price")
         or parser.meta.get("product:price:amount")
         or parser.meta.get("og:price:amount")
-        or _embedded_string(content, ("priceText", "salePrice", "promotionPrice"))
+        or _embedded_price(content, ("priceText", "salePrice", "promotionPrice", "jdPrice", "minGroupPrice", "minNormalPrice"))
     )
     title = str(product_data.get("name") or parser.meta.get("og:title") or embedded_title or parser.title).strip()
     if not _meaningful_title(title):
@@ -282,14 +282,40 @@ def _embedded_string(content: str, keys: tuple[str, ...]) -> str:
         content,
         flags=re.IGNORECASE,
     )
-    if not match:
-        return ""
-    value = match.group(1)
+    if match:
+        value = match.group(1)
+    else:
+        scalar = re.search(
+            rf'["\'](?:{alternatives})["\']\s*:\s*(\d{{1,100}})(?=\s*[,}}])',
+            content,
+            flags=re.IGNORECASE,
+        )
+        if not scalar:
+            return ""
+        value = scalar.group(1)
     try:
         value = json.loads(f'"{value}"')
     except (json.JSONDecodeError, TypeError):
         value = value.replace(r"\/", "/")
     return html.unescape(str(value)).strip()
+
+
+def _embedded_price(content: str, keys: tuple[str, ...]) -> float:
+    if not content:
+        return 0.0
+    for key in keys:
+        match = re.search(
+            rf'["\']{re.escape(key)}["\']\s*:\s*["\']?(\d+(?:\.\d{{1,2}})?)["\']?',
+            content,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        value = float(match.group(1))
+        if key.lower() in {"mingroupprice", "minnormalprice"} and value >= 1000:
+            return value / 100
+        return value
+    return 0.0
 
 
 def _meaningful_title(value: str) -> bool:

@@ -80,6 +80,36 @@ def test_embedded_commerce_state_is_used_when_json_ld_is_missing() -> None:
     assert result["specs"]["商品ID"] == "778899"
 
 
+def test_jd_page_config_is_used_when_product_dom_is_rendered_later() -> None:
+    content = """
+    <html><head><title>京东商品详情</title></head><body>
+    <script>window.pageConfig = {"product":{"skuid":100092233, "skuName":"联想 ThinkBook 14+ 笔记本电脑", "brandName":"Lenovo", "jdPrice":"5299.00"}};</script>
+    </body></html>
+    """
+
+    result = parse_product_html(content, "https://item.jd.com/100092233.html")
+
+    assert result["fetch_status"] == "parsed"
+    assert result["title"] == "联想 ThinkBook 14+ 笔记本电脑"
+    assert result["sku"] == "100092233"
+    assert result["price"] == 5299
+
+
+def test_pinduoduo_raw_data_cent_price_is_normalized() -> None:
+    content = """
+    <html><head><title>拼多多</title></head><body>
+    <script>window.rawData={"goods":{"goodsName":"石头扫地机器人 P20 Pro", "goodsId":66889900, "minGroupPrice":259900}};</script>
+    </body></html>
+    """
+
+    result = parse_product_html(content, "https://mobile.yangkeduo.com/goods.html?goods_id=66889900")
+
+    assert result["fetch_status"] == "parsed"
+    assert result["title"] == "石头扫地机器人 P20 Pro"
+    assert result["sku"] == "66889900"
+    assert result["price"] == 2599
+
+
 def test_generic_platform_shell_is_not_reported_as_a_parsed_product() -> None:
     result = parse_product_html(
         "<html><head><title>淘宝网 - 淘！我喜欢</title></head><body>登录后查看</body></html>",
@@ -117,7 +147,16 @@ def test_browser_extension_download_contains_installable_manifest() -> None:
         assert {"manifest.json", "background.js", "content.js", "popup.html", "popup.js", "popup.css"} <= names
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["manifest_version"] == 3
-        assert manifest["version"] == "0.2.0"
+        assert manifest["version"] == "0.3.0"
+        assert "scripting" in manifest["permissions"]
+        assert "https://api.valusee.com/*" in manifest["host_permissions"]
+        assert "https://*.yangkeduo.com/*" in manifest["host_permissions"]
+        popup = archive.read("popup.js").decode("utf-8")
+        content = archive.read("content.js").decode("utf-8")
+        assert "/api/v1/auth/me" in popup
+        assert "chrome.scripting.executeScript" in popup
+        assert "VALUSee_COLLECT_PRODUCT_V2" in popup
+        assert "VALUSee_COLLECT_PRODUCT_V2" in content
 
 
 def test_extension_price_is_persisted_only_after_final_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:

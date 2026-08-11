@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "ValuSee 见值",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "将当前商品页的可见价格和规格发送到 ValuSee，先确认再比较。",
-  "permissions": ["activeTab", "storage"],
+  "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
     "http://127.0.0.1:8200/*",
     "http://127.0.0.1:8000/*",
@@ -11,10 +11,13 @@
     "http://localhost:8000/*",
     "https://valusee.com/*",
     "https://www.valusee.com/*",
+    "https://api.valusee.com/*",
+    "https://valuesee-api.vercel.app/*",
     "https://*.jd.com/*",
     "https://*.taobao.com/*",
     "https://*.tmall.com/*",
-    "https://*.pinduoduo.com/*"
+    "https://*.pinduoduo.com/*",
+    "https://*.yangkeduo.com/*"
   ],
   "background": { "service_worker": "background.js" },
   "action": {
@@ -25,7 +28,7 @@
   "icons": { "128": "icons/icon128.png" },
   "content_scripts": [
     {
-      "matches": ["https://*.jd.com/*", "https://*.taobao.com/*", "https://*.tmall.com/*", "https://*.pinduoduo.com/*"],
+      "matches": ["https://*.jd.com/*", "https://*.taobao.com/*", "https://*.tmall.com/*", "https://*.pinduoduo.com/*", "https://*.yangkeduo.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
