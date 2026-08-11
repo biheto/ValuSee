@@ -9,7 +9,9 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
+import app.auth.service as auth_service
 import app.api.routes as routes
+from app.auth.service import AuthStore
 from app.main import app
 from app.shopping.public_pages import canonical_product_url, parse_product_html, validate_public_product_url
 from app.shopping.store import ShoppingStore
@@ -193,3 +195,35 @@ def test_extension_price_is_persisted_only_after_final_confirmation(monkeypatch:
         assert repeated.status_code == 200
         assert repeated.json()["confirmed_now"] is False
         assert store.price_history(str(corrected["url"]), user_id="local-user")["count"] == 1
+
+
+def test_extension_capture_accepts_a_fresh_login_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    accounts = AuthStore(tmp_path / "accounts.db")
+    captures = ShoppingStore(tmp_path / "captures.db")
+    accounts.register("extension@example.com", "strong-password", "Extension User", email_verified=True)
+    monkeypatch.setattr(routes, "auth_store", accounts)
+    monkeypatch.setattr(auth_service, "auth_store", accounts)
+    monkeypatch.setattr(routes, "shopping_store", captures)
+    client = TestClient(app)
+
+    login = client.post("/api/v1/auth/login", json={"email": "extension@example.com", "password": "strong-password"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+    rejected = client.post(
+        "/api/v1/shopping/extension/captures",
+        json={"product": product(), "source": "browser_extension_visible_page"},
+        headers={"Authorization": "Bearer expired-token"},
+    )
+    assert rejected.status_code == 401
+
+    created = client.post(
+        "/api/v1/shopping/extension/captures",
+        json={"product": product(), "source": "browser_extension_visible_page"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert created.status_code == 200
+    inbox = client.get("/api/v1/shopping/extension/captures", headers={"Authorization": f"Bearer {token}"})
+    assert inbox.status_code == 200
+    assert inbox.json()[0]["capture_id"] == created.json()["capture_id"]
