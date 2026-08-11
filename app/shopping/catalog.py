@@ -7,6 +7,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from app.core.database import connect_database
+from app.core.paths import resolve_runtime_path
 from app.harness.events import utc_now_iso
 
 
@@ -14,7 +15,7 @@ class CommerceCatalog:
     """Admin-owned canonical product/SKU records used to stabilize matching."""
 
     def __init__(self, db_path: str | Path = "data/valuesee.db"):
-        self.db_path = Path(db_path)
+        self.db_path = resolve_runtime_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._session() as conn:
             conn.execute("""CREATE TABLE IF NOT EXISTS commerce_catalog_product(

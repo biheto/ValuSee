@@ -13,13 +13,14 @@ from uuid import uuid4
 
 from app.harness.events import BEIJING_TIME_FORMAT, BEIJING_TZ, utc_now_iso
 from app.providers.llm_provider import llm_provider
+from app.core.paths import resolve_runtime_path
 
 
 class SQLiteMemoryStore:
     """Governed long-term memory candidates, separate from the RAG corpus."""
 
     def __init__(self, db_path: str | Path = "data/dev_agent_studio.db"):
-        self.db_path = Path(db_path)
+        self.db_path = resolve_runtime_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 

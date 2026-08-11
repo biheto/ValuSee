@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.core.paths import runtime_data_dir, runtime_root
+from app.core.paths import resolve_runtime_path, runtime_data_dir, runtime_root
 
 
 def test_runtime_root_uses_vercel_tmp(monkeypatch):
@@ -14,3 +14,15 @@ def test_configured_runtime_root_takes_precedence(monkeypatch, tmp_path):
     monkeypatch.setenv("VALUSee_DATA_DIR", str(tmp_path))
     assert runtime_root() == tmp_path.resolve()
     assert runtime_data_dir("uploads") == tmp_path.resolve() / "data" / "uploads"
+
+
+def test_relative_store_path_uses_vercel_runtime_root(monkeypatch):
+    monkeypatch.delenv("VALUSee_DATA_DIR", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    assert resolve_runtime_path("data/valuesee.db") == Path("/tmp/valuesee/data/valuesee.db")
+
+
+def test_absolute_store_path_is_preserved(monkeypatch, tmp_path):
+    monkeypatch.setenv("VERCEL", "1")
+    expected = tmp_path / "isolated.db"
+    assert resolve_runtime_path(expected) == expected

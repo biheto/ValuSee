@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from app.harness.events import utc_now_iso
+from app.core.paths import resolve_runtime_path
 
 
 class SQLiteTaskStore:
     def __init__(self, db_path: str | Path = "data/dev_agent_studio.db"):
-        self.db_path = Path(db_path)
+        self.db_path = resolve_runtime_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 

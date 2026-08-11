@@ -17,6 +17,7 @@ from uuid import uuid4
 from app.harness.events import utc_now_iso
 from app.core.database import connect_database, is_integrity_error
 from app.core.object_storage import delete_stored_object
+from app.core.paths import resolve_runtime_path
 
 
 def _b64(data: bytes) -> str:
@@ -29,7 +30,7 @@ def _unb64(value: str) -> bytes:
 
 class AuthStore:
     def __init__(self, db_path: str | Path = "data/valuesee.db"):
-        self.db_path = Path(db_path)
+        self.db_path = resolve_runtime_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 

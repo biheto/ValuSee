@@ -20,3 +20,10 @@ def runtime_data_dir(*parts: str) -> Path:
         path = path.joinpath(*parts)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def resolve_runtime_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return runtime_root() / candidate
