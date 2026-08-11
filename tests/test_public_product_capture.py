@@ -59,6 +59,38 @@ def test_structured_public_product_page_is_normalized() -> None:
     assert result["observation_status"] == "requires_confirmation"
 
 
+def test_embedded_commerce_state_is_used_when_json_ld_is_missing() -> None:
+    content = """
+    <html><head><title>淘宝商品详情</title></head><body>
+    <script>window.__ITEM_DATA__ = {
+      "itemTitle":"Sony WH-1000XM5 无线降噪耳机",
+      "brandName":"Sony","productModel":"WH-1000XM5",
+      "skuId":"XM5-BLACK","priceText":"2499.00"
+    };</script><div>商品详情</div></body></html>
+    """
+
+    result = parse_product_html(content, "https://item.taobao.com/item.htm?id=778899")
+
+    assert result["fetch_status"] == "parsed"
+    assert result["title"] == "Sony WH-1000XM5 无线降噪耳机"
+    assert result["brand"] == "Sony"
+    assert result["model"] == "WH-1000XM5"
+    assert result["sku"] == "XM5-BLACK"
+    assert result["price"] == 2499
+    assert result["specs"]["商品ID"] == "778899"
+
+
+def test_generic_platform_shell_is_not_reported_as_a_parsed_product() -> None:
+    result = parse_product_html(
+        "<html><head><title>淘宝网 - 淘！我喜欢</title></head><body>登录后查看</body></html>",
+        "https://item.taobao.com/item.htm?id=778899",
+    )
+
+    assert result["fetch_status"] == "blocked"
+    assert result["title"] == "来自 淘宝 的商品（待确认）"
+    assert result["price"] == 0
+
+
 def test_product_url_allowlist_rejects_credentials_and_lookalike_hosts() -> None:
     with pytest.raises(ValueError):
         validate_public_product_url("https://jd.com@127.0.0.1/private")

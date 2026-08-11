@@ -1,10 +1,17 @@
 import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
 import { apiUrl } from "./runtime";
 
 type Product = ConsumerProduct;
+type ParsedLink = {
+  product: Product;
+  message: string;
+  fetch_status: string;
+  fallback_actions: string[];
+};
+type LinkRecovery = ParsedLink & { submittedUrl: string };
 type Decision = {
   task_id: string;
   status: string;
@@ -188,6 +195,21 @@ const blank = (): Product => ({
   notes: "",
 });
 
+function parseSharedProductInput(value: string): { url: string; title: string } {
+  const trimmed = value.trim();
+  const match = trimmed.match(/https?:\/\/[^\s]+/i);
+  const url = String(match?.[0] || trimmed).replace(/[\])}>，。；;！!]+$/, "");
+  const quotedTitle = trimmed.match(/[「“\"]([^」”\"]{2,160})[」”\"]/)?.[1] || "";
+  return { url, title: quotedTitle.trim() };
+}
+
+function hasRecognizedProduct(product: Product): boolean {
+  const title = product.title.trim();
+  const meaningfulTitle = Boolean(title) && !/^来自\s.+的商品（待确认）$/.test(title);
+  const meaningfulSpecs = Object.keys(product.specs || {}).some((key) => key !== "商品ID");
+  return meaningfulTitle || product.price > 0 || Boolean(product.brand || product.model || product.sku || meaningfulSpecs);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const token = localStorage.getItem("valuesee-token");
@@ -261,6 +283,9 @@ export function App() {
     quiet_end: null,
   });
   const [url, setUrl] = useState("");
+  const linkRequestInFlight = useRef(false);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkRecovery, setLinkRecovery] = useState<LinkRecovery | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -426,20 +451,41 @@ export function App() {
   }
   async function addUrl(event: FormEvent) {
     event.preventDefault();
-    if (!url.trim()) return;
+    if (!url.trim() || linkRequestInFlight.current) return;
+    const submitted = parseSharedProductInput(url);
     setError("");
+    linkRequestInFlight.current = true;
+    setLinkLoading(true);
     try {
-      const data = await request<{ product: Product; message: string }>("/api/v1/shopping/parse-url", {
+      const data = await request<ParsedLink>("/api/v1/shopping/parse-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(submitted),
       });
-      setProducts((items) => [...items, data.product]);
+      if (!hasRecognizedProduct(data.product)) {
+        setLinkRecovery({ ...data, submittedUrl: submitted.url });
+        setMessage("");
+        return;
+      }
+      const duplicate = products.some((item) => item.url === data.product.url);
+      setProducts((items) => items.some((item) => item.url === data.product.url) ? items : [...items, data.product]);
+      setLinkRecovery(null);
       setUrl("");
-      setMessage(data.message);
+      setMessage(duplicate ? "该商品已经在候选清单中，没有重复添加。" : data.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "链接读取失败");
+    } finally {
+      linkRequestInFlight.current = false;
+      setLinkLoading(false);
     }
+  }
+  function addLinkManually() {
+    if (!linkRecovery) return;
+    setProducts((items) => items.some((item) => item.url === linkRecovery.product.url) ? items : [...items, linkRecovery.product]);
+    setLinkRecovery(null);
+    setUrl("");
+    setMessage("已加入手动补充区，请填写商品标题、规格与当前价格。");
+    window.setTimeout(() => document.getElementById("products")?.scrollIntoView({ behavior: "smooth" }), 0);
   }
   async function addImage(file: File) {
     const form = new FormData();
@@ -1103,14 +1149,29 @@ export function App() {
               </div>
               <form className="url-form" onSubmit={addUrl}>
                 <Link2 size={18} />
-                <input placeholder="粘贴淘宝、京东、拼多多商品链接" value={url} onChange={(e) => setUrl(e.target.value)} />
-                <button>读取链接</button>
+                <input placeholder="粘贴淘宝、京东、拼多多商品链接" value={url} onChange={(e) => { setUrl(e.target.value); setLinkRecovery(null); }} />
+                <button disabled={linkLoading}>{linkLoading ? <><Loader2 className="spin" size={15} />读取中</> : "读取链接"}</button>
                 <label className="upload-button">
                   <Upload size={16} />
                   识别截图
                   <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => e.target.files?.[0] && void addImage(e.target.files[0])} />
                 </label>
               </form>
+              {linkRecovery && (
+                <div className="link-recovery" role="status">
+                  <MessageSquareWarning size={20} />
+                  <div>
+                    <strong>{linkRecovery.product.platform || "电商平台"}公开页面没有返回可确认的商品信息</strong>
+                    <p>该页面可能要求登录、验证码或由浏览器动态加载。ValuSee 没有把空数据当成识别结果。</p>
+                    <span>{linkRecovery.submittedUrl}</span>
+                    <div className="link-recovery-actions">
+                      <a href={apiUrl("/api/v1/downloads/browser-extension")}><Download size={15} />安装扩展采集</a>
+                      <button type="button" onClick={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()}><Camera size={15} />上传截图</button>
+                      <button type="button" onClick={addLinkManually}><Plus size={15} />手动补充</button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="product-list">
                 {products.map((product, index) => (
                   <article className="product-editor" key={`${index}-${product.title}`}>

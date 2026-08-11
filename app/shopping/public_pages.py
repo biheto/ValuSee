@@ -24,6 +24,19 @@ ALLOWED_DOMAINS = {
     "yangkeduo.com": "拼多多",
 }
 BLOCK_MARKERS = ("验证码", "登录后查看", "访问过于频繁", "安全验证", "captcha", "verify you are human")
+GENERIC_TITLES = (
+    "淘宝网",
+    "淘宝",
+    "天猫",
+    "京东",
+    "拼多多",
+    "登录",
+    "安全验证",
+    "页面不存在",
+    "商品详情",
+    "商品页面",
+    "item details",
+)
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 PRODUCT_QUERY_KEYS = {"id", "item_id", "sku", "skuid", "goods_id", "goodsid"}
 
@@ -116,27 +129,38 @@ def parse_product_html(content: str, url: str) -> dict[str, Any]:
     brand = brand_value.get("name", "") if isinstance(brand_value, dict) else str(brand_value or "")
     image_value = product_data.get("image") or parser.meta.get("og:image", "")
     image_url = str(image_value[0] if isinstance(image_value, list) and image_value else image_value or "")
+    embedded_title = _embedded_string(content, ("itemTitle", "rawTitle", "shortTitle", "productTitle", "goodsName"))
+    embedded_brand = _embedded_string(content, ("brandName", "brand"))
+    embedded_model = _embedded_string(content, ("model", "productModel"))
+    embedded_sku = _embedded_string(content, ("skuId", "skuCode"))
     price = _number(
         offers.get("price")
         or offers.get("lowPrice")
         or product_data.get("price")
         or parser.meta.get("product:price:amount")
         or parser.meta.get("og:price:amount")
+        or _embedded_string(content, ("priceText", "salePrice", "promotionPrice"))
     )
-    title = str(product_data.get("name") or parser.meta.get("og:title") or parser.title).strip()
+    title = str(product_data.get("name") or parser.meta.get("og:title") or embedded_title or parser.title).strip()
+    if not _meaningful_title(title):
+        title = ""
     description = str(product_data.get("description") or parser.meta.get("og:description") or "").strip()
     specs = _additional_properties(product_data.get("additionalProperty"))
-    page_text = " ".join(parser.visible_text).lower()
+    item_id = _product_identity(url)
+    if item_id and "商品ID" not in specs:
+        specs["商品ID"] = item_id
+    page_text = f"{' '.join(parser.visible_text)} {parser.title}".lower()
     blocked = any(marker.lower() in page_text for marker in BLOCK_MARKERS)
-    status = "blocked" if blocked else "parsed" if title and (price or product_data) else "public_partial"
+    has_product_fields = bool(title or price or brand or embedded_brand or embedded_model or embedded_sku)
+    status = "blocked" if blocked and not has_product_fields else "parsed" if title and (price or product_data) else "public_partial"
     return {
         "title": html.unescape(title)[:200] or f"来自 {platform_for_url(url)} 的商品（待确认）",
         "category": "unknown",
         "platform": platform_for_url(url),
         "url": url,
-        "brand": brand[:80],
-        "model": str(product_data.get("model") or product_data.get("mpn") or "")[:100],
-        "sku": str(product_data.get("sku") or "")[:100],
+        "brand": str(brand or embedded_brand)[:80],
+        "model": str(product_data.get("model") or product_data.get("mpn") or embedded_model)[:100],
+        "sku": str(product_data.get("sku") or embedded_sku)[:100],
         "specs": specs,
         "price": price,
         "coupon": 0.0,
@@ -174,7 +198,9 @@ def fetch_public_product(url: str) -> dict[str, Any]:
         headers={
             "Accept": "text/html,application/xhtml+xml",
             "Accept-Encoding": "identity",
-            "User-Agent": "ValuSee/0.1 (+https://valusee.com; user-requested product lookup)",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
+            "Cache-Control": "no-cache",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
         },
     )
     try:
@@ -245,3 +271,43 @@ def _additional_properties(value: Any) -> dict[str, str]:
 def _number(value: Any) -> float:
     match = re.search(r"\d+(?:\.\d{1,2})?", str(value or "").replace(",", ""))
     return float(match.group(0)) if match else 0.0
+
+
+def _embedded_string(content: str, keys: tuple[str, ...]) -> str:
+    if not content:
+        return ""
+    alternatives = "|".join(re.escape(key) for key in keys)
+    match = re.search(
+        rf'["\'](?:{alternatives})["\']\s*:\s*["\']((?:\\.|[^"\'\\]){{1,500}})["\']',
+        content,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    value = match.group(1)
+    try:
+        value = json.loads(f'"{value}"')
+    except (json.JSONDecodeError, TypeError):
+        value = value.replace(r"\/", "/")
+    return html.unescape(str(value)).strip()
+
+
+def _meaningful_title(value: str) -> bool:
+    normalized = " ".join(html.unescape(value).split()).strip(" -_|·")
+    if len(normalized) < 4:
+        return False
+    lowered = normalized.lower()
+    return not any(lowered == item.lower() or lowered.startswith(f"{item.lower()} -") for item in GENERIC_TITLES)
+
+
+def _product_identity(url: str) -> str:
+    parsed = urlparse(url)
+    query = {key.lower(): value for key, value in parse_qsl(parsed.query)}
+    for key in ("id", "item_id", "goods_id", "goodsid"):
+        if query.get(key):
+            return query[key][:100]
+    if platform_for_url(url) == "京东":
+        match = re.search(r"/(\d{5,})(?:\.html)?$", parsed.path)
+        if match:
+            return match.group(1)
+    return ""

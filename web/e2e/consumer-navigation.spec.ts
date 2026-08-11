@@ -125,3 +125,36 @@ test('product acquisition exposes working link, extension, and screenshot paths'
   const chooser = await chooserPromise;
   expect(chooser.isMultiple()).toBe(false);
 });
+
+test('an unreadable commerce page shows recovery actions instead of an empty candidate', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'covered once on desktop');
+  let requestCount = 0;
+  await page.route('**/api/v1/shopping/parse-url', async (route) => {
+    requestCount += 1;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        product: {
+          title: '来自 淘宝 的商品（待确认）', platform: '淘宝', url: 'https://item.taobao.com/item.htm?id=778899',
+          brand: '', model: '', sku: '', specs: { 商品ID: '778899' }, price: 0, coupon: 0,
+          platform_discount: 0, member_discount: 0, subsidy: 0, pay_discount: 0, shipping: 0,
+          gift_value: 0, official_store: false,
+        },
+        message: '公开页面未返回完整商品信息，请使用浏览器扩展、截图 OCR 或手动补充。',
+        fetch_status: 'blocked', fallback_actions: ['browser_extension', 'screenshot_ocr', 'manual_confirmation'],
+      }),
+    });
+  });
+  await page.goto('/?view=analyze');
+  const input = page.getByPlaceholder('粘贴淘宝、京东、拼多多商品链接');
+  await input.fill('https://item.taobao.com/item.htm?id=778899');
+  await page.getByRole('button', { name: '读取链接' }).click({ clickCount: 2 });
+
+  await expect(page.getByText('淘宝公开页面没有返回可确认的商品信息')).toBeVisible();
+  await expect(page.locator('.product-editor')).toHaveCount(0);
+  expect(requestCount).toBe(1);
+  await expect(page.getByRole('link', { name: '安装扩展采集' })).toBeVisible();
+  await page.getByRole('button', { name: '手动补充' }).click();
+  await expect(page.locator('.product-editor')).toHaveCount(1);
+});
