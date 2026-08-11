@@ -156,6 +156,7 @@ def test_browser_extension_download_contains_installable_manifest() -> None:
         popup = archive.read("popup.js").decode("utf-8")
         content = archive.read("content.js").decode("utf-8")
         assert "/api/v1/auth/me" in popup
+        assert "apiCandidatesFor" in popup
         assert "chrome.scripting.executeScript" in popup
         assert "VALUSee_COLLECT_PRODUCT_V2" in popup
         assert "VALUSee_COLLECT_PRODUCT_V2" in content

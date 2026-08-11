@@ -1,5 +1,5 @@
 let product = null;
-let config = { appUrl: 'https://valusee.com', accessToken: '', accountEmail: '' };
+let config = { appUrl: 'https://valusee.com', apiUrl: '', accessToken: '', accountEmail: '' };
 const byId = (id) => document.getElementById(id);
 const supportedHosts = ['jd.com', 'taobao.com', 'tmall.com', 'pinduoduo.com', 'yangkeduo.com'];
 
@@ -31,14 +31,14 @@ async function connect() {
   setBusy('connect', true);
   setStatus('正在验证账户...');
   try {
-    const response = await fetch(`${apiBaseFor(appUrl)}/api/v1/auth/login`, {
+    const { response, baseUrl } = await fetchApi('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, mfa_code: mfaCode }),
-    });
+    }, appUrl, '');
     if (!response.ok) throw new Error(await responseMessage(response));
     const data = await response.json();
-    config = { appUrl, accessToken: data.access_token, accountEmail: data.user?.email || email };
+    config = { appUrl, apiUrl: baseUrl, accessToken: data.access_token, accountEmail: data.user?.email || email };
     await chrome.storage.local.set(config);
     byId('password').value = '';
     byId('mfaCode').value = '';
@@ -65,7 +65,7 @@ async function validateSession() {
   }
   updateConnection(null);
   try {
-    const response = await fetch(`${apiBaseFor(config.appUrl)}/api/v1/auth/me`, {
+    const { response, baseUrl } = await fetchApi('/api/v1/auth/me', {
       headers: { Authorization: `Bearer ${config.accessToken}` },
     });
     if (!response.ok) {
@@ -74,8 +74,9 @@ async function validateSession() {
       return false;
     }
     const data = await response.json();
+    config.apiUrl = baseUrl;
     config.accountEmail = data.user?.email || config.accountEmail;
-    await chrome.storage.local.set({ accountEmail: config.accountEmail });
+    await chrome.storage.local.set({ apiUrl: config.apiUrl, accountEmail: config.accountEmail });
     updateConnection(true);
     return true;
   } catch (error) {
@@ -149,9 +150,11 @@ async function sendCapture() {
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (config.accessToken) headers.Authorization = `Bearer ${config.accessToken}`;
-    const response = await fetch(`${apiBaseFor(config.appUrl)}/api/v1/shopping/extension/captures`, {
+    const { response, baseUrl } = await fetchApi('/api/v1/shopping/extension/captures', {
       method: 'POST', headers, body: JSON.stringify({ product, source: 'browser_extension_visible_page', captured_at: new Date().toISOString() }),
     });
+    config.apiUrl = baseUrl;
+    await chrome.storage.local.set({ apiUrl: baseUrl });
     if (response.status === 401) {
       const message = await responseMessage(response);
       await clearSession();
@@ -180,10 +183,24 @@ function isSupportedUrl(value) {
   } catch { return false; }
 }
 
-function apiBaseFor(appUrl) {
+function apiCandidatesFor(appUrl, preferred = config.apiUrl) {
   const origin = normalizedAppUrl(appUrl);
   const host = new URL(origin).hostname.toLowerCase();
-  return host === 'valusee.com' || host === 'www.valusee.com' ? 'https://api.valusee.com' : origin;
+  const values = host === 'valusee.com' || host === 'www.valusee.com' ? [preferred, 'https://api.valusee.com', origin] : [preferred, origin];
+  return values.filter((value, index) => value && values.indexOf(value) === index);
+}
+
+async function fetchApi(path, options, appUrl = config.appUrl, preferred = config.apiUrl) {
+  let lastError;
+  const candidates = apiCandidatesFor(appUrl, preferred);
+  for (const [index, baseUrl] of candidates.entries()) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`, options);
+      if (response.status < 500 || index === candidates.length - 1) return { response, baseUrl };
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) { lastError = error; }
+  }
+  throw lastError || new Error('ValuSee API 暂时无法连接');
 }
 
 function normalizedAppUrl(value) {
