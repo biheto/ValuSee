@@ -153,6 +153,23 @@ def test_admin_api_requires_mfa_after_enrollment(monkeypatch, tmp_path):
     assert disabled.status_code == 200 and disabled.json()["enabled"] is False
 
 
+def test_llm_traces_are_visible_only_to_admins(monkeypatch, tmp_path):
+    store = AuthStore(tmp_path / "trace-admin.db")
+    admin = store.register("trace-admin@example.com", "strong-password", "Trace Admin")
+    buyer = store.register("buyer@example.com", "strong-password", "Buyer")
+    admin_token = store.create_session(admin["user_id"])
+    buyer_token = store.create_session(buyer["user_id"])
+    monkeypatch.setenv("VALUSee_ADMIN_EMAILS", admin["email"])
+    monkeypatch.setattr("app.api.routes.auth_store", store)
+    monkeypatch.setattr("app.auth.service.auth_store", store)
+    monkeypatch.setattr("app.api.routes.settings.app_env", "production")
+    client = TestClient(app)
+
+    assert client.get("/api/v1/llm/traces").status_code == 401
+    assert client.get("/api/v1/llm/traces", headers={"Authorization": f"Bearer {buyer_token}"}).status_code == 403
+    assert client.get("/api/v1/llm/traces", headers={"Authorization": f"Bearer {admin_token}"}).status_code == 200
+
+
 def test_free_plan_entitlements_are_enforced_against_real_usage():
     with TemporaryDirectory() as tmp:
         store = AuthStore(Path(tmp) / "auth.db")

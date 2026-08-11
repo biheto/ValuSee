@@ -2335,8 +2335,13 @@ def get_llm_status() -> dict[str, object]:
 
 
 @router.get("/llm/traces", tags=["LLM Provider"])
-def list_llm_traces(limit: int = 50, agent: str | None = None) -> dict[str, object]:
-    return {"traces": task_store.list_llm_traces(limit=limit, agent=agent)}
+def list_llm_traces(
+    limit: int = 50,
+    agent: str | None = None,
+    authorization: str | None = Header(default=None),
+) -> dict[str, object]:
+    _require_admin(authorization)
+    return {"traces": task_store.list_llm_traces(limit=max(1, min(limit, 500)), agent=agent)}
 
 
 @router.get("/llm/prompts", tags=["LLM Provider"])
