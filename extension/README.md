@@ -9,4 +9,4 @@
 
 The extension only reads the product page the user is currently viewing. It does not crawl search results or bypass login/captcha controls. Captured fields enter a `pending_confirmation` inbox; a price snapshot is persisted only after final confirmation in ValuSee.
 
-After updating the unpacked extension, click **Reload** on the browser extension management page. Version 0.3 can inject its collector into an already-open product tab, validates saved sessions against the API, and reports missing title, price, or SKU fields separately.
+After updating the unpacked extension, click **Reload** on the browser extension management page. Version 0.4 can inject its collector into an already-open product tab, validates saved sessions against the API, and reports missing title, price, or SKU fields separately. It ranks title candidates to reject review and sales labels, prefers visible after-coupon/effective prices on Taobao and Tmall, records the original price without double-counting discounts, and normalizes selected variants and store names.

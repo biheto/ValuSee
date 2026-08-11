@@ -1,6 +1,6 @@
 (() => {
-  if (window.__VALUSeeCollectorV2) return;
-  window.__VALUSeeCollectorV2 = true;
+  if (window.__VALUSeeCollectorV3) return;
+  window.__VALUSeeCollectorV3 = true;
 
   const clean = (value) => String(value || '').trim().replace(/\s+/g, ' ');
   const firstText = (selectors) => {
@@ -11,6 +11,29 @@
     }
     return '';
   };
+  const bestTitle = (structuredTitle, embeddedTitle, selectors) => {
+    const candidates = [];
+    const add = (raw, score, node = null) => {
+      const value = clean(raw).replace(/\s*[-_|·]\s*(?:淘宝网?|天猫|京东|拼多多)\s*$/i, '');
+      if (value.length < 5 || value.length > 200) return;
+      if (/用户评价|宝贝评价|累计评价|全部评价|已售\s*\d|多人评价|加购|购物车|收藏夹|免费开店|帮助中心|搜索本店|搜索$|网页无障碍/i.test(value)) return;
+      if (/^(?:淘宝网?|天猫|京东|拼多多|商品详情|店铺首页)$/i.test(value)) return;
+      let finalScore = score + Math.min(value.length, 100) / 12;
+      if (node?.matches?.('h1')) finalScore += 20;
+      const className = String(node?.className || '');
+      if (/mainTitle|itemTitle|productTitle|goodsName/i.test(className)) finalScore += 8;
+      candidates.push({ value, score: finalScore });
+    };
+    add(structuredTitle, 40);
+    add(embeddedTitle, 24);
+    selectors.forEach((selector, index) => {
+      document.querySelectorAll(selector).forEach((node, nodeIndex) => {
+        if (nodeIndex < 40) add(node.getAttribute('content') || node.textContent, Math.max(2, 14 - index * 0.5), node);
+      });
+    });
+    add(document.title, 1);
+    return candidates.sort((left, right) => right.score - left.score)[0]?.value || '';
+  };
   const number = (value) => {
     const matches = clean(value).replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/g);
     if (!matches?.length) return 0;
@@ -19,6 +42,14 @@
   const firstNumber = (value) => {
     const match = clean(value).replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/);
     return match ? Number(match[0]) : 0;
+  };
+  const labeledNumber = (value, labels) => {
+    const normalized = clean(value).replace(/,/g, '');
+    for (const label of labels) {
+      const match = normalized.match(new RegExp(`(?:${label})\\s*(?:约|低至)?\\s*[¥￥]?\\s*(\\d+(?:\\.\\d{1,2})?)`, 'i'));
+      if (match) return Number(match[1]);
+    }
+    return 0;
   };
   const host = location.hostname.toLowerCase();
   const platform = () => {
@@ -108,14 +139,22 @@
       '[class*="SkuItem"][class*="selected"]', '[class*="SkuItem"][class*="active"]',
       '[class*="sku"][class*="selected"]', '[class*="sku"][class*="active"]',
       '[class*="spec"][class*="selected"]', '[class*="spec"][class*="active"]',
+      '[class*="sku" i][class*="selected" i]', '[class*="sku" i][class*="active" i]',
+      '[class*="sku" i][class*="checked" i]', '[class*="valueItem" i][class*="active" i]',
+      '[class*="valueItem" i][class*="selected" i]',
     ];
     document.querySelectorAll(selectors.join(',')).forEach((node) => {
       const value = node.getAttribute('title') || node.getAttribute('aria-label') || node.textContent;
-      const normalized = clean(value);
-      if (normalized && normalized.length <= 80 && !values.includes(normalized)) values.push(normalized);
+      const normalized = clean(value).replace(/千人加购|已选中?|当前选择/gi, '').trim();
+      if (normalized && normalized.length <= 80 && !/^(?:颜色分类|尺码|规格)$/.test(normalized) && !values.includes(normalized)) values.push(normalized);
     });
     return values.slice(0, 8).join(' / ');
   };
+  const storeName = (value) => clean(value)
+    .split(/(?:·|\||丨)?\s*\d+(?:\.\d+)?\s*VIP|好评率|平均\s*\d|客服满意度|粉丝\s*\d/i)[0]
+    .replace(/\s*(?:客服|进店)\s*$/g, '')
+    .trim()
+    .slice(0, 100);
   const specifications = () => {
     const specs = {};
     const add = (key, value) => {
@@ -161,32 +200,46 @@
     const structured = productJson();
     const offers = structured.offers && !Array.isArray(structured.offers) ? structured.offers : {};
     const embeddedTitle = embeddedString(source, ['itemTitle', 'rawTitle', 'shortTitle', 'productTitle', 'skuName', 'goodsName', 'goods_name']);
-    const title = clean(structured.name || firstText(selectors.title) || embeddedTitle);
+    const title = bestTitle(structured.name, embeddedTitle, selectors.title);
+    const bodyText = document.body?.innerText?.slice(0, 200000) || '';
+    const priceContextText = firstText([
+      '[class*="Price--root"]', '[class*="Price--priceWrapper"]', '[class*="priceWrap"]',
+      '[class*="price-panel"]', '.summary-price', '.tb-property-cont',
+    ]);
     const pagePrice = firstNumber(firstText(selectors.price));
     const statePrice = embeddedNumber(source, ['priceText', 'salePrice', 'promotionPrice', 'jdPrice', 'minGroupPrice', 'minNormalPrice']);
+    const effectivePrice = /^(?:淘宝|天猫)$/.test(platform())
+      ? labeledNumber(priceContextText, ['券后', '到手价?', '折后', '活动价', '促销价'])
+        || labeledNumber(bodyText, ['券后', '到手价?', '折后', '活动价', '促销价'])
+      : 0;
+    const originalPrice = labeledNumber(priceContextText, ['优惠前', '原价', '划线价'])
+      || labeledNumber(bodyText, ['优惠前', '原价', '划线价']);
     const memberPriceText = firstText(['[class*=memberPrice]', '[class*=vipPrice]', '[class*=plus-price]', '[class*=Price][class*=member]']);
     const couponText = firstText(['[class*=coupon] [class*=price]', '[class*=Coupon] [class*=amount]', '.quan-item .text', '[class*=discountCoupon]']);
     const discountText = firstText(['[class*=promotion] [class*=price]', '[class*=Promotion] [class*=amount]', '.prom-item', '[class*=fullReduction]']);
     const imageValue = Array.isArray(structured.image) ? structured.image[0] : structured.image;
     const imageNode = selectors.image.map((selector) => document.querySelector(selector)).find(Boolean);
     const imageUrl = imageValue || imageNode?.getAttribute('content') || imageNode?.currentSrc || imageNode?.src || '';
-    const bodyText = document.body?.innerText?.slice(0, 200000) || '';
-    const price = pagePrice || firstNumber(offers.price || offers.lowPrice || structured.price) || statePrice;
+    const price = effectivePrice || pagePrice || firstNumber(offers.price || offers.lowPrice || structured.price) || statePrice;
     const memberPrice = firstNumber(memberPriceText);
     const sku = clean(structured.sku || embeddedString(source, ['skuId', 'skuCode', 'goodsId', 'goods_id']) || identity());
+    const specs = specifications();
+    if (effectivePrice) specs['价格口径'] = '页面券后/到手价，已包含页面展示优惠';
+    if (originalPrice > price) specs['优惠前价格'] = originalPrice;
+    const includedDiscounts = effectivePrice > 0;
     const result = {
       title: title.slice(0, 200), category: 'unknown', platform: platform(), url: canonicalUrl(),
       brand: typeof structured.brand === 'object' ? clean(structured.brand?.name) : clean(structured.brand || embeddedString(source, ['brandName'])),
       model: clean(structured.model || structured.mpn || embeddedString(source, ['productModel', 'model'])),
-      sku: sku.slice(0, 100), specs: specifications(), price,
-      coupon: number(couponText), platform_discount: number(discountText), member_discount: memberPrice > 0 && price > memberPrice ? price - memberPrice : 0,
+      sku: sku.slice(0, 100), specs, price,
+      coupon: includedDiscounts ? 0 : number(couponText), platform_discount: includedDiscounts ? 0 : number(discountText), member_discount: includedDiscounts ? 0 : memberPrice > 0 && price > memberPrice ? price - memberPrice : 0,
       subsidy: 0, pay_discount: 0, shipping: 0, gift_value: 0, condition: /二手|翻新|拆封/.test(bodyText) ? 'used_or_refurbished' : 'new',
       official_store: /官方旗舰|官方店|京东自营|品牌直营/.test(bodyText), return_days: 7,
-      warranty_months: 12, store_name: clean(offers.seller?.name || firstText(selectors.store)), image_url: String(imageUrl).slice(0, 1000),
+      warranty_months: 12, store_name: storeName(offers.seller?.name || firstText(selectors.store)), image_url: String(imageUrl).slice(0, 1000),
       selected_variant: selectedVariant(), region: firstText(selectors.region) || 'unknown',
       membership: memberPriceText ? '页面显示会员条件' : 'unknown', observation_status: 'requires_confirmation',
-      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.3.0' },
-      notes: '由 ValuSee 扩展读取当前可见页面；发送前请确认 SKU、地区、会员资格、优惠和价格。',
+      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.0', price_basis: effectivePrice ? 'visible_effective_price' : 'visible_page_price' },
+      notes: `由 ValuSee 扩展读取当前可见页面；${effectivePrice ? '当前价格采用页面券后/到手价，不再重复扣减页面优惠；' : ''}发送前请确认 SKU、地区、会员资格、优惠和价格。`,
     };
     const missing = [];
     if (!result.title || /^(京东|淘宝网?|天猫|拼多多)(\s*[-_|·].*)?$/.test(result.title)) missing.push('商品标题');
@@ -196,8 +249,8 @@
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.3.0' });
-    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
+    if (message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.0' });
+    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
       try { sendResponse({ ok: true, ...collect() }); }
       catch (error) { sendResponse({ ok: false, error: `页面读取失败：${error.message}` }); }
     }

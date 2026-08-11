@@ -9,6 +9,8 @@ type Capture = {
     price: number;
     sku: string;
     selected_variant: string;
+    store_name: string;
+    specs: Record<string, string | number>;
   };
   diagnostics: { missing: string[] };
 };
@@ -32,7 +34,7 @@ async function captureFixture(page: import('@playwright/test').Page, url: string
   return page.evaluate(() => {
     const target = window as typeof window & { __valueseeListener?: (...args: unknown[]) => void };
     let captured: Capture | undefined;
-    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V2' }, {}, (response: Capture) => { captured = response; });
+    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V3' }, {}, (response: Capture) => { captured = response; });
     if (!captured) throw new Error('collector did not respond');
     return captured;
   });
@@ -63,6 +65,33 @@ test('collects Taobao rendered price and embedded SKU', async ({ page }) => {
     </body></html>`);
 
   expect(result.product).toMatchObject({ platform: '淘宝', price: 2499, sku: 'XM5-BLACK', selected_variant: '黑色' });
+  expect(result.diagnostics.missing).toEqual([]);
+});
+
+test('collects Taobao effective price and ignores review-title noise', async ({ page }) => {
+  const result = await captureFixture(page, 'https://item.taobao.com/item.htm?id=5807786724999', `
+    <html><head><title>小个子工装牛仔背带裤女宽松慵懒风 - 淘宝</title></head><body>
+      <div class="ItemTitle--commentSummary">用户评价·400+</div>
+      <h1 class="ItemHeader--mainTitle">小个子工装牛仔背带裤短裤女宽松慵懒风可爱减龄学生2026新款夏日</h1>
+      <section class="Price--root">
+        <span class="Price--priceText">优惠前 ¥98</span>
+        <strong>券后 ¥83.26</strong>
+        <span>官方立减12%省11.8元</span><span>淘金币已抵2.94元</span>
+      </section>
+      <div class="ShopHeader--root"><a class="ShopHeader--title">WAN 小婉女装·4.988VIP好评率95%平均13小时发货客服满意度95%</a></div>
+      <section class="SkuContent--root"><span>颜色分类</span><button class="SkuContent--valueItem SkuContent--valueItemActive">千人加购 牛仔蓝 优质现货</button></section>
+      <script>window.__ITEM_DATA__={"skuId":"5807786724999"};</script>
+    </body></html>`);
+
+  expect(result.product).toMatchObject({
+    platform: '淘宝',
+    title: '小个子工装牛仔背带裤短裤女宽松慵懒风可爱减龄学生2026新款夏日',
+    price: 83.26,
+    sku: '5807786724999',
+    selected_variant: '牛仔蓝 优质现货',
+    store_name: 'WAN 小婉女装',
+  });
+  expect(result.product.specs).toMatchObject({ 价格口径: '页面券后/到手价，已包含页面展示优惠', 优惠前价格: 98 });
   expect(result.diagnostics.missing).toEqual([]);
 });
 
