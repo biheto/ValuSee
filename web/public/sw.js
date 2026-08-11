@@ -1,4 +1,4 @@
-const CACHE_NAME = 'valuesee-shell-v1';
+const CACHE_NAME = 'valuesee-shell-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/brand/icon-192.png', '/brand/icon-512.png'];
 
 self.addEventListener('install', (event) => {
