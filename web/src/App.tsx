@@ -205,9 +205,11 @@ function parseSharedProductInput(value: string): { url: string; title: string } 
 
 function hasRecognizedProduct(product: Product): boolean {
   const title = product.title.trim();
-  const meaningfulTitle = Boolean(title) && !/^来自\s.+的商品（待确认）$/.test(title);
+  const normalizedTitle = title.toLowerCase().replace(/[\s|·_\-:：]+/g, "");
+  const genericTitles = new Set(["pind", "pdd", "pinduoduo", "goods", "item", "jd", "jd.com", "商品详情", "商品页面"]);
+  const meaningfulTitle = Boolean(title) && !/^来自\s.+的商品（待确认）$/.test(title) && !genericTitles.has(normalizedTitle);
   const meaningfulSpecs = Object.keys(product.specs || {}).some((key) => key !== "商品ID");
-  return meaningfulTitle || product.price > 0 || Boolean(product.brand || product.model || product.sku || meaningfulSpecs);
+  return meaningfulTitle && (product.price > 0 || Boolean(product.brand || product.model || product.sku || meaningfulSpecs));
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -462,7 +464,7 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(submitted),
       });
-      if (!hasRecognizedProduct(data.product)) {
+      if (data.fetch_status !== "parsed" || !hasRecognizedProduct(data.product)) {
         setLinkRecovery({ ...data, submittedUrl: submitted.url });
         setMessage("");
         return;

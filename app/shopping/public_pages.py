@@ -36,9 +36,20 @@ GENERIC_TITLES = (
     "商品详情",
     "商品页面",
     "item details",
+    "pind",
+    "pdd",
+    "pinduoduo",
+    "goods",
+    "item",
+    "jd",
+    "jd.com",
+    "登录后查看",
+    "登录/注册",
+    "拼多多批发首页",
+    "拼多多批发",
 )
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
-PRODUCT_QUERY_KEYS = {"id", "item_id", "sku", "skuid", "goods_id", "goodsid"}
+PRODUCT_QUERY_KEYS = {"id", "item_id", "sku", "skuid", "goods_id", "goodsid", "gid"}
 
 
 class ProductPageParser(HTMLParser):
@@ -141,7 +152,14 @@ def parse_product_html(content: str, url: str) -> dict[str, Any]:
         or parser.meta.get("og:price:amount")
         or _embedded_price(content, ("priceText", "salePrice", "promotionPrice", "jdPrice", "minGroupPrice", "minNormalPrice"))
     )
-    title = str(product_data.get("name") or parser.meta.get("og:title") or embedded_title or parser.title).strip()
+    title = _best_public_title(
+        product_data.get("name"),
+        embedded_title,
+        parser.meta.get("og:title"),
+        parser.meta.get("twitter:title"),
+        parser.title,
+        *parser.visible_text,
+    )
     if not _meaningful_title(title):
         title = ""
     description = str(product_data.get("description") or parser.meta.get("og:description") or "").strip()
@@ -323,13 +341,36 @@ def _meaningful_title(value: str) -> bool:
     if len(normalized) < 4:
         return False
     lowered = normalized.lower()
-    return not any(lowered == item.lower() or lowered.startswith(f"{item.lower()} -") for item in GENERIC_TITLES)
+    if re.search(r"登录|注册|验证码|安全验证|购物车|首页|我是供货商|用户评价|商品评价", normalized, re.IGNORECASE):
+        return False
+    compact = re.sub(r"[\s|·_\-:：]+", "", lowered)
+    return not any(
+        lowered == item.lower()
+        or lowered.startswith(f"{item.lower()} -")
+        or compact == re.sub(r"[\s|·_\-:：]+", "", item.lower())
+        for item in GENERIC_TITLES
+    )
+
+
+def _best_public_title(*values: Any) -> str:
+    candidates: list[tuple[float, str]] = []
+    for index, raw in enumerate(values):
+        value = " ".join(html.unescape(str(raw or "")).split()).strip(" -_|·")
+        if not _meaningful_title(value) or len(value) > 200:
+            continue
+        score = 50 - index * 2 + min(len(value), 100) / 20
+        if re.search(r"用户评价|商品评价|累计评价|已售|月销|购物车|登录|验证码|安全验证", value, re.IGNORECASE):
+            score -= 35
+        if re.search(r"[\u4e00-\u9fff]|[A-Za-z]{2,}", value):
+            score += 5
+        candidates.append((score, value))
+    return max(candidates, default=(0, ""))[1]
 
 
 def _product_identity(url: str) -> str:
     parsed = urlparse(url)
     query = {key.lower(): value for key, value in parse_qsl(parsed.query)}
-    for key in ("id", "item_id", "goods_id", "goodsid"):
+    for key in ("id", "item_id", "goods_id", "goodsid", "gid"):
         if query.get(key):
             return query[key][:100]
     if platform_for_url(url) == "京东":

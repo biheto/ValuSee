@@ -34,7 +34,7 @@ async function captureFixture(page: import('@playwright/test').Page, url: string
   return page.evaluate(() => {
     const target = window as typeof window & { __valueseeListener?: (...args: unknown[]) => void };
     let captured: Capture | undefined;
-    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V5' }, {}, (response: Capture) => { captured = response; });
+    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V6' }, {}, (response: Capture) => { captured = response; });
     if (!captured) throw new Error('collector did not respond');
     return captured;
   });
@@ -52,6 +52,21 @@ test('collects the visible JD product and selected SKU', async ({ page }) => {
 
   expect(result.ok).toBeTruthy();
   expect(result.product).toMatchObject({ platform: '京东', title: '联想 ThinkBook 14+ 笔记本电脑', price: 5299, sku: '100092233', selected_variant: '32GB / 1TB' });
+  expect(result.diagnostics.missing).toEqual([]);
+});
+
+test('prefers JD product identity and price state over navigation noise', async ({ page }) => {
+  const result = await captureFixture(page, 'https://item.jd.com/100077788.html', `
+    <html><body>
+      <nav>商品详情 规格参数 售后保障 用户评价 400+</nav>
+      <h1 class="sku-name">华为 MateBook GT 14 游戏本 32GB 1TB</h1>
+      <div class="summary-price"><span class="price">7999.00</span></div>
+      <div>京东价 7499.00</div><div id="shop-name">华为京东自营旗舰店</div>
+      <button class="sku-item selected" title="32GB / 1TB">32GB / 1TB</button>
+      <script>window.pageConfig={"product":{"skuid":100077788,"jdPrice":"7499.00"}};</script>
+    </body></html>`);
+
+  expect(result.product).toMatchObject({ platform: '京东', title: '华为 MateBook GT 14 游戏本 32GB 1TB', price: 7499, sku: '100077788', selected_variant: '32GB / 1TB' });
   expect(result.diagnostics.missing).toEqual([]);
 });
 

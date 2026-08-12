@@ -1,6 +1,6 @@
 (() => {
-  if (window.__VALUSeeCollectorV5) return;
-  window.__VALUSeeCollectorV5 = true;
+  if (window.__VALUSeeCollectorV6) return;
+  window.__VALUSeeCollectorV6 = true;
 
   const clean = (value) => String(value || '').trim().replace(/\s+/g, ' ');
   const firstText = (selectors) => {
@@ -16,7 +16,7 @@
     const add = (raw, score, node = null) => {
       const value = clean(raw).replace(/\s*[-_|·]\s*(?:淘宝网?|天猫|京东|拼多多)\s*$/i, '');
       if (value.length < 5 || value.length > 200) return;
-      if (/用户评价|宝贝评价|累计评价|全部评价|已售\s*\d|多人评价|加购|购物车|收藏夹|免费开店|帮助中心|搜索本店|搜索$|网页无障碍/i.test(value)) return;
+      if (/用户评价|商品评价|宝贝评价|累计评价|全部评价|已售\s*\d|月销|多人评价|加购|购物车|收藏夹|免费开店|帮助中心|搜索本店|搜索$|网页无障碍|商品详情|规格参数|售后保障/i.test(value)) return;
       if (/^(?:淘宝网?|天猫|京东|拼多多|商品详情|店铺首页)$/i.test(value)) return;
       let finalScore = score + Math.min(value.length, 100) / 12;
       if (node?.matches?.('h1,h2')) finalScore += 20;
@@ -118,8 +118,8 @@
     };
     if (platform() === '京东') return {
       ...common,
-      title: ['.sku-name', '#name h1', '[class*="sku-name"]', ...common.title],
-      price: ['.summary-price .p-price .price', '.p-price .price', '[class*="price-now"]', '[class*="price"] [class*="num"]', ...common.price],
+      title: ['.sku-name', '#name h1', '[class*="sku-name" i]', '[class*="product-title" i]', ...common.title],
+      price: ['.summary-price .p-price .price', '.p-price .price', '[class*="price-now" i]', '[class*="jd-price" i]', '[class*="price"] [class*="num"]', ...common.price],
       store: ['#shop-name', '.popbox-inner .name', '[class*="shop-name"]', ...common.store],
       image: ['#spec-img', '#preview img', ...common.image],
       region: ['#areaAddress', '.ui-area-text', '#stock-address', ...common.region],
@@ -155,7 +155,7 @@
     document.querySelectorAll(selectors.join(',')).forEach((node) => {
       const value = node.getAttribute('title') || node.getAttribute('aria-label') || node.textContent;
       const normalized = clean(value).replace(/千人加购|已选中?|当前选择/gi, '').trim();
-      if (normalized && normalized.length <= 80 && !/^(?:颜色分类|尺码|规格)$/.test(normalized) && !values.includes(normalized)) values.push(normalized);
+      if (normalized && normalized.length <= 80 && !/^(?:颜色分类|尺码|规格|商品详情|规格参数|售后保障|评价|全部)$/.test(normalized) && !/商品详情|规格参数|售后保障|用户评价/.test(normalized) && !values.includes(normalized)) values.push(normalized);
     });
     return values.slice(0, 8).join(' / ');
   };
@@ -251,9 +251,13 @@
     const imageValue = Array.isArray(structured.image) ? structured.image[0] : structured.image;
     const imageNode = selectors.image.map((selector) => document.querySelector(selector)).find(Boolean);
     const imageUrl = imageValue || imageNode?.getAttribute('content') || imageNode?.currentSrc || imageNode?.src || '';
-    const price = effectivePrice || wholesalePrice || pagePrice || firstNumber(offers.price || offers.lowPrice || structured.price) || statePrice;
+    const jdPrice = platform() === '京东'
+      ? labeledNumber(bodyText, ['到手价', '促销价', '京东价', '售价', '会员价']) || statePrice
+      : 0;
+    const price = effectivePrice || wholesalePrice || jdPrice || pagePrice || firstNumber(offers.price || offers.lowPrice || structured.price) || statePrice;
     const memberPrice = firstNumber(memberPriceText);
-    const sku = clean(structured.sku || embeddedString(source, ['skuId', 'skuCode', 'goodsId', 'goods_id']) || identity());
+    const pageIdentity = identity();
+    const sku = clean(platform() === '京东' && pageIdentity ? pageIdentity : structured.sku || embeddedString(source, ['skuId', 'skuCode', 'goodsId', 'goods_id']) || pageIdentity);
     const specs = specifications();
     if (effectivePrice) specs['价格口径'] = '页面券后/到手价，已包含页面展示优惠';
     if (wholesaleRange.length) {
@@ -278,7 +282,7 @@
       warranty_months: 12, store_name: storeName(offers.seller?.name || embeddedString(source, ['mallName', 'shopName', 'storeName', 'merchantName']) || firstText(selectors.store) || storeFromBody()), image_url: String(imageUrl).slice(0, 1000),
       selected_variant: selectedVariant(), region: firstText(selectors.region) || 'unknown',
       membership: memberPriceText ? '页面显示会员条件' : 'unknown', observation_status: 'requires_confirmation',
-      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.2', price_basis: effectivePrice ? 'visible_effective_price' : wholesalePrice ? 'visible_wholesale_minimum' : 'visible_page_price' },
+      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.3', price_basis: effectivePrice ? 'visible_effective_price' : wholesalePrice ? 'visible_wholesale_minimum' : 'visible_page_price' },
       notes: `由 ValuSee 扩展读取当前可见页面；${effectivePrice ? '当前价格采用页面券后/到手价，不再重复扣减页面优惠；' : ''}${wholesalePrice ? '当前价格采用批发区间最低价，最终价格须按包装规格和采购数量确认；' : ''}发送前请确认 SKU、地区、会员资格、优惠和价格。`,
     };
     const missing = [];
@@ -289,8 +293,8 @@
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'VALUSee_PING_V5' || message?.type === 'VALUSee_PING_V4' || message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.2' });
-    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V5' || message?.type === 'VALUSee_COLLECT_PRODUCT_V4' || message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
+    if (message?.type === 'VALUSee_PING_V6' || message?.type === 'VALUSee_PING_V5' || message?.type === 'VALUSee_PING_V4' || message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.3' });
+    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V6' || message?.type === 'VALUSee_COLLECT_PRODUCT_V5' || message?.type === 'VALUSee_COLLECT_PRODUCT_V4' || message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
       try { sendResponse({ ok: true, ...collect() }); }
       catch (error) { sendResponse({ ok: false, error: `页面读取失败：${error.message}` }); }
     }
