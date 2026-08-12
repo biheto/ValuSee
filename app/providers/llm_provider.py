@@ -372,9 +372,7 @@ class LLMProvider:
                     ]},
                 ],
             )
-            choices = response.get("choices") if isinstance(response.get("choices"), list) else []
-            message = choices[0].get("message") if choices and isinstance(choices[0], dict) else {}
-            output_text = self._message_text(message.get("content", "") if isinstance(message, dict) else "")
+            output_text = self._vision_response_text(response)
             if not output_text:
                 raise ValueError("vision provider returned no message content")
             latency_ms = self._elapsed_ms(started)
@@ -397,12 +395,22 @@ class LLMProvider:
             )
 
     def _invoke_vision_http(self, config: dict[str, str], messages: list[dict[str, Any]]) -> dict[str, Any]:
-        payload = json.dumps({
-            "model": config["model"], "messages": messages,
-            "temperature": 0.1, "max_tokens": 1400,
-        }, ensure_ascii=False).encode("utf-8")
+        wire_api = config.get("wire_api", "chat_completions")
+        if wire_api == "responses":
+            payload_object = {
+                "model": config["model"],
+                "input": self._responses_input(messages),
+                "temperature": 0.1,
+                "max_output_tokens": 1400,
+            }
+        else:
+            payload_object = {
+                "model": config["model"], "messages": messages,
+                "temperature": 0.1, "max_tokens": 1400,
+            }
+        payload = json.dumps(payload_object, ensure_ascii=False).encode("utf-8")
         errors = []
-        for endpoint in self._vision_endpoints(config.get("base_url", "")):
+        for endpoint in self._vision_endpoints(config.get("base_url", ""), wire_api):
             request = Request(
                 endpoint,
                 data=payload,
@@ -418,7 +426,11 @@ class LLMProvider:
                 with urlopen(request, timeout=45) as response:
                     body = response.read(4 * 1024 * 1024)
                 parsed = json.loads(body.decode("utf-8", errors="replace"))
-                if isinstance(parsed, dict) and isinstance(parsed.get("choices"), list):
+                if isinstance(parsed, dict) and (
+                    isinstance(parsed.get("choices"), list)
+                    or isinstance(parsed.get("output"), list)
+                    or isinstance(parsed.get("output_text"), str)
+                ):
                     return parsed
                 errors.append(f"{endpoint}: invalid response")
             except HTTPError as exc:
@@ -428,15 +440,61 @@ class LLMProvider:
                 errors.append(f"{endpoint}: {type(exc).__name__}")
         raise RuntimeError("; ".join(errors)[:800] or "vision provider unavailable")
 
-    def _vision_endpoints(self, base_url: str) -> list[str]:
+    def _vision_endpoints(self, base_url: str, wire_api: str = "chat_completions") -> list[str]:
         base = base_url.strip().rstrip("/")
+        suffix = "responses" if wire_api == "responses" else "chat/completions"
         if not base:
-            return ["https://api.openai.com/v1/chat/completions"]
-        if base.endswith("/chat/completions"):
+            return [f"https://api.openai.com/v1/{suffix}"]
+        if base.endswith(f"/{suffix}"):
             return [base]
         if base.endswith("/v1"):
-            return [f"{base}/chat/completions"]
-        return [f"{base}/v1/chat/completions", f"{base}/chat/completions"]
+            return [f"{base}/{suffix}"]
+        return [f"{base}/v1/{suffix}", f"{base}/{suffix}"]
+
+    def _responses_input(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted = []
+        for message in messages:
+            role = str(message.get("role") or "user")
+            content = message.get("content", "")
+            if isinstance(content, str):
+                items = [{"type": "input_text", "text": content}]
+            else:
+                items = []
+                for item in content if isinstance(content, list) else []:
+                    if isinstance(item, str):
+                        items.append({"type": "input_text", "text": item})
+                    elif isinstance(item, dict) and item.get("type") == "text":
+                        items.append({"type": "input_text", "text": str(item.get("text") or "")})
+                    elif isinstance(item, dict) and item.get("type") == "image_url":
+                        image_url = item.get("image_url") if isinstance(item.get("image_url"), dict) else {}
+                        items.append({
+                            "type": "input_image",
+                            "image_url": str(image_url.get("url") or ""),
+                            "detail": str(image_url.get("detail") or "high"),
+                        })
+            converted.append({"role": role, "content": items})
+        return converted
+
+    def _vision_response_text(self, response: dict[str, Any]) -> str:
+        output_text = response.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
+        output = response.get("output")
+        if isinstance(output, list):
+            values = []
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            values.append(part["text"])
+            if values:
+                return "\n".join(values)
+        choices = response.get("choices") if isinstance(response.get("choices"), list) else []
+        message = choices[0].get("message") if choices and isinstance(choices[0], dict) else {}
+        return self._message_text(message.get("content", "") if isinstance(message, dict) else "")
 
     def _image_fallback(
         self,
@@ -617,6 +675,11 @@ class LLMProvider:
             "api_key": api_key_from_process or env_file.get("OPENAI_API_KEY", ""),
             "model": agent_model,
             "base_url": base_url_from_process or env_file.get("OPENAI_BASE_URL", ""),
+            "wire_api": (
+                os.getenv("OPENAI_WIRE_API", "")
+                or env_file.get("OPENAI_WIRE_API", "")
+                or "chat_completions"
+            ).strip().lower(),
             "source": "process_env" if api_key_from_process else ".env" if env_file.get("OPENAI_API_KEY") else "fallback",
         }
 

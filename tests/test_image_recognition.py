@@ -168,6 +168,28 @@ def test_vision_endpoint_normalization_supports_standard_and_gateway_urls() -> N
     assert provider._vision_endpoints("https://gateway.example") == [
         "https://gateway.example/v1/chat/completions", "https://gateway.example/chat/completions",
     ]
+    assert provider._vision_endpoints("https://congee.pro", "responses") == [
+        "https://congee.pro/v1/responses", "https://congee.pro/responses",
+    ]
+
+
+def test_responses_wire_converts_multimodal_messages_and_reads_output() -> None:
+    provider = LLMProvider()
+    messages = [
+        {"role": "system", "content": "Extract JSON."},
+        {"role": "user", "content": [
+            {"type": "text", "text": "Read this."},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc", "detail": "high"}},
+        ]},
+    ]
+
+    converted = provider._responses_input(messages)
+    assert converted[1]["content"][0] == {"type": "input_text", "text": "Read this."}
+    assert converted[1]["content"][1] == {
+        "type": "input_image", "image_url": "data:image/png;base64,abc", "detail": "high",
+    }
+    assert provider._vision_response_text({"output_text": '{"title":"AirPods"}'}) == '{"title":"AirPods"}'
+    assert provider._vision_response_text({"output": [{"content": [{"type": "output_text", "text": "ok"}]}]}) == "ok"
 
 
 def test_vision_provider_errors_are_classified_without_exposing_secrets() -> None:
