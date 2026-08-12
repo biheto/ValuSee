@@ -120,7 +120,16 @@ def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "") 
         image_type,
     )
     if result.get("fallback_used"):
-        return {}, "vision_unavailable", "在线图片识别暂不可用，已尝试本地 OCR。"
+        messages = {
+            "not_configured": "在线图片识别尚未配置视觉模型，已尝试本地 OCR。",
+            "auth_failed": "在线图片识别的 API 密钥或 Base URL 鉴权失败，已尝试本地 OCR。",
+            "model_unsupported": "当前 LLM 模型不支持图片输入，请改用视觉模型，已尝试本地 OCR。",
+            "invalid_response": "视觉模型返回格式无效，已尝试本地 OCR。",
+            "network_error": "视觉模型网络连接失败，已尝试本地 OCR。",
+            "provider_unavailable": "在线图片识别暂不可用，已尝试本地 OCR。",
+        }
+        code = str(result.get("error_code") or "provider_unavailable")
+        return {}, "vision_unavailable", messages.get(code, messages["provider_unavailable"])
     payload = _json_object(str(result.get("text") or ""))
     if not payload:
         return {}, f"vision:{result.get('model') or 'configured'}", "视觉模型未返回有效结构，已尝试本地 OCR。"

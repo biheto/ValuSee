@@ -168,3 +168,11 @@ def test_vision_endpoint_normalization_supports_standard_and_gateway_urls() -> N
     assert provider._vision_endpoints("https://gateway.example") == [
         "https://gateway.example/v1/chat/completions", "https://gateway.example/chat/completions",
     ]
+
+
+def test_vision_provider_errors_are_classified_without_exposing_secrets() -> None:
+    provider = LLMProvider()
+
+    assert provider._classify_provider_error("https://example/v1/chat/completions: HTTP 401 {\"error\":\"invalid_api_key\"}") == "auth_failed"
+    assert provider._classify_provider_error("HTTP 400 model vision-basic is not supported") == "model_unsupported"
+    assert provider._classify_provider_error("vision provider returned no message content") == "invalid_response"

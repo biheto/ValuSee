@@ -356,7 +356,10 @@ class LLMProvider:
             "image": {"content_type": content_type, "size_bytes": len(image_content)},
         }
         if not config["api_key"]:
-            return self._image_fallback(trace_id, agent, prompt_version, trace_input, fallback, started, None, "OPENAI_API_KEY is not configured")
+            return self._image_fallback(
+                trace_id, agent, prompt_version, trace_input, fallback, started, None,
+                "OPENAI_API_KEY is not configured", "not_configured",
+            )
         try:
             encoded = base64.b64encode(image_content).decode("ascii")
             response = self._invoke_vision_http(
@@ -387,7 +390,11 @@ class LLMProvider:
                 "token_usage": token_usage,
             }
         except Exception as exc:
-            return self._image_fallback(trace_id, agent, prompt_version, trace_input, fallback, started, config["model"], str(exc))
+            error_message = str(exc)
+            return self._image_fallback(
+                trace_id, agent, prompt_version, trace_input, fallback, started, config["model"],
+                error_message, self._classify_provider_error(error_message),
+            )
 
     def _invoke_vision_http(self, config: dict[str, str], messages: list[dict[str, Any]]) -> dict[str, Any]:
         payload = json.dumps({
@@ -441,6 +448,7 @@ class LLMProvider:
         started: float,
         model: str | None,
         error_message: str,
+        error_code: str = "provider_unavailable",
     ) -> dict[str, Any]:
         latency_ms = self._elapsed_ms(started)
         self._save_trace(
@@ -451,8 +459,27 @@ class LLMProvider:
         return {
             "text": fallback, "answer_source": "fallback", "fallback_used": True,
             "model": model, "trace_id": trace_id, "latency_ms": latency_ms,
-            "error_message": error_message,
+            "error_message": error_message, "error_code": error_code,
         }
+
+    @staticmethod
+    def _classify_provider_error(error_message: str) -> str:
+        """Turn provider errors into actionable, non-secret UI categories."""
+        message = error_message.lower()
+        if "http 401" in message or "http 403" in message or "invalid_api_key" in message:
+            return "auth_failed"
+        if "model" in message and (
+            "not found" in message
+            or "unsupported" in message
+            or "not supported" in message
+            or "does not exist" in message
+        ):
+            return "model_unsupported"
+        if "invalid response" in message or "no message content" in message:
+            return "invalid_response"
+        if "timed out" in message or "timeout" in message or "urlerror" in message:
+            return "network_error"
+        return "provider_unavailable"
 
     def _message_text(self, content: Any) -> str:
         if isinstance(content, str):
@@ -490,9 +517,12 @@ class LLMProvider:
 
     def status(self) -> dict[str, Any]:
         config = self._config()
+        vision_model = os.getenv("VALUSee_VISION_MODEL", "").strip() or config["model"]
         return {
             "enabled": bool(config["api_key"]),
             "model": config["model"],
+            "vision_enabled": bool(config["api_key"]),
+            "vision_model": vision_model,
             "base_url": config["base_url"] or None,
             "env_path": str(self.env_path),
             "source": config["source"],
