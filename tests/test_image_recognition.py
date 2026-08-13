@@ -192,6 +192,26 @@ def test_responses_wire_converts_multimodal_messages_and_reads_output() -> None:
     assert provider._vision_response_text({"output": [{"content": [{"type": "output_text", "text": "ok"}]}]}) == "ok"
 
 
+def test_text_agents_use_responses_wire_when_configured(monkeypatch) -> None:
+    provider = LLMProvider()
+    recorded = {}
+    monkeypatch.setattr(provider, "_config", lambda _agent=None: {
+        "api_key": "sk-test", "model": "gpt-test", "base_url": "https://gateway.example",
+        "wire_api": "responses", "source": "test",
+    })
+    monkeypatch.setattr(provider, "_resolve_prompt", lambda _agent, version, prompt, use_active_prompt=True: (prompt, version))
+    monkeypatch.setattr(provider, "_invoke_responses_http", lambda config, system, user: {
+        "output_text": '{"ok":true}', "usage": {"input_tokens": 8, "output_tokens": 4},
+    })
+    monkeypatch.setattr(provider, "_save_trace", lambda **values: recorded.update(values))
+
+    result = provider.generate_with_status("system", "user", "fallback", agent="shopping_reporter")
+
+    assert result["answer_source"] == "llm"
+    assert result["text"] == '{"ok":true}'
+    assert recorded["fallback_used"] is False
+
+
 def test_vision_provider_errors_are_classified_without_exposing_secrets() -> None:
     provider = LLMProvider()
 

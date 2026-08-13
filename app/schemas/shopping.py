@@ -110,6 +110,7 @@ class ShoppingDecisionRequest(BaseModel):
     goal: str = ""
     products: list[ShoppingProductInput] = Field(default_factory=list)
     profile: ShoppingProfile = Field(default_factory=ShoppingProfile)
+    reviews: list[dict[str, Any]] = Field(default_factory=list)
     require_human_review: bool = False
 
 

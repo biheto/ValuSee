@@ -29,6 +29,14 @@ class LLMProvider:
             "task_qa",
             "learning_coach",
             "memory_extractor",
+            "shopping_intent",
+            "shopping_product",
+            "shopping_sku_matching",
+            "shopping_review",
+            "shopping_risk",
+            "shopping_recommendation",
+            "shopping_supervisor",
+            "shopping_reporter",
         ]
         self.prompt_versions = [
             {
@@ -276,18 +284,25 @@ class LLMProvider:
             }
 
         try:
-            from langchain_openai import ChatOpenAI
+            if config.get("wire_api") == "responses":
+                raw_response = self._invoke_responses_http(config, system_prompt, user_prompt)
+                output_text = self._vision_response_text(raw_response)
+                token_usage = raw_response.get("usage") if isinstance(raw_response.get("usage"), dict) else {}
+            else:
+                from langchain_openai import ChatOpenAI
 
-            llm = self._build_chat_openai(ChatOpenAI, config)
-            response = llm.invoke(
-                [
-                    ("system", system_prompt),
-                    ("user", user_prompt),
-                ]
-            )
-            output_text = str(response.content)
+                llm = self._build_chat_openai(ChatOpenAI, config)
+                response = llm.invoke(
+                    [
+                        ("system", system_prompt),
+                        ("user", user_prompt),
+                    ]
+                )
+                output_text = str(response.content)
+                token_usage = self._extract_token_usage(response)
+            if not output_text:
+                raise ValueError("LLM provider returned no message content")
             latency_ms = self._elapsed_ms(started)
-            token_usage = self._extract_token_usage(response)
             self._save_trace(
                 trace_id=trace_id,
                 agent=agent,
@@ -332,6 +347,54 @@ class LLMProvider:
                 "latency_ms": latency_ms,
                 "error_message": str(exc),
             }
+
+    def _invoke_responses_http(
+        self,
+        config: dict[str, str],
+        system_prompt: str,
+        user_prompt: str,
+    ) -> dict[str, Any]:
+        payload = json.dumps(
+            {
+                "model": config["model"],
+                "input": [
+                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                    {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
+                ],
+                "temperature": 0.2,
+                "max_output_tokens": 2000,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        errors = []
+        for endpoint in self._vision_endpoints(config.get("base_url", ""), "responses"):
+            request = Request(
+                endpoint,
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {config['api_key']}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "ValuSee/0.1 agents",
+                },
+                method="POST",
+            )
+            try:
+                with urlopen(request, timeout=60) as response:
+                    body = response.read(4 * 1024 * 1024)
+                parsed = json.loads(body.decode("utf-8", errors="replace"))
+                if isinstance(parsed, dict) and (
+                    isinstance(parsed.get("output"), list)
+                    or isinstance(parsed.get("output_text"), str)
+                ):
+                    return parsed
+                errors.append(f"{endpoint}: invalid response")
+            except HTTPError as exc:
+                detail = exc.read(500).decode("utf-8", errors="replace")
+                errors.append(f"{endpoint}: HTTP {exc.code} {detail[:160]}")
+            except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+                errors.append(f"{endpoint}: {type(exc).__name__}")
+        raise RuntimeError("; ".join(errors)[:800] or "Responses provider unavailable")
 
     def analyze_image_with_status(
         self,

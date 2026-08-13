@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 from typing import Any, TypedDict
@@ -7,6 +8,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, StateGraph
 
 from app.harness.events import utc_now_iso
+from app.providers.llm_provider import llm_provider
 
 
 class ShoppingState(TypedDict, total=False):
@@ -27,6 +29,14 @@ class ShoppingState(TypedDict, total=False):
     report_markdown: str
     final_report: str
     result: dict[str, Any]
+    intent_analysis: dict[str, Any]
+    product_insights: list[dict[str, Any]]
+    matching_explanations: list[dict[str, Any]]
+    review_analysis: dict[str, Any]
+    risk_explanations: list[dict[str, Any]]
+    agent_recommendation: dict[str, Any]
+    supervisor_review: dict[str, Any]
+    agent_status: dict[str, dict[str, Any]]
 
 
 _MODEL_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
@@ -39,30 +49,44 @@ def shopping_decision_graph_runner(state: dict[str, Any]) -> dict[str, Any]:
 
 def _build_graph():
     graph = StateGraph(ShoppingState)
+    graph.add_node("intent_agent", _intent_agent)
     graph.add_node("understand", _understand_products)
+    graph.add_node("product_agent", _product_agent)
     graph.add_node("match", _match_same_item)
+    graph.add_node("sku_agent", _sku_agent)
     graph.add_node("price", _calculate_prices)
     graph.add_node("risk", _analyze_risks)
+    graph.add_node("review_agent", _review_agent)
+    graph.add_node("risk_agent", _risk_agent)
     graph.add_node("recommend", _recommend)
+    graph.add_node("recommendation_agent", _recommendation_agent)
+    graph.add_node("supervisor_agent", _supervisor_agent)
     graph.add_node("report", _report)
-    graph.set_entry_point("understand")
-    graph.add_edge("understand", "match")
-    graph.add_edge("match", "price")
+    graph.set_entry_point("intent_agent")
+    graph.add_edge("intent_agent", "understand")
+    graph.add_edge("understand", "product_agent")
+    graph.add_edge("product_agent", "match")
+    graph.add_edge("match", "sku_agent")
+    graph.add_edge("sku_agent", "price")
     graph.add_edge("price", "risk")
-    graph.add_edge("risk", "recommend")
-    graph.add_edge("recommend", "report")
+    graph.add_edge("risk", "review_agent")
+    graph.add_edge("review_agent", "risk_agent")
+    graph.add_edge("risk_agent", "recommend")
+    graph.add_edge("recommend", "recommendation_agent")
+    graph.add_edge("recommendation_agent", "supervisor_agent")
+    graph.add_edge("supervisor_agent", "report")
     graph.add_edge("report", END)
     return graph.compile()
 
 
-def _emit_event(state: ShoppingState, node: str, content: str, *, status: str = "completed", data: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _emit_event(state: ShoppingState, node: str, content: str, *, status: str = "completed", data: dict[str, Any] | None = None, agent: str | None = None) -> list[dict[str, Any]]:
     events = list(state.get("events", []))
     events.append(
         {
             "task_id": state.get("task_id"),
             "event_id": f"evt_{state.get('task_id', 'shopping')}_{node}_{len(events) + 1}",
             "node": node,
-            "agent": node,
+            "agent": agent or node,
             "type": "agent_step",
             "status": status,
             "content": content,
@@ -71,6 +95,71 @@ def _emit_event(state: ShoppingState, node: str, content: str, *, status: str = 
         }
     )
     return events
+
+
+def _agent_event_data(result: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    return {
+        "answer_source": result.get("answer_source", "fallback"),
+        "fallback_used": bool(result.get("fallback_used", True)),
+        "model": result.get("model"),
+        "trace_id": result.get("trace_id"),
+        **extra,
+    }
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    value = str(text or "").strip()
+    if value.startswith("```"):
+        value = re.sub(r"^```(?:json)?\s*|\s*```$", "", value, flags=re.IGNORECASE)
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        match = re.search(r"\{.*\}", value, flags=re.DOTALL)
+        if not match:
+            return {}
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _run_shopping_agent(
+    *,
+    agent: str,
+    system_prompt: str,
+    user_prompt: str,
+    fallback: dict[str, Any],
+    prompt_version: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = llm_provider.generate_with_status(
+        system_prompt,
+        user_prompt,
+        json.dumps(fallback, ensure_ascii=False),
+        agent=agent,
+        prompt_version=prompt_version,
+    )
+    payload = _parse_json_object(str(result.get("text") or "")) or fallback
+    return payload, result
+
+
+def _intent_agent(state: ShoppingState) -> ShoppingState:
+    profile = state.get("profile", {})
+    fallback = {
+        "goal": state.get("goal", ""),
+        "constraints": [key for key in ("budget", "use_case", "acceptable_risk") if profile.get(key)],
+        "missing_information": [],
+        "priority": "适配度优先，其次是到手价和风险",
+    }
+    payload, result = _run_shopping_agent(
+        agent="shopping_intent",
+        prompt_version="shopping_intent.v1",
+        system_prompt="你是 ValuSee 的购物意图 Agent。只基于用户目标和档案提取预算、场景、偏好、风险边界和缺失信息。返回 JSON，不要编造商品事实。",
+        user_prompt=json.dumps({"goal": state.get("goal", ""), "profile": profile}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    statuses = {**state.get("agent_status", {}), "shopping_intent": _agent_event_data(result)}
+    return {**state, "intent_analysis": payload, "agent_status": statuses, "events": _emit_event(state, "intent_agent", "购物意图 Agent 完成", data=_agent_event_data(result), agent="shopping_intent")}
 
 
 def _understand_products(state: ShoppingState) -> ShoppingState:
@@ -82,6 +171,25 @@ def _understand_products(state: ShoppingState) -> ShoppingState:
         "normalized_products": normalized,
         "events": _emit_event(state, "intent", "商品信息识别完成", data={"product_count": len(normalized)}),
     }
+
+
+def _product_agent(state: ShoppingState) -> ShoppingState:
+    products = state.get("normalized_products", [])
+    fallback = {
+        "products": [
+            {"index": item.get("index"), "identity": item.get("model") or item.get("title"), "uncertainties": []}
+            for item in products
+        ]
+    }
+    payload, result = _run_shopping_agent(
+        agent="shopping_product",
+        prompt_version="shopping_product.v1",
+        system_prompt="你是商品理解 Agent。基于已提取的商品字段，指出标准型号、规格、套装、版本和仍需确认的字段。不得修改输入字段，不得猜测价格。返回 JSON。",
+        user_prompt=json.dumps({"products": products, "intent": state.get("intent_analysis", {})}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    statuses = {**state.get("agent_status", {}), "shopping_product": _agent_event_data(result)}
+    return {**state, "product_insights": payload.get("products", fallback["products"]), "agent_status": statuses, "events": _emit_event(state, "product_agent", "商品理解 Agent 完成", data=_agent_event_data(result, product_count=len(products)), agent="shopping_product")}
 
 
 def _match_same_item(state: ShoppingState) -> ShoppingState:
@@ -106,6 +214,19 @@ def _match_same_item(state: ShoppingState) -> ShoppingState:
         "same_item_matches": matches,
         "events": _emit_event(state, "sku_match", "同款与规格匹配完成", data={"match_count": len(matches)}),
     }
+
+
+def _sku_agent(state: ShoppingState) -> ShoppingState:
+    fallback = {"matches": state.get("same_item_matches", []), "summary": "同款结论以 SKU、型号和规则校验为准。"}
+    payload, result = _run_shopping_agent(
+        agent="shopping_sku_matching",
+        prompt_version="shopping_sku_matching.v1",
+        system_prompt="你是 SKU 同款匹配 Agent。规则匹配结果是不可修改的事实。只解释每个候选为什么同款、相似或不同，并指出需要用户确认的差异。返回 JSON，不要改 confidence 或 relation。",
+        user_prompt=json.dumps({"products": state.get("normalized_products", []), "rule_matches": state.get("same_item_matches", [])}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    statuses = {**state.get("agent_status", {}), "shopping_sku_matching": _agent_event_data(result)}
+    return {**state, "matching_explanations": payload.get("matches", fallback["matches"]), "agent_status": statuses, "events": _emit_event(state, "sku_agent", "SKU 同款 Agent 完成（规则结论锁定）", data=_agent_event_data(result), agent="shopping_sku_matching")}
 
 
 def _calculate_prices(state: ShoppingState) -> ShoppingState:
@@ -204,6 +325,54 @@ def _analyze_risks(state: ShoppingState) -> ShoppingState:
     }
 
 
+def _review_agent(state: ShoppingState) -> ShoppingState:
+    products = state.get("normalized_products", [])
+    evidence = [
+        {
+            "index": item.get("index"),
+            "title": item.get("title"),
+            "notes": item.get("notes"),
+            "evidence": item.get("evidence", {}),
+        }
+        for item in products
+    ]
+    fallback = {
+        "risk_level": "unknown",
+        "confidence": 0.0,
+        "summary": "当前候选没有提供带来源的评论证据，暂不推断评论风险。",
+        "issue_groups": [],
+        "evidence_gaps": ["未提供带来源评论"],
+    }
+    payload, result = _run_shopping_agent(
+        agent="shopping_review",
+        prompt_version="shopping_review.v1",
+        system_prompt="你是商品评论分析 Agent。只能基于用户提供的带来源评论或明确证据总结高频问题。没有评论就返回 unknown，不得凭常识编造缺陷。返回 JSON。",
+        user_prompt=json.dumps({"products": evidence, "reviews": state.get("reviews", [])}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    statuses = {**state.get("agent_status", {}), "shopping_review": _agent_event_data(result)}
+    return {**state, "review_analysis": payload, "agent_status": statuses, "events": _emit_event(state, "review_agent", "评论分析 Agent 完成（证据不足不推断）", data=_agent_event_data(result), agent="shopping_review")}
+
+
+def _risk_agent(state: ShoppingState) -> ShoppingState:
+    fallback = {
+        "explanations": [
+            {"index": index, "explanation": "风险等级由规则校验结果确定，请结合证据核对。"}
+            for index, _ in enumerate(state.get("risk_reports", []))
+        ],
+        "evidence_gaps": [],
+    }
+    payload, result = _run_shopping_agent(
+        agent="shopping_risk",
+        prompt_version="shopping_risk.v1",
+        system_prompt="你是购物风险 Agent。规则层输出的 price/spec/store/after_sales/overall 风险等级不可修改。你只能解释触发原因、列出证据缺口和建议的人工确认项，不得自行增加未经证实的风险。返回 JSON。",
+        user_prompt=json.dumps({"products": state.get("normalized_products", []), "rule_risks": state.get("risk_reports", []), "review_analysis": state.get("review_analysis", {})}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    statuses = {**state.get("agent_status", {}), "shopping_risk": _agent_event_data(result)}
+    return {**state, "risk_explanations": payload.get("explanations", fallback["explanations"]), "agent_status": statuses, "events": _emit_event(state, "risk_agent", "风险 Agent 完成（规则等级锁定）", data=_agent_event_data(result), agent="shopping_risk")}
+
+
 def _recommend(state: ShoppingState) -> ShoppingState:
     profile = state.get("profile", {})
     budget = float(profile.get("budget") or 0.0)
@@ -282,8 +451,75 @@ def _recommend(state: ShoppingState) -> ShoppingState:
     }
 
 
+def _recommendation_agent(state: ShoppingState) -> ShoppingState:
+    fallback = {
+        "recommendation": state.get("recommendation", "need_input"),
+        "reason": state.get("recommendation_reason", ""),
+        "best_index": state.get("best_index"),
+        "tradeoffs": [],
+        "next_action": "确认商品规格、价格和风险证据后再决定。",
+    }
+    payload, result = _run_shopping_agent(
+        agent="shopping_recommendation",
+        prompt_version="shopping_recommendation.v1",
+        system_prompt="你是个性化购物推荐 Agent。规则层已经锁定候选评分、价格、风险和 best_index，你只能基于这些事实解释取舍、适配用户场景并提出下一步，不能改写价格、风险等级或 best_index。返回 JSON。",
+        user_prompt=json.dumps({"intent": state.get("intent_analysis", {}), "profile": state.get("profile", {}), "comparison": state.get("comparison_rows", []), "recommendation": fallback, "risk_explanations": state.get("risk_explanations", [])}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    payload["best_index"] = state.get("best_index")
+    payload["recommendation"] = state.get("recommendation", "need_input")
+    statuses = {**state.get("agent_status", {}), "shopping_recommendation": _agent_event_data(result)}
+    return {**state, "agent_recommendation": payload, "agent_status": statuses, "events": _emit_event(state, "recommendation_agent", "个性化推荐 Agent 完成（规则结论锁定）", data=_agent_event_data(result, best_index=state.get("best_index")), agent="shopping_recommendation")}
+
+
+def _supervisor_agent(state: ShoppingState) -> ShoppingState:
+    fallback = {
+        "approved": True,
+        "issues": [],
+        "evidence_gaps": [],
+        "summary": "规则价格、同款和风险结论已完成一致性校验。",
+    }
+    payload, result = _run_shopping_agent(
+        agent="shopping_supervisor",
+        prompt_version="shopping_supervisor.v1",
+        system_prompt="你是购物决策 Supervisor。检查 Agent 输出是否引用了输入事实，检查是否越权修改价格、风险、匹配关系或推荐索引。发现越权时列出 issues；不得自行改变规则事实。返回 JSON。",
+        user_prompt=json.dumps({"rule_facts": {"matches": state.get("same_item_matches", []), "prices": state.get("price_breakdowns", []), "risks": state.get("risk_reports", []), "best_index": state.get("best_index"), "recommendation": state.get("recommendation")}, "agent_outputs": {"intent": state.get("intent_analysis", {}), "product": state.get("product_insights", []), "sku": state.get("matching_explanations", []), "review": state.get("review_analysis", {}), "risk": state.get("risk_explanations", []), "recommendation": state.get("agent_recommendation", {})}}, ensure_ascii=False),
+        fallback=fallback,
+    )
+    statuses = {**state.get("agent_status", {}), "shopping_supervisor": _agent_event_data(result)}
+    return {**state, "supervisor_review": payload, "agent_status": statuses, "events": _emit_event(state, "supervisor_agent", "购物 Supervisor 完成（事实一致性校验）", data=_agent_event_data(result), agent="shopping_supervisor")}
+
+
 def _report(state: ShoppingState) -> ShoppingState:
-    report = _build_report(state)
+    fallback_report = _build_report(state)
+    report_result = llm_provider.generate_with_status(
+        "你是 ValuSee 购物 Reporter Agent。基于规则事实和各 Agent 解释生成中文购买决策报告。价格、风险等级、同款关系和推荐索引必须原样保留；缺少证据时明确说明，不得编造。输出 Markdown。",
+        json.dumps({
+            "rule_facts": {
+                "matches": state.get("same_item_matches", []),
+                "prices": state.get("price_breakdowns", []),
+                "risks": state.get("risk_reports", []),
+                "comparison": state.get("comparison_rows", []),
+                "best_index": state.get("best_index"),
+                "recommendation": state.get("recommendation"),
+            },
+            "agent_explanations": {
+                "intent": state.get("intent_analysis", {}),
+                "product": state.get("product_insights", []),
+                "sku": state.get("matching_explanations", []),
+                "review": state.get("review_analysis", {}),
+                "risk": state.get("risk_explanations", []),
+                "recommendation": state.get("agent_recommendation", {}),
+                "supervisor": state.get("supervisor_review", {}),
+            },
+        }, ensure_ascii=False),
+        fallback_report,
+        agent="shopping_reporter",
+        prompt_version="shopping_reporter.v1",
+    )
+    report = str(report_result.get("text") or fallback_report)
+    report = f"{report.rstrip()}\n\n---\n\n{_build_rule_fact_sheet(state)}"
+    statuses = {**state.get("agent_status", {}), "shopping_reporter": _agent_event_data(report_result)}
     result = {
         "best_index": state.get("best_index"),
         "recommendation": state.get("recommendation"),
@@ -295,14 +531,45 @@ def _report(state: ShoppingState) -> ShoppingState:
         "summary": state.get("summary", ""),
         "report_markdown": report,
         "final_report": report,
+        "agent_status": statuses,
+        "rule_facts": {
+            "same_item_matches": state.get("same_item_matches", []),
+            "price_breakdowns": state.get("price_breakdowns", []),
+            "risk_reports": state.get("risk_reports", []),
+            "best_index": state.get("best_index"),
+            "recommendation": state.get("recommendation"),
+        },
+        "agent_outputs": {
+            "intent": state.get("intent_analysis", {}),
+            "product": state.get("product_insights", []),
+            "sku": state.get("matching_explanations", []),
+            "review": state.get("review_analysis", {}),
+            "risk": state.get("risk_explanations", []),
+            "recommendation": state.get("agent_recommendation", {}),
+            "supervisor": state.get("supervisor_review", {}),
+        },
     }
     return {
         **state,
         "report_markdown": report,
         "final_report": report,
         "result": result,
-        "events": _emit_event(state, "report", "购买决策报告生成完成"),
+        "events": _emit_event(state, "report", "购买决策 Reporter Agent 完成", data=_agent_event_data(report_result), agent="shopping_reporter"),
     }
+
+
+def _build_rule_fact_sheet(state: ShoppingState) -> str:
+    """Append immutable rule facts after the narrative Agent report."""
+    lines = ["## 规则校验事实（不可由 Agent 修改）", ""]
+    lines.append(f"- 推荐候选索引：{state.get('best_index')}")
+    lines.append(f"- 规则推荐结论：{state.get('recommendation', 'need_input')}")
+    for index, breakdown in enumerate(state.get("price_breakdowns", [])):
+        lines.append(f"- 候选 {index + 1} 规则到手价：{float(breakdown.get('final_price') or 0):.2f}")
+    for index, match in enumerate(state.get("same_item_matches", [])):
+        lines.append(f"- 候选 {index + 1} 同款关系：{match.get('relation')}（置信度 {float(match.get('confidence') or 0):.2f}）")
+    for index, risk in enumerate(state.get("risk_reports", [])):
+        lines.append(f"- 候选 {index + 1} 规则风险：{risk.get('overall_risk')}（价格 {risk.get('price_risk')} / 规格 {risk.get('spec_risk')} / 店铺 {risk.get('store_risk')} / 售后 {risk.get('after_sales_risk')}）")
+    return "\n".join(lines)
 
 
 def _normalize_product(product: dict[str, Any], index: int) -> dict[str, Any]:

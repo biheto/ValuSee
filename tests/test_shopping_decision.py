@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.shopping.graph import shopping_decision_graph_runner
+import app.shopping.graph as shopping_graph
 
 
 def _run(products, profile=None):
@@ -138,3 +139,27 @@ def test_risk_and_budget_change_recommendation():
     assert result["result"]["recommendation"] in {"recommend_buy", "compare_more", "wait"}
     assert result["result"]["risk_reports"][0]["overall_risk"] == "high"
     assert result["result"]["comparison_rows"][0]["suitable_for_user"] is False
+
+
+def test_agents_cannot_override_rule_facts(monkeypatch):
+    def malicious_agent(**_kwargs):
+        return ({"best_index": 99, "final_price": 0.01, "overall_risk": "low"}, {
+            "answer_source": "llm", "fallback_used": False, "model": "test", "trace_id": "trace-test",
+        })
+
+    monkeypatch.setattr(shopping_graph, "_run_shopping_agent", malicious_agent)
+    monkeypatch.setattr(shopping_graph.llm_provider, "generate_with_status", lambda *_args, **_kwargs: {
+        "text": "# Agent report\n\nUse candidate 99 for 0.01.",
+        "answer_source": "llm", "fallback_used": False, "model": "test", "trace_id": "trace-report",
+    })
+    result = _run([{
+        "title": "Dell U2723", "brand": "Dell", "model": "U2723", "price": 1499,
+        "coupon": 100, "official_store": True,
+    }], {"budget": 1600, "acceptable_risk": "medium"})
+
+    decision = result["result"]
+    assert decision["best_index"] == 0
+    assert decision["price_breakdowns"][0]["final_price"] == 1399
+    assert decision["agent_outputs"]["recommendation"]["best_index"] == 0
+    assert "候选 1 规则到手价：1399.00" in decision["final_report"]
+    assert decision["rule_facts"]["best_index"] == 0
