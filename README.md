@@ -206,7 +206,7 @@ User message
 
 ```env
 DEV_AGENT_MEMORY_EXTRACTOR=llm
-DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-4o-mini
+DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-5.5
 ```
 
 Set `DEV_AGENT_MEMORY_EXTRACTOR=rule` to disable LLM extraction. Its traces appear in the LLM Console under `memory_extractor`.
@@ -353,12 +353,12 @@ The application works with deterministic fallback responses when no key is confi
 ```env
 OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=
-DEV_AGENT_LLM_MODEL=gpt-4o-mini
+DEV_AGENT_LLM_MODEL=gpt-5.5
 
 # Optional per-agent overrides
-DEV_AGENT_LLM_MODEL_PLANNER=gpt-4o-mini
-DEV_AGENT_LLM_MODEL_REPORTER=gpt-4o-mini
-DEV_AGENT_LLM_MODEL_CODE_REVIEWER=gpt-4o-mini
+DEV_AGENT_LLM_MODEL_PLANNER=gpt-5.5
+DEV_AGENT_LLM_MODEL_REPORTER=gpt-5.5
+DEV_AGENT_LLM_MODEL_CODE_REVIEWER=gpt-5.5
 ```
 
 ## Development Checks
@@ -583,11 +583,11 @@ copy .env.example .env
 ```env
 # LLM
 OPENAI_API_KEY=your_api_key
-DEV_AGENT_LLM_MODEL=gpt-4o-mini
+DEV_AGENT_LLM_MODEL=gpt-5.5
 
 # 长期记忆：llm 为 LLM 提取，rule 为仅规则提取
 DEV_AGENT_MEMORY_EXTRACTOR=llm
-DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-4o-mini
+DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-5.5
 
 # pgvector RAG
 DEV_AGENT_RAG_STORE=pgvector

@@ -18,7 +18,7 @@ class LLMProvider:
     def __init__(self):
         self.project_root = Path(__file__).resolve().parents[2]
         self.env_path = self.project_root / ".env"
-        self.default_model = "gpt-4o-mini"
+        self.default_model = "gpt-5.5"
         self.known_agents = [
             "planner",
             "reporter",
@@ -447,7 +447,12 @@ class LLMProvider:
                         raise ValueError("vision provider returned no message content")
                     latency_ms = self._elapsed_ms(started)
                     token_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
-                    provider_name = "fallback" if index else "primary"
+                    if index == 0:
+                        provider_name = "primary"
+                    elif provider_config.get("source") == "vision_fallback":
+                        provider_name = "fallback_provider"
+                    else:
+                        provider_name = f"primary_candidate_{index + 1}"
                     self._save_trace(
                         trace_id=trace_id, agent=agent, prompt_version=prompt_version, model=provider_config["model"],
                         input_payload=trace_input, output_text=output_text, fallback_used=False,
@@ -498,7 +503,7 @@ class LLMProvider:
         return {
             "api_key": api_key,
             "base_url": base_url,
-            "model": value("OPENAI_VISION_FALLBACK_MODEL") or "gpt-4o-mini",
+            "model": value("OPENAI_VISION_FALLBACK_MODEL") or "gpt-5.5",
             "wire_api": value("OPENAI_VISION_FALLBACK_WIRE_API") or "chat_completions",
             "source": "vision_fallback",
         }

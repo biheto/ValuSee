@@ -89,7 +89,7 @@ pip install -e .[llm]
 Copy-Item .env.example .env
 # 编辑 .env:
 # OPENAI_API_KEY=你的 Key
-# DEV_AGENT_LLM_MODEL=gpt-4o-mini
+# DEV_AGENT_LLM_MODEL=gpt-5.5
 ```
 
 LLM Provider 会在每次调用前读取 `.env`，因此修改 key、model 或 `OPENAI_BASE_URL`

@@ -132,14 +132,14 @@ def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "") 
         code = str(result.get("error_code") or "provider_unavailable")
         provider_name = str(result.get("provider_name") or "primary")
         warning = messages.get(code, messages["provider_unavailable"])
-        if provider_name == "fallback":
+        if provider_name in {"fallback", "fallback_provider"}:
             warning = "主视觉模型不可用，已切换备用视觉模型；请核对识别结果。"
         return {}, "vision_unavailable", warning
     payload = _json_object(str(result.get("text") or ""))
     if not payload:
         return {}, f"vision:{result.get('model') or 'configured'}", "视觉模型未返回有效结构，已尝试本地 OCR。"
     provider_name = str(result.get("provider_name") or "primary")
-    provider_label = "备用视觉模型" if provider_name == "fallback" else "视觉模型"
+    provider_label = "备用视觉模型" if provider_name in {"fallback", "fallback_provider"} else "视觉模型"
     return payload, f"vision:{result.get('model') or 'configured'}", f"已使用{provider_label}识别，结果可能存在误差，请核对商品和价格。"
 
 
