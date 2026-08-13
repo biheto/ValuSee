@@ -1,7 +1,7 @@
 import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
-import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
+import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
 import { apiUrl } from "./runtime";
 
 type Product = ConsumerProduct;
@@ -333,6 +333,10 @@ export function App() {
   };
   useEffect(() => {
     void refreshRecords();
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => void refreshRecords(), 30_000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     if (window.location.pathname !== "/") return;
@@ -1413,6 +1417,12 @@ export function App() {
           request={request}
         />
       )}
+      <FloatingNotifications
+        notifications={notifications}
+        onRead={(id) => void readMessage(id)}
+        onNavigate={navigateTarget}
+        onOpen={() => setView("messages")}
+      />
       <MobileNav view={view} onChange={(next) => setView(next as View)} />
     </main>
   );

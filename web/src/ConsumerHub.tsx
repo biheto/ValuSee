@@ -80,6 +80,25 @@ export function MessagesPage({ notifications, onRead, onReadAll, onDelete, onRet
   return <section className="page-section"><div className="consumer-page-head"><div><span>提醒中心</span><h1>消息</h1><p>降价、保价、退货与系统提醒集中处理。</p></div><Bell size={28} /></div><div className="message-toolbar"><div className="consumer-tabs">{([['all', '全部'], ['price', '价格'], ['after_sales', '售后'], ['system', '系统']] as const).map(([key, label]) => <button className={filter === key ? 'active' : ''} onClick={() => setFilter(key)} key={key}>{label}</button>)}</div><label className="message-unread"><input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />只看未读</label><button className="soft-button" onClick={onReadAll}>全部已读</button></div>{selected.length > 0 && <div className="message-bulk"><b>已选 {selected.length} 条</b><button onClick={() => { onBulk(selected, 'read'); setSelected([]); }}>标为已读</button><button onClick={() => { onBulk(selected, 'delete'); setSelected([]); }}>删除</button></div>}<div className="panel message-center">{rows.length ? rows.map((item) => <article key={item.notification_id} className={item.status === 'unread' ? 'unread' : ''}><input type="checkbox" aria-label={`选择 ${item.title}`} checked={selected.includes(item.notification_id)} onChange={() => toggle(item.notification_id)} /><button className="message-main" onClick={() => { if (item.status === 'unread') onRead(item.notification_id); if (item.target_url) onNavigate(item.target_url); }}><i><Bell size={17} /></i><div><strong>{item.title}</strong><span>{item.message}</span><small>{day(item.created_at)} · {classify(item.kind) === 'price' ? '价格提醒' : classify(item.kind) === 'after_sales' ? '售后提醒' : '系统消息'}</small></div>{item.status === 'unread' && <em>未读</em>}</button><div className="message-actions">{item.delivery?.status === 'failed' && <button title="重发" onClick={() => onRetry(item.notification_id)}><RotateCcw size={14} /></button>}<button title="删除" onClick={() => onDelete(item.notification_id)}><Trash2 size={14} /></button></div></article>) : <EmptyState icon={<MessageSquare />} title="没有匹配消息" text="达到目标价或临近售后期限时，提醒会出现在这里。" />}</div></section>;
 }
 
+export function FloatingNotifications({ notifications, onRead, onNavigate, onOpen }: { notifications: ConsumerNotification[]; onRead: (id: string) => void; onNavigate: (target: string) => void; onOpen: () => void }) {
+  const [open, setOpen] = useState(false);
+  const unread = notifications.filter((item) => item.status === 'unread').length;
+  const recent = [...notifications].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, 5);
+  function openMessage(item: ConsumerNotification) {
+    if (item.status === 'unread') onRead(item.notification_id);
+    setOpen(false);
+    if (item.target_url) onNavigate(item.target_url);
+  }
+  return <div className={`floating-notifications${open ? ' is-open' : ''}`}>
+    {open && <div className="floating-notification-panel" role="dialog" aria-label="最近消息">
+      <div className="floating-notification-head"><div><span>实时提醒</span><strong>最近消息</strong></div><button className="floating-close" title="关闭消息预览" aria-label="关闭消息预览" onClick={() => setOpen(false)}><X size={16} /></button></div>
+      {recent.length ? <div className="floating-notification-list">{recent.map((item) => <button key={item.notification_id} className={item.status === 'unread' ? 'unread' : ''} onClick={() => openMessage(item)}><i><Bell size={15} /></i><span><strong>{item.title}</strong><small>{item.message}</small></span>{item.status === 'unread' && <em>未读</em>}</button>)}</div> : <div className="floating-notification-empty"><Bell size={20} /><span>暂无新消息</span></div>}
+      <button className="floating-view-all" onClick={() => { setOpen(false); onOpen(); }}>查看全部消息<ChevronRight size={15} /></button>
+    </div>}
+    <button className="floating-notification-trigger" aria-label={unread ? `消息，有 ${unread} 条未读` : '打开消息'} aria-expanded={open} onClick={() => setOpen((value) => !value)}><Bell size={21} />{unread > 0 && <b>{unread > 99 ? '99+' : unread}</b>}</button>
+  </div>;
+}
+
 export function AccountHome({ name, dashboard, onNavigate, onLogin }: { name: string; dashboard: Dashboard; onNavigate: (view: string) => void; onLogin: () => void }) {
   const loggedIn = Boolean(localStorage.getItem('valuesee-token'));
   useEffect(() => {
