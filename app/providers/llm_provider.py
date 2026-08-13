@@ -408,9 +408,7 @@ class LLMProvider:
         prompt_version: str = "product_vision.v1",
     ) -> dict[str, Any]:
         config = self._config(agent)
-        configured_model = os.getenv("VALUSee_VISION_MODEL", "").strip()
-        if configured_model:
-            config = {**config, "model": configured_model}
+        vision_models = self._vision_models(config)
         trace_id = f"llm_{uuid4().hex}"
         started = time.perf_counter()
         trace_input = {
@@ -431,11 +429,13 @@ class LLMProvider:
                 {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}", "detail": "high"}},
             ]},
         ]
-        provider_configs = [config]
+        provider_configs = [{**config, "model": model} for model in vision_models]
         fallback_config = self._vision_fallback_config()
-        if fallback_config and (
-            fallback_config["base_url"], fallback_config["model"], fallback_config["wire_api"]
-        ) != (config["base_url"], config["model"], config["wire_api"]):
+        if fallback_config and all(
+            (fallback_config["base_url"], fallback_config["model"], fallback_config["wire_api"])
+            != (item["base_url"], item["model"], item["wire_api"])
+            for item in provider_configs
+        ):
             provider_configs.append(fallback_config)
         errors = []
         try:
@@ -465,7 +465,7 @@ class LLMProvider:
             if len(provider_configs) > 1:
                 error_code = "all_providers_failed"
             return self._image_fallback(
-                trace_id, agent, prompt_version, trace_input, fallback, started, config["model"],
+                trace_id, agent, prompt_version, trace_input, fallback, started, provider_configs[0]["model"],
                 "; ".join(errors), error_code,
             )
         except Exception as exc:
@@ -474,6 +474,16 @@ class LLMProvider:
                 trace_id, agent, prompt_version, trace_input, fallback, started, config["model"],
                 error_message, self._classify_provider_error(error_message),
             )
+
+    def _vision_models(self, config: dict[str, str]) -> list[str]:
+        configured = os.getenv("VALUSee_VISION_MODELS", "").strip()
+        primary = os.getenv("VALUSee_VISION_MODEL", "").strip()
+        values = [item.strip() for item in configured.split(",") if item.strip()]
+        if primary:
+            values.insert(0, primary)
+        if not values:
+            values.append(config["model"])
+        return list(dict.fromkeys(values))
 
     def _vision_fallback_config(self) -> dict[str, str] | None:
         env_file = self._read_env_file()
@@ -674,12 +684,13 @@ class LLMProvider:
 
     def status(self) -> dict[str, Any]:
         config = self._config()
-        vision_model = os.getenv("VALUSee_VISION_MODEL", "").strip() or config["model"]
+        vision_models = self._vision_models(config)
         return {
             "enabled": bool(config["api_key"]),
             "model": config["model"],
             "vision_enabled": bool(config["api_key"]),
-            "vision_model": vision_model,
+            "vision_model": vision_models[0],
+            "vision_models": vision_models,
             "base_url": config["base_url"] or None,
             "wire_api": config["wire_api"],
             "env_path": str(self.env_path),

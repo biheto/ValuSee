@@ -238,3 +238,12 @@ def test_vision_fallback_config_requires_key_and_endpoint(monkeypatch) -> None:
     assert config is not None
     assert config["base_url"] == "https://fallback.example/v1"
     assert config["model"] == "vision-model"
+
+
+def test_vision_models_support_ordered_candidates(monkeypatch) -> None:
+    provider = LLMProvider()
+    monkeypatch.setenv("VALUSee_VISION_MODEL", "primary-vision")
+    monkeypatch.setenv("VALUSee_VISION_MODELS", "primary-vision, backup-vl, primary-vision")
+    config = {"model": "text-model"}
+
+    assert provider._vision_models(config) == ["primary-vision", "backup-vl"]
