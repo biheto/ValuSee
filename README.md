@@ -1,661 +1,553 @@
-# ValuSee
+<div align="center">
+  <img src="web/public/brand/logo-main.png" alt="ValuSee 见值" width="680" />
 
-> 别只看哪个便宜，先看是不是同款、适不适合你、现在该不该买。
+  # ValuSee 见值
 
-ValuSee / 见值 is an AI shopping decision and savings agent. Submit a product link, screenshot, or buying need to compare real landed cost, detect SKU differences, evaluate evidence-backed risks, personalize the recommendation, monitor a target price, and keep price-protection, return, and warranty deadlines visible after purchase.
+  **买之前，先看清价值。**
 
-The first release targets phones, laptops, monitors, headphones, keyboards, routers, robot vacuums, and coffee machines. It includes a consumer Web workbench and a Manifest V3 browser extension. It does not auto-checkout, pay, refund, or use large-scale crawling as its primary data source.
+  把商品链接、截图或购买需求交给 AI，分清是不是同款，算清真实到手价，判断适不适合你，并持续跟进降价、保价和售后期限。
 
-Production deployment: [docs/VALUSee_PRODUCTION_RELEASE.md](docs/VALUSee_PRODUCTION_RELEASE.md). Feature history: [docs/VALUSee_IMPLEMENTATION_LOG.md](docs/VALUSee_IMPLEMENTATION_LOG.md).
+  [在线体验](https://valusee.com) · [功能记录](docs/VALUSee_IMPLEMENTATION_LOG.md) · [生产部署](docs/VALUSee_PRODUCTION_RELEASE.md) · [浏览器扩展](extension/README.md)
 
-[English](#english) | [中文](#中文)
-
-<a id="english"></a>
-
-ValuSee is an open-source multi-agent workbench for **software project understanding and engineering governance**. It helps engineering teams understand unfamiliar systems faster, identify change risks before code is merged, and continuously manage architecture drift and technical debt.
-
-The product is organized around three practical workflows:
-
-- **PR Change Risk Review**: inspect a pull request, trace its likely impact, identify risks and test gaps, and produce an auditable review decision.
-- **Project Onboarding**: turn an unfamiliar repository into an architecture tour, module guide, learning plan, and interactive project coach for new team members.
-- **Architecture and Technical Debt Governance**: periodically detect coupling, dependency risk, architecture drift, and deviations from project standards before they become expensive problems.
-
-These workflows share the same governed runtime and project knowledge, so review findings, architecture decisions, and team conventions can be reused instead of being lost in separate conversations.
-
-It is deliberately not a code-writing IDE. Its focus is making software delivery work easier to understand, audit, evaluate, and improve.
-
-## ValuSee Consumer Product
-
-ValuSee is also a usable AI shopping decision and savings assistant. It is designed around one complete consumer loop:
-
-```text
-shopping need -> product identification -> true landed price -> same-SKU matching
--> risk analysis -> personal recommendation -> price monitoring -> after-sales reminders
-```
-
-The consumer product now provides a complete shopping information architecture:
-
-- **Discover**: natural-language search, category shortcuts, recently viewed products, account savings summary, and governed buying guides. Empty rankings stay empty until traceable data exists.
-- **Smart comparison**: paste links, upload screenshots, confirm specification and discount fields, detect SKU differences, highlight risk, and generate an account-backed decision report.
-- **Browser-assisted capture**: while the user is viewing a JD, Taobao/Tmall, or Pinduoduo product page, the Manifest V3 extension extracts only visible title, selected SKU, price, discounts, store, image, region, membership conditions, specifications, source URL, and capture time. The user edits the observation before sending it, and ValuSee requires final confirmation before writing price history.
-- **Product details**: inspect landed-price breakdown, specification/version, historical observations, source link, store status, return and warranty terms, then favorite or add the product to comparison.
-- **Savings center**: create, edit, pause, resume, and delete durable target-price monitors.
-- **Orders and after-sales**: record the paid price and manage received, price-protection, return, warranty, and completed states with visible deadlines.
-- **Favorites and history**: synchronize favorite products, recent views, followed brands, reports, and saved comparison lists across devices.
-- **Messages and account**: manage unread notifications, shopping preferences, existing-device profiles, family collaboration, security, export/deletion, and measured savings.
-- **Mobile/PWA**: installable Web client with a compact bottom navigation and a public-only offline shell that never caches private API responses.
-
-The separate admin console governs canonical products/SKUs, commerce source health, prompts, benchmarks, monitors, user corrections, business metrics, and published discovery content.
-
-The initial invitation release does not require an authorized commerce provider. It performs bounded, cached, user-triggered parsing of supported public product URLs and falls back explicitly to browser capture, screenshot OCR, or manual confirmation when a page returns login, captcha, or dynamic empty content. It does not offer whole-platform search, automatic checkout, payment, refunds, affiliate links, or large-scale crawling. Authorized platform APIs remain a later expansion path rather than a launch dependency.
-
-For target-price monitoring without platform APIs, the durable worker checks only URLs that a user explicitly follows and clamps even a “realtime” preference to a six-hour public-page interval. A possible change creates a pending observation and asks the user to verify the current SKU, region, login state, and discounts with the extension. Unconfirmed public observations never trigger a purchase recommendation or enter trusted price history.
-
-Core message:
-
-> Don't just ask which one is cheaper. Ask whether it is the same product, whether it fits you, and whether now is the right time to buy.
-
-The product foundation is modular: deterministic price calculation and SKU/risk rules provide predictable results, while the existing workflow runtime, knowledge, memory, and observability layers can be enabled as the product grows.
-
-![ValuSee architecture](docs/assets/architecture.png)
-
-## Why ValuSee
-
-- **Multi-agent workflows, not isolated prompts**: Planner, Project Analyzer, Code Reviewer, RAG Processor, Supervisor, and Reporter are composed through LangGraph.
-- **Governed runtime**: Harness Runtime provides task context, event timelines, artifacts, review state, persistence, deterministic policy checks, and resume support.
-- **Visual workflows that execute**: a drag-and-drop canvas is compiled into executable LangGraph workflows instead of serving as a static diagram.
-- **Observable LLM operations**: prompt versions, model configuration, traces, token and cost data, fallback records, and A/B comparison are available from the UI.
-- **Extensible Skills with guardrails**: Skills are versioned, permission-scoped, testable, dependency-aware, and usable from both the console and a workflow.
-- **Plugin Marketplace**: install resource packs from built-in catalogs, local paths, URLs, GitHub-style sources, or an external `SKILL.md` file.
-- **Safe third-party code execution**: Code Skills can run in a constrained Docker sandbox with no network, read-only mounts, resource limits, and audit logs.
-- **Governed RAG that can be evaluated**: project knowledge now supports incremental indexing, document versions, ACL filtering, hybrid retrieval, optional LLM rerank, and editable chunk-level Gold Sets.
-- **Switchable Colorful and Clear UI**: the React workbench can switch between a colorful theme with yellow/green/blue/pink environmental light pillars and a clear SVG-refraction liquid-glass theme with pointer ripples, hover lift, and connected mode transitions. The selected theme is persisted locally.
-
-## Business Workflows
-
-ValuSee is designed to turn project intelligence into repeatable engineering actions, not just generate one-off summaries.
-
-| Workflow | Input | Result | Business value |
-| --- | --- | --- | --- |
-| PR Change Risk Review | Repository, branch, or pull request diff | Impact scope, call-chain risks, findings, test gaps, and review decision | Finds regression risk before merge and gives reviewers evidence they can audit. |
-| Project Onboarding | Repository and a developer's learning goal | Architecture map, module guide, learning plan, and follow-up coaching | Reduces the time required for a new engineer to become productive. |
-| Architecture and Technical Debt Governance | Repository snapshots, project rules, and historical reports | Drift findings, dependency risks, technical-debt priorities, and governance actions | Makes architecture quality visible and supports continuous improvement. |
-
-The three workflows use a shared project context, governed RAG knowledge, long-term memory, Skills, MCP tools, and human review. A team can start with one workflow and add the others without creating a separate AI system.
-
-See the detailed input/output examples in [Business Scenarios](docs/BUSINESS_SCENARIOS.md).
-
-### Runnable business workflows
-
-The Run page now has three first-class business scenario entries: **Project Onboarding**, **PR Change Risk Review**, and **Architecture Governance**. Each one creates a persisted Harness task, emits timeline events, produces a structured report, and can enter the existing human-review/resume flow. The same scenarios are available through `/api/v1/business-scenarios/run` and its streaming variant. See the runnable payloads under [`examples/business`](examples/business/).
-
-The PR workflow accepts a GitHub PR URL and can post its governance report back to the PR conversation. A signed GitHub Pull Request webhook triggers the same persisted workflow on `opened`, `reopened`, and `synchronize`. Configure `GITHUB_TOKEN` and `GITHUB_WEBHOOK_SECRET` in `.env`; setup details are in [Business Scenarios](docs/BUSINESS_SCENARIOS.md).
-
-## Product Preview / 页面预览
-
-The screenshots below show the Clear theme with per-surface SVG displacement maps, refracted grid detail, reflective rims, layered shadows, and liquid button interactions. Use the header switch to move between the Colorful and Clear themes at any time.
-
-| Run workbench / 运行 | Visual workflow / 编排 |
-| --- | --- |
-| ![Run workbench](docs/assets/run-preview.png) | ![Visual workflow](docs/assets/workflow-preview.png) |
-
-| Reports / 报告 | Interactive chat / 追问 |
-| --- | --- |
-| ![Reports](docs/assets/report-preview.png) | ![Interactive chat](docs/assets/chat-preview.png) |
-
-| Task history / 历史 | LLM governance / LLM |
-| --- | --- |
-| ![Task history](docs/assets/history-preview.png) | ![LLM console](docs/assets/llm-console-preview.png) |
-
-| MCP console / MCP | Skills console / Skills |
-| --- | --- |
-| ![MCP console](docs/assets/mcp-console-preview.png) | ![Skills console](docs/assets/skill-preview.png) |
-
-| Plugin Marketplace / Market | Benchmark dashboard / Bench |
-| --- | --- |
-| ![Plugin Marketplace](docs/assets/market-preview.png) | ![Benchmark dashboard](docs/assets/benchmark-dashboard-preview.png) |
-
-## Architecture
-
-```text
-User / React workbench
-        |
-        v
-FastAPI APIs ---- Marketplace ---- Skills Console ---- MCP Console
-        |
-        v
-Harness Runtime
-  context | policy | events | artifacts | human review | persistence
-        |
-        +-----------------------+
-        |                       |
-        v                       v
-LangGraph workflows          Skill Runtime
-planner / reviewer /         prompt skills / code skills /
-RAG / supervisor / reporter  dependency and permission checks
-        |                       |
-        +-----------+-----------+
-                    v
-      LLM / MCP / RAG / SQLite / pgvector / Docker sandbox
-```
-
-### Typical execution flow
-
-```text
-Task request
-  -> FastAPI creates a task
-  -> Harness Runtime creates context and emits events
-  -> LangGraph invokes agents, Skills, LLMs, RAG, or MCP tools
-  -> policy and human-review checks gate sensitive operations
-  -> traces, artifacts, logs, and state are persisted
-  -> Reporter produces a governance report
-```
-
-## Core Capabilities
-
-| Area | What it provides |
-| --- | --- |
-| Project analysis | Structure scanning, technology identification, module summary, risks, and governance suggestions. |
-| Code review | Hybrid rule, call-chain, and LLM semantic review with findings and test recommendations. |
-| RAG knowledge | Governed project knowledge base with incremental indexing, document versions, document ACL, hybrid BM25/vector retrieval, optional LLM rerank, SQLite default storage, and pgvector extension. |
-| Long-term memory | LLM/rule candidate extraction, explicit confirmation, conflict replacement, quality scoring, retention review, and scoped access boundaries. |
-| Learning coach | Project-oriented learning plans and interactive follow-up questions. |
-| Collaboration | Planner, analyzer, reviewer, RAG, supervisor, and reporter run as a traceable collaboration graph. |
-| Workflow | Drag, connect, configure, validate, save, and execute workflow JSON compiled to LangGraph. |
-| Human review | Node-level approval/rejection, checkpoint/resume, retry, and recovery visualization. |
-| LLM governance | Per-agent model configuration, call trace, prompt versions, token/cost data, fallback display, and A/B tests. |
-| MCP management | Server registration, stdio tool discovery, enable/disable, approval, test invocation, and call logs. |
-| Benchmark | LLM, RAG, Workflow, MCP, and multi-agent evaluation with success rate, P95 latency, chunk Gold Set Recall@K, Precision@K, MRR, completeness, token, and cost metrics. |
-
-## RAG Governance and Evaluation
-
-The RAG layer is designed as a governed project knowledge base rather than a simple chunk search demo.
-
-| Capability | What changed |
-| --- | --- |
-| Incremental indexing | Documents are hashed by content. Unchanged files are skipped; changed files create a new version. |
-| Versioned documents | Current retrieval only uses the active version, while old versions remain auditable with `valid_to`. |
-| Hybrid retrieval | SQLite uses BM25 plus token semantic overlap. pgvector uses vector candidates plus BM25 and RRF fusion. |
-| Optional rerank | `DEV_AGENT_RAG_RERANKER=llm` enables an LLM reranker with JSON-only ordering and fallback to RRF. |
-| Document ACL | Documents can be restricted by principal, and queries/listing filter by actor identity. |
-| Chunk Gold Set | Benchmark cases can store expected chunk IDs and calculate Chunk Hit, Recall@K, Precision@K, and MRR. |
-| Gold Set UI | The Benchmark page can create, edit, delete, and load RAG Gold Set cases into benchmark runs. |
-
-This turns RAG from "can retrieve something" into "can be versioned, permissioned, measured, and improved."
-
-## Governed Long-term Memory
-
-Conversation history is not written directly into the knowledge base. Durable memory follows a governed pipeline:
-
-```text
-User message
-  -> LLM Memory Extractor (or deterministic rule fallback)
-  -> candidate memory + sensitive-content filter
-  -> quality score + conflict detection + retention policy
-  -> explicit user approval
-  -> scoped RAG ingestion
-  -> retrieval, review, expiry, or deletion audit trail
-```
-
-- **LLM-first extraction with fallback**: `memory_extractor` emits structured candidates for durable preferences, project facts, and team policies. Without an LLM, explicit-preference rules keep the feature usable offline.
-- **Confirmation before ingestion**: candidates never enter RAG until the user confirms them. Rejection and deletion prevent unwanted persistence.
-- **Conflict-aware updates**: confirming a conflicting value marks the prior record as `superseded`, while preserving history.
-- **Quality and retention**: each record has a quality score and reasons. Stable project/team rules and language/security preferences persist; general preferences use `review_90d` and become `expired` instead of being silently deleted.
-- **Memory decay, not blind accumulation**: stale or low-durability memories leave the retrieval path after their review window. They remain auditable as `expired` until explicitly refreshed or deleted, preventing old preferences and obsolete decisions from continuously biasing agents.
-- **Scoped access boundaries**: user, project, and team memories are separated. The local API accepts `X-DevAgent-Actor` and `X-DevAgent-Role`; project writes require `editor/admin`, while team confirmation and deletion require `admin`.
-
-```env
-DEV_AGENT_MEMORY_EXTRACTOR=llm
-DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-5.5
-```
-
-Set `DEV_AGENT_MEMORY_EXTRACTOR=rule` to disable LLM extraction. Its traces appear in the LLM Console under `memory_extractor`.
-
-## Governed Skill Plugin System
-
-A Skill is a reusable capability such as code review, RAG processing, learning coaching, security scanning, or workflow execution. A Skill can be tested in the Skills console or added to a visual workflow.
-
-### Skill governance
-
-| Capability | Purpose |
-| --- | --- |
-| Contract validation | Validates `input_schema`, `output_schema`, `permissions`, and `execution_type` during package preview and install. |
-| Permission levels | Classifies access as `safe`, `project-read`, `llm`, `workflow-write`, `network`, or `filesystem`, and calculates risk. |
-| Strict approvals | Approval is scoped by `skill_code + agent_code`; testing and workflow execution are independently approved. |
-| Version management | Keeps Skill snapshots for upgrade comparison and rollback. |
-| Dependencies | Declares MCP tools, RAG collections, prompt versions, and model requirements before execution. |
-| Built-in tests | Allows packages to provide test cases and lets users run them after installation. |
-| Trust metadata | Records source URL, author, manifest signature verification, install count, and local validation state. |
-| Workflow mapping | Maps outputs from earlier workflow nodes into a Skill node input. |
-
-### Prompt Skill and Code Skill
-
-An external `SKILL.md` is imported as a **Prompt Skill** when there is no `plugin.json`. The system reads its instruction text and uses it as an LLM prompt. It never executes third-party code.
-
-A **Code Skill** contains an executable entry point, for example:
-
-```text
-plugin/
-  plugin.json
-  skills/
-    security_scan.py
-```
-
-```json
-{
-  "code": "security.scan",
-  "execution_type": "python",
-  "entrypoint": "skills/security_scan.py:run",
-  "permissions": ["project-read"]
-}
-```
-
-### Docker sandbox for Code Skills
-
-Code Skills can use a Docker sandbox. The runtime starts a temporary container and removes it when execution ends. The sandbox applies:
-
-- `--network none`: no outbound network access.
-- `--read-only`: immutable container root filesystem.
-- read-only mount for the Skill package.
-- memory, CPU, PID, and execution-time limits.
-- dropped Linux capabilities and `no-new-privileges`.
-- invocation result and failure logging.
-
-This makes third-party extensions practical without treating them as trusted local code. Docker isolation is a defense layer, not a substitute for reviewing plugin source and permissions.
-
-## Plugin Marketplace
-
-The Marketplace installs and tracks resource packages. Supported package types include `skill_pack`, `rag_pack`, `mcp_pack`, `prompt_pack`, `workflow_pack`, and `benchmark_pack`.
-
-Supported sources:
-
-- Built-in catalog packages.
-- Local folders or a local `plugin.json`.
-- URL and GitHub-style package sources.
-- External `SKILL.md` files, automatically converted to a safe Prompt Skill.
-
-After installation, the UI shows installed resources, source and trust details, available Skills, approval actions, test calls, workflow insertion, and uninstall status.
-
-### Strict approval model
-
-```text
-approval key = skill_code + agent_code
-```
-
-The two common execution identities are:
-
-| Agent code | Meaning |
-| --- | --- |
-| `skill_console` | Manual test call from the Skills page. |
-| `workflow_runner` | Automatic call from a visual workflow. |
-
-Approving `skill_console` does not approve `workflow_runner`. A Skill must be explicitly approved for the context in which it will run.
-
-## Quick Start
-
-### Requirements
-
-- Python 3.11+ (Python 3.13 is supported by the current project setup)
-- Node.js 18+
-- Docker Desktop, optional for pgvector and Docker Code Skill sandboxing
-
-### Install
-
-```powershell
-git clone https://github.com/biheto/ValuSee.git
-cd ValuSee
-
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -e ".[llm,vector,dev]"
-
-cd web
-npm install
-npm run build
-cd ..
-
-copy .env.example .env
-```
-
-### Start the application
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8100
-```
-
-Open `http://127.0.0.1:8100/` for the workbench and `http://127.0.0.1:8100/docs` for the API documentation.
-
-### Optional services
-
-Run pgvector:
-
-```powershell
-docker compose -f docker-compose.pgvector.yml up -d
-```
-
-Configure Docker Code Skill sandboxing in `.env`:
-
-```env
-DEV_AGENT_SKILL_SANDBOX=docker
-DEV_AGENT_SKILL_SANDBOX_IMAGE=python:3.13-slim
-DEV_AGENT_SKILL_SANDBOX_MEMORY=256m
-DEV_AGENT_SKILL_SANDBOX_CPUS=0.5
-DEV_AGENT_SKILL_SANDBOX_PIDS_LIMIT=64
-DEV_AGENT_SKILL_SANDBOX_FALLBACK=false
-```
-
-`subprocess` is the default sandbox mode for local development. `docker` requires Docker Desktop to be running. The sandbox status can be checked at `GET /api/v1/skills/sandbox/status`.
-
-### LLM configuration
-
-The application works with deterministic fallback responses when no key is configured. Set an API key for real LLM calls:
-
-```env
-OPENAI_API_KEY=your_api_key
-OPENAI_BASE_URL=
-DEV_AGENT_LLM_MODEL=gpt-5.5
-
-# Optional per-agent overrides
-DEV_AGENT_LLM_MODEL_PLANNER=gpt-5.5
-DEV_AGENT_LLM_MODEL_REPORTER=gpt-5.5
-DEV_AGENT_LLM_MODEL_CODE_REVIEWER=gpt-5.5
-```
-
-## Development Checks
-
-```powershell
-# Backend compilation
-.\.venv\Scripts\python.exe -m compileall -q app
-
-# Frontend production build
-cd web
-npm run build
-cd ..
-
-# Governed long-term memory tests
-.\.venv\Scripts\python.exe -m unittest tests.test_memory_store -v
-
-# RAG governance tests
-.\.venv\Scripts\python.exe -m unittest tests.test_rag_governance -v
-
-# Verify the Skill sandbox configuration
-.\.venv\Scripts\python.exe -c "from app.skills.sandbox import python_skill_sandbox_status; print(python_skill_sandbox_status())"
-```
-
-## Project Structure
-
-```text
-ValuSee/
-  app/
-    agents/              # Project, review, RAG, learning, and report logic
-    api/                 # FastAPI route modules
-    graphs/              # LangGraph graphs and visual workflow compiler
-    harness/             # Context, events, policy, artifacts, review/resume runtime
-    marketplace/         # Package preview, installer, trust, and SKILL.md compatibility
-    persistence/         # Task, governance, RAG, and trace persistence
-    providers/           # LLM, MCP, and RAG provider interfaces
-    skills/              # Registry, contracts, versions, dependencies, sandbox runtime
-    benchmark_runner.py  # LLM/RAG/Workflow/MCP/collaboration benchmarks
-  web/                   # React workbench
-  scripts/               # MCP launchers and test servers
-  docs/                  # Architecture and implementation notes
-  examples/              # API request examples
-  docker-compose.pgvector.yml
-```
-
-## Documentation
-
-- [Implementation timeline](docs/IMPLEMENTATION_TIMELINE.md)
-- [Workflow production notes](docs/PHASE_8_WORKFLOW_PRODUCTION.md)
-
-## Roadmap
-
-- Add a richer UI for Docker sandbox health and test invocation.
-- Add signed external plugin publishing examples and contributor tooling.
-- Expand API, workflow compiler, runtime-state, MCP contract, LLM fallback, and benchmark integration test coverage.
-- Add conditional branch, parallel node, and richer input/output mapping UX for workflows.
-
-## License and Attribution
-
-This project is licensed under the [MIT License](LICENSE).
-
-Copyright (c) 2026 biheto. When redistributing the project, preserve the original copyright notice and license text.
-
-```text
-ValuSee by biheto
-https://github.com/biheto/DevAgent-Studio
-```
+  [![License: MIT](https://img.shields.io/badge/License-MIT-2f7d6d.svg)](LICENSE)
+  [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
+  [![React](https://img.shields.io/badge/React-18-149ECA.svg?logo=react&logoColor=white)](web/package.json)
+  [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](pyproject.toml)
+</div>
 
 ---
 
-<a id="中文"></a>
+[中文](#valuesee-见值) | [English](#valuesee-english-version)
 
-# ValuSee 中文说明
+ValuSee 不是另一个只把商品按标价排序的比价器。它面向一次真实购买中最麻烦的那些问题：相似标题背后是不是同一个 SKU，优惠叠加后究竟要付多少钱，最低价是否暗藏版本和售后风险，以及这个商品是否真的适合当前用户。
 
-ValuSee 是一个面向**软件项目理解与研发治理**的开源多 Agent 工作台。它帮助研发团队更快看懂陌生系统、在代码合并前发现变更风险，并持续治理架构漂移与技术债。
+用户可以从一个模糊需求开始，也可以直接提交多个候选商品：
 
-产品围绕三个实际业务工作流展开：
+```text
+购买需求 / 商品链接 / 商品截图 / 浏览器采集
+  -> 商品识别与人工确认
+  -> SKU 与规格匹配
+  -> 真实到手价计算
+  -> 评论证据与风险分析
+  -> 个性化购买建议
+  -> 目标价格监控
+  -> 保价、退货与保修管理
+```
 
-- **PR 变更风险审查**：分析 Pull Request 的影响范围、调用链风险和测试缺口，辅助审核并生成可审计的决策报告。
-- **项目入职与架构学习**：把陌生仓库转化为架构导览、模块说明、学习计划和交互式项目陪练，帮助新人更快进入项目。
-- **架构与技术债治理**：定期发现模块耦合、依赖风险、架构漂移和规范偏离，形成可执行的治理建议。
+ValuSee 的目标不是替用户冲动下单，而是把一次购买需要核对的事实放到同一个地方，并让每一条价格、规格和结论都能回到来源。
 
-三个场景共享同一套项目上下文和治理能力，因此审核结论、架构决策和团队规范可以持续复用，而不是散落在不同的对话中。
+![ValuSee 核心能力](web/public/brand/features.png)
 
-它不是代码编写 IDE，核心目标是让研发过程更容易理解、审计、评估和持续改进。
+## 为什么需要 ValuSee
 
-## 项目亮点
+传统比价产品通常擅长回答“哪里标价更低”，但一次购买往往卡在更细的地方：
 
-- **多 Agent 协作而非单次 Prompt**：通过 LangGraph 编排 Planner、项目分析、代码审查、RAG、监督和报告节点。
-- **Harness Runtime 运行时治理**：统一任务上下文、事件时间线、产物、策略、人工审核、持久化与恢复执行。
-- **真正可执行的可视化 Workflow**：前端拖拽画布会编译成 LangGraph 工作流执行，而不只是展示图。
-- **LLM 可观测与可治理**：可查看 Prompt 版本、调用 Trace、token/cost、fallback、A/B Test，以及按 Agent 配置模型。
-- **安全可治理的 Skill 插件体系**：Skill 有契约校验、权限分级、严格审批、版本快照、依赖检测、测试用例和执行日志。
-- **插件市场与外部兼容**：支持内置包、本地路径、URL、GitHub 风格来源，以及外部 `SKILL.md` 自动转换。
-- **Docker 代码型 Skill 沙箱**：第三方代码可以在禁网、只读、限时限资源的临时容器中运行。
-- **受控长期记忆**：对话先经 LLM/规则提取为候选记忆，再通过质量评分、冲突检测、人工确认、生命周期策略和 scope 权限边界沉淀到 RAG。
-- **遗忘衰减而非无限累积**：稳定规则长期保留；普通偏好进入 90 天复核，到期后标记为 `expired` 并退出检索，但保留审计记录，可由用户刷新、更新或删除，避免陈旧偏好和过时决策持续干扰 Agent。
-- **RAG 治理与可评测**：知识库支持增量索引、文档版本化、ACL 权限过滤、BM25/向量混合检索、可选 LLM Rerank 和 Chunk Gold Set。
-- **缤纷 / 清透双主题 UI**：顶部可在带黄绿蓝粉彩色环境光柱的“缤纷”主题与 SVG 折射水玻璃“清透”主题之间切换；清透模式支持边缘折射、悬浮阴影、点击涟漪和模式按钮液态连贯切换，并在浏览器本地保存用户选择。
+- 同一个商品在不同平台的标题、型号和套装名称完全不同。
+- 容量、接口、代次、地区版本或成色不同，却容易被误认为同款。
+- 店铺券、平台满减、会员价、补贴、支付优惠、运费和赠品价值难以一起核算。
+- 最低价可能来自拆封、翻新、海外版、非官方店铺或限制退货的商品。
+- 用户已有设备、预算和使用场景不同，统一推荐并不可靠。
+- 下单后仍可能降价，保价、退货、发票和保修期限容易被忘记。
 
-## 业务工作流
+因此，ValuSee 比较的不是一个孤立数字，而是“对当前用户而言，哪一个候选是更低风险、更适配的真实低成本方案”。
 
-ValuSee 的目标不是只生成一次性的项目摘要，而是把项目理解转化为可以重复执行、审核和追踪的研发动作。
+## 一次完整的购物决策
 
-| 工作流 | 输入 | 输出 | 业务价值 |
-| --- | --- | --- | --- |
-| PR 变更风险审查 | 仓库、分支或 Pull Request Diff | 影响范围、调用链风险、问题发现、测试缺口和审核结论 | 在合并前发现回归风险，为审核者提供可追溯的证据。 |
-| 项目入职与架构学习 | 项目仓库和开发者学习目标 | 架构导览、模块手册、学习计划和追问陪练 | 缩短新人熟悉项目的时间，减少重复讲解成本。 |
-| 架构与技术债治理 | 项目快照、团队规范和历史报告 | 架构漂移、依赖风险、技术债优先级和治理动作 | 让架构质量可见，并支持持续改进而不是问题爆发后再处理。 |
+你可以粘贴多个淘宝、天猫、京东或拼多多商品链接，上传商品截图，输入型号，也可以直接描述“想买一台适合 MacBook 一线连接的 27 英寸显示器”。
 
-三个工作流共用项目上下文、受控 RAG、长期记忆、Skill、MCP 工具和人工审核。团队可以先启用一个场景，再逐步扩展到其他研发治理流程。
+ValuSee 会先把标题、品牌、标准型号、当前 SKU、版本、成色、店铺和售后条款整理成可编辑候选。识别结果不会直接变成可信事实，用户确认后才进入比较。
 
-详细的输入、处理链路和输出示例见 [业务场景说明](docs/BUSINESS_SCENARIOS.md)。
+### 1. 分清是不是同款
 
-## 核心能力
+SKU 匹配不只比较标题相似度。系统会核对品牌、标准型号、代次、容量、颜色、接口、地区版本、套装内容、新旧状态和保修方式，并明确标记：
+
+- 完全同款
+- 不同配置
+- 不同代次
+- 不同套装
+- 不同地区版本
+- 新品、拆封、翻新或二手
+- 证据不足，需要确认
+
+这一步用于避免把 AirPods Pro 2 USB-C、Lightning 版本、旧代产品或翻新版混在同一价格排序中。
+
+### 2. 算清真实到手价
+
+ValuSee 保留每项优惠条件并展示完整算式：
+
+```text
+页面价格
+- 店铺优惠券
+- 平台满减
+- 会员优惠
+- 消费补贴
+- 支付优惠
+- 换新补贴
++ 运费
+- 可量化赠品价值
+= 预计真实到手价
+```
+
+价格记录同时保存来源链接、采集时间、地区、会员条件、选中 SKU 和确认状态。无法确认的优惠不会伪装成无条件低价。
+
+### 3. 判断是否值得买
+
+购物工作流由 Intent、Product、SKU Matching、Price、Review、Risk、Recommendation、Supervisor 和 Reporter 等角色协作完成。价格计算和关键风险规则由确定性事实层复核，避免让语言模型自行计算金额或臆测商品风险。
+
+最终报告覆盖：
+
+- 候选商品的规格差异和到手价排序
+- 价格、规格、店铺与售后风险
+- 可追溯评论中的高频问题与证据
+- 与用户预算、设备和偏好的匹配程度
+- 当前购买或继续等待的建议及不确定性
+- 推荐与不推荐的具体原因
+
+### 4. 从等待降价到买后管理
+
+用户可以为指定 SKU 设置目标价、期限、平台和通知频率。监控任务持久化保存，支持暂停、恢复和失败重试；公开页面无法验证登录价或个性化优惠时，系统会要求用户重新通过扩展确认，而不是把不可靠价格写入历史。
+
+购买后可以继续记录实付金额、收货日期、发票、保价期限、退货期限、保修期限、会员续费和耗材周期。站内消息会提示降价机会和临近截止日期，外部邮件或 Push 则按部署配置发送。
+
+## 核心功能总览
 
 | 模块 | 能力 |
 | --- | --- |
-| 项目分析 | 扫描目录、识别技术栈、归纳模块职责、风险和治理建议。 |
-| 代码审查 | 结合规则、调用链与 LLM 语义审查，输出问题和测试建议。 |
-| RAG 知识加工 | 受治理的项目知识库，支持增量索引、文档版本化、文档级 ACL、BM25/向量混合检索、可选 LLM Rerank；默认 SQLite，可扩展 pgvector。 |
-| 长期记忆 | LLM/规则候选提取、确认入库、冲突替换、质量评分、90 天复核、过期审计与用户/项目/团队隔离。 |
-| 学习陪练 | 基于项目上下文生成学习计划和追问。 |
-| 多 Agent 协作 | Planner、Analyzer、Reviewer、RAG、Supervisor、Reporter 组成协作图。 |
-| Workflow | 拖拽、连线、配置、校验、保存并执行 Workflow JSON。 |
-| 人工审核 | 支持节点级通过/拒绝、checkpoint/resume、重试与恢复事件展示。 |
-| MCP | 支持 Server 配置、工具发现、启停、审批、测试调用和日志追踪。 |
-| Benchmark | 覆盖 LLM、RAG、Workflow、MCP、多 Agent 协作的指标评估，RAG 支持 Chunk Gold Set、Recall@K、Precision@K 和 MRR。 |
+| 首页发现 | 搜索与自然语言需求入口、品类入口、历史低价与降价内容、选购指南和可信数据空状态 |
+| 智能对比 | 多候选录入、规格编辑、SKU 匹配、优惠拆解、差异高亮、排序、保存与分享 |
+| 截图识别 | 浏览器端中英文 OCR、可选视觉模型结构化识别、低置信度提示和人工确认 |
+| 商品详情 | 稳定详情视图、价格趋势、来源报价、规格版本、评论证据、风险与替代项 |
+| 个性化建议 | 预算、用途、已有设备、品牌偏好、重量/续航等偏好和历史退货原因 |
+| 省钱中心 | 目标价格监控、监控状态、降价提醒、价格记录和累计节省结果 |
+| 收藏与足迹 | 收藏分组、搜索、批量管理、浏览历史、最近对比和关注品牌 |
+| 我的购买 | 订单、发票和附件、保价、退货、保修、耗材与续费期限管理 |
+| 消息中心 | 降价、保价、售后和系统消息，支持分类、已读状态与页面跳转 |
+| 家庭与账户 | 个人资料、设备档案、家庭协作、会话安全、MFA、数据导出与账号删除 |
+| 用户 LLM | 用户可配置自己的 OpenAI 兼容文本/视觉服务；密钥加密保存，平台配置仅作回退 |
+| 管理后台 | 用户与商品治理、标准商品/SKU、内容、来源状态、Prompt、Trace、成本、Benchmark 和监控任务 |
+| Web / PWA | 响应式消费者界面、移动端底部导航、可安装 PWA、公开离线壳与错误恢复 |
 
-## RAG 治理与评测
+## 浏览器扩展
 
-RAG 不再只是“切片后能检索”，而是按项目知识库治理的方式设计：
+ValuSee 提供 Manifest V3 扩展。在用户打开淘宝、天猫、京东或拼多多商品详情页后，扩展只读取当前页面中用户已经能够看到的信息：
 
-| 能力 | 说明 |
-| --- | --- |
-| 增量索引 | 基于文档内容 hash 判断变化，未变化文件跳过，变化文件生成新版本。 |
-| 文档版本化 | 默认只检索当前版本，旧版本保留 `valid_to`，便于追溯。 |
-| 混合检索 | SQLite 使用 BM25 + token 语义相似度；pgvector 使用向量候选 + BM25 + RRF 融合排序。 |
-| 可选 Rerank | 设置 `DEV_AGENT_RAG_RERANKER=llm` 后启用 LLM Reranker，并在失败时回退到 RRF。 |
-| 文档级 ACL | 支持按 principal 限制文档可见性，查询和文档列表都会按 actor 过滤。 |
-| Chunk Gold Set | Benchmark 可维护期望 chunk，计算 Chunk Hit、Recall@K、Precision@K 和 MRR。 |
-| Gold Set UI | Benchmark 页面支持新增、删除、加载 Gold Set，并直接用于 RAG Benchmark。 |
+- 商品标题、图片和来源链接
+- 当前选择的 SKU 与规格
+- 页面价格、会员价、优惠券和满减
+- 店铺名称、地区和会员条件
+- 采集时间与页面证据
 
-这让知识库从“能查”升级为“可版本化、可授权、可评测、可持续优化”。
+采集结果会先在扩展内编辑确认，再发送到 ValuSee 的待确认箱；用户在 Web 端进行第二次确认后，记录才会进入可信价格历史。
 
-## Skill 插件体系
+扩展不遍历平台搜索结果，不绕过登录、验证码或访问控制，也不在后台进行大规模爬取。安装与连接方法见 [extension/README.md](extension/README.md)。
 
-Skill 是可复用能力，例如代码审查、RAG 加工、学习陪练、安全扫描或 Workflow 执行。它可以在 Skills 页面单独测试，也可以加入可视化 Workflow。
+## 真实数据边界
 
-已实现的治理能力：
+ValuSee 不生成虚假商品、价格、评论或优惠资格。
 
-- **契约校验**：安装和预览时校验 `input_schema`、`output_schema`、`permissions`、`execution_type`，避免格式错误的包进入运行时。
-- **权限风险分级**：使用 `safe`、`project-read`、`llm`、`workflow-write`、`network`、`filesystem` 标识访问能力和风险级别。
-- **严格审批**：审批键为 `skill_code + agent_code`。手动测试和工作流执行分别审批，互不放行。
-- **版本与回滚**：安装升级会保留版本快照，可对比和回滚。
-- **依赖声明**：Skill 可声明依赖的 MCP 工具、RAG collection、Prompt 版本和 LLM 模型，运行前会检查缺失项。
-- **测试用例**：插件包可携带测试用例，安装后可一键运行并记录结果。
-- **可信来源**：记录来源 URL、作者、manifest SHA-256 签名校验、安装次数和本地校验状态。
-- **Workflow 输入输出映射**：前序节点输出可映射到 Skill 节点输入，让 Skill 参与复杂工作流。
+在没有电商平台正式授权时，产品使用以下数据路径：
 
-### Prompt Skill 与代码型 Skill
+1. 解析用户主动提交的公开商品链接。
+2. 页面要求登录、验证码或动态渲染时，提示使用浏览器扩展。
+3. 使用截图 OCR 或视觉模型提取页面可见信息。
+4. 允许用户手动补充价格和优惠条件。
+5. 保存来源、时间、SKU、地区、会员条件和用户确认状态。
 
-如果外部来源没有 `plugin.json`，但包含 `SKILL.md`，系统会将其识别为 **Prompt Skill**：只读取其中的指令文本并交给 LLM，不执行第三方代码。
+全平台商品搜索、联盟推广链接和稳定的个性化实时价格需要正式平台 API 或联盟授权。未配置授权的数据源会保持空结果，而不是用演示商品填充。
 
-**代码型 Skill** 则带有可执行入口，例如 Python 文件。它能力更强，但必须通过权限审批和沙箱限制后执行。
+## 多 Agent 与事实校验
 
-### Docker 沙箱
-
-当 `.env` 中设置 `DEV_AGENT_SKILL_SANDBOX=docker` 后，代码型 Skill 会在临时 Docker 容器中执行，并使用以下限制：
-
-- 禁止网络访问。
-- 容器根文件系统只读，Skill 包只读挂载。
-- 限制内存、CPU、进程数和执行超时。
-- 移除 Linux capabilities，禁止提升权限。
-- 执行结束自动删除容器，同时保留调用结果和失败日志。
-
-Docker 沙箱是隔离层，不代表插件天然可信。安装前仍应检查来源、manifest、权限和代码内容。
-
-## 插件市场
-
-Marketplace 支持安装和管理 `skill_pack`、`rag_pack`、`mcp_pack`、`prompt_pack`、`workflow_pack`、`benchmark_pack` 等资源包。
-
-支持的来源：内置资源包、本地目录或 `plugin.json`、URL/GitHub 风格地址，以及外部 `SKILL.md`。安装后可查看已安装资源、来源与信任信息、Skill 列表、权限审批、测试调用、添加到 Workflow 和卸载状态。
-
-### 审批如何隔离
+ValuSee 将购物决策拆分为可观察、可恢复的工作流：
 
 ```text
-审批键 = skill_code + agent_code
+created
+  -> collecting
+  -> matching
+  -> comparing
+  -> waiting_confirmation
+  -> monitoring
+  -> price_reached
+  -> purchased
+  -> after_sales
+  -> completed
 ```
 
-| Agent code | 使用场景 |
+| 角色 | 职责 |
 | --- | --- |
-| `skill_console` | 在 Skills 页面手动点击测试调用。 |
-| `workflow_runner` | 在可视化 Workflow 中自动执行。 |
+| Intent Agent | 解析预算、用途、限制条件和优先级 |
+| Product Agent | 将标题、截图和页面字段标准化为商品信息 |
+| SKU Matching Agent | 判断候选是否为真正同款并解释差异 |
+| Price Agent | 整理优惠条件，调用确定性价格计算器 |
+| Review Agent | 仅基于有来源评论归纳常见问题 |
+| Risk Agent | 分析规格、店铺、价格和售后风险 |
+| Recommendation Agent | 结合用户档案判断适配度与替代方案 |
+| Supervisor | 检查缺失来源、矛盾事实和越界结论 |
+| Monitor / After-sales | 执行长期价格监控和买后期限管理 |
+| Reporter | 生成结构化、可保存和可分享的决策报告 |
 
-因此，批准 `skill_console` 不等于批准 `workflow_runner`。Skill 必须在实际运行身份下单独获得批准。
+工作流支持 checkpoint/resume、幂等重试、人工确认和调用 Trace。LLM 负责理解、归纳与解释；金额、时间和硬约束由代码规则验证。
 
-## 快速启动
+## 产品预览
 
-环境要求：Python 3.11+（当前项目支持 Python 3.13）、Node.js 18+；如需 pgvector 或 Docker 沙箱，还需要 Docker Desktop。
+| 见价格 | 见变化 | 见值得 |
+| --- | --- | --- |
+| ![识别商品价格](web/public/brand/showcase-1.png) | ![跟踪价格变化](web/public/brand/showcase-2.png) | ![判断是否值得买](web/public/brand/showcase-3.png) |
+
+## 技术架构
+
+```text
+React / TypeScript / Vite / PWA
+              |
+              v
+        FastAPI API
+ auth | shopping | reports | admin | uploads
+              |
+              v
+ LangGraph shopping workflow + deterministic fact validators
+              |
+      +-------+--------+----------------+
+      |                |                |
+ PostgreSQL         Redis          RabbitMQ
+ durable data    cache/rate limit  task events
+      |                                 |
+      +---------- monitor worker -------+
+              |
+        S3 / Cloudflare R2
+       private user attachments
+```
+
+主要技术栈：
+
+- React 18、TypeScript、Vite 6、Lucide、Tesseract.js
+- Python 3.11+、FastAPI、Pydantic、LangGraph、LangChain
+- PostgreSQL、Redis、RabbitMQ、S3 兼容对象存储
+- Playwright、Pytest、Ruff、Docker Compose
+- Vercel Web、Cloudflare、可独立运行的周期监控 Worker
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.11+
+- Node.js 20+
+- npm
+
+### 1. 安装后端
+
+```bash
+git clone https://github.com/biheto/ValuSee.git
+cd ValuSee
+python -m venv .venv
+```
+
+Windows：
 
 ```powershell
-git clone https://github.com/biheto/DevAgent-Studio.git
-cd DevAgent-Studio
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+Copy-Item .env.example .env
+```
 
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -e ".[llm,vector,dev]"
+macOS / Linux：
 
+```bash
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+```
+
+### 2. 构建前端并启动一体化服务
+
+```bash
 cd web
 npm install
 npm run build
 cd ..
-
-copy .env.example .env
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+python -m uvicorn app.main:app --reload --port 8100
 ```
 
-打开 `http://127.0.0.1:8100/` 使用工作台，打开 `http://127.0.0.1:8100/docs` 查看 API 文档。
+打开 [http://127.0.0.1:8100](http://127.0.0.1:8100)。FastAPI 会同时提供 API 与构建后的消费者页面。
 
-可选配置：
+Windows 也可以直接运行：
+
+```powershell
+.\setup-and-start.ps1
+```
+
+### 3. 前端开发模式
+
+先在一个终端启动后端，再在另一个终端运行：
+
+```bash
+cd web
+npm run dev
+```
+
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。Vite 会将本地 `/api` 请求代理到后端。
+
+## 环境变量
+
+复制 `.env.example` 用于本地开发；生产环境从 `.env.production.example` 创建私有配置。不要提交任何真实密钥。
+
+最小 LLM 配置：
 
 ```env
-# LLM
 OPENAI_API_KEY=your_api_key
-DEV_AGENT_LLM_MODEL=gpt-5.5
-
-# 长期记忆：llm 为 LLM 提取，rule 为仅规则提取
-DEV_AGENT_MEMORY_EXTRACTOR=llm
-DEV_AGENT_LLM_MODEL_MEMORY_EXTRACTOR=gpt-5.5
-
-# pgvector RAG
-DEV_AGENT_RAG_STORE=pgvector
-PGVECTOR_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dev_agent_studio
-DEV_AGENT_RAG_RERANKER=off
-# DEV_AGENT_RAG_RERANKER=llm
-
-# Docker 代码型 Skill 沙箱
-DEV_AGENT_SKILL_SANDBOX=docker
-DEV_AGENT_SKILL_SANDBOX_IMAGE=python:3.13-slim
-DEV_AGENT_SKILL_SANDBOX_MEMORY=256m
-DEV_AGENT_SKILL_SANDBOX_CPUS=0.5
-DEV_AGENT_SKILL_SANDBOX_PIDS_LIMIT=64
-DEV_AGENT_SKILL_SANDBOX_FALLBACK=false
+OPENAI_BASE_URL=https://api.openai.com/v1
+DEV_AGENT_LLM_MODEL=your_text_model
+VALUSee_VISION_MODEL=your_vision_model
 ```
 
-启动 pgvector：
+核心生产配置：
 
-```powershell
-docker compose -f docker-compose.pgvector.yml up -d
+```env
+APP_ENV=production
+VALUSee_JWT_SECRET=generate_a_long_random_secret
+VALUSee_MFA_ENCRYPTION_KEY=generate_a_fernet_key
+VALUSee_METRICS_TOKEN=generate_a_long_random_token
+VALUSee_ADMIN_EMAILS=admin@example.com
+VALUSee_PUBLIC_BASE_URL=https://valusee.com
+
+DATABASE_URL=postgresql://...
+REDIS_URL=redis://...
+RABBITMQ_URL=amqp://...
+S3_ENDPOINT_URL=https://...
+S3_BUCKET=valuesee-uploads
+S3_ACCESS_KEY=...
+S3_SECRET_KEY=...
 ```
 
-可通过 `GET /api/v1/skills/sandbox/status` 查看 Skill 沙箱配置状态。
+用户也可以在“我的 -> 我的 LLM 配置”中保存自己的 OpenAI 兼容服务。用户密钥使用应用加密密钥加密存储，接口只返回脱敏尾号；系统会拦截指向本机和内网的 Base URL。
 
-## 开发验证
+完整变量、Cloudflare R2、Vercel、周期任务、备份恢复和安全检查见 [生产发布文档](docs/VALUSee_PRODUCTION_RELEASE.md)。
 
-```powershell
-.\.venv\Scripts\python.exe -m compileall -q app
+## Docker 生产部署
 
-.\.venv\Scripts\python.exe -m unittest tests.test_memory_store tests.test_rag_governance -v
+```bash
+cp .env.production.example .env.production
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+```
+
+生产拓扑包括 API、监控 Worker、PostgreSQL、Redis、RabbitMQ 和私有对象存储。只应向公网暴露反向代理的 80/443 端口；数据库、缓存、消息队列和对象存储端口必须保持私有。
+
+上线前至少检查：
+
+```text
+/health
+/ready
+注册、登录、邮箱验证与密码重置
+截图上传与商品确认
+多候选对比与报告保存
+价格监控和消息通知
+附件上传、下载与删除
+管理员 MFA 与权限隔离
+容器重启后的任务和数据恢复
+```
+
+## 测试与质量检查
+
+后端测试：
+
+```bash
+pytest
+ruff check app tests
+```
+
+前端构建与端到端测试：
+
+```bash
+cd web
+npm run build
+npm run test:e2e
+npm run test:collector
+```
+
+测试重点覆盖账号与权限、商品标准化、多候选 SKU 匹配、价格计算、购物工作流、截图 OCR、浏览器采集、报告、价格监控、购买状态和消费者页面导航。
+
+## 隐私与安全
+
+- 用户数据从认证令牌确定归属，不能通过请求体跨账户访问。
+- 密码使用带独立盐值的 PBKDF2-HMAC-SHA256；管理员支持 TOTP MFA 和恢复码。
+- 上传文件经过类型、大小、摘要和随机文件名校验，并通过鉴权 API 访问私有对象。
+- 生产环境校验 HTTPS、允许域名、跨域来源和高强度密钥。
+- 支持账户数据导出与删除，覆盖报告、收藏、监控、购买和附件记录。
+- 对外通知和周期任务使用签名、时间窗口和幂等处理。
+- 商品结论保留来源与置信度；证据不足时要求人工确认。
+
+## 项目定位
+
+ValuSee 首期聚焦手机、笔记本、显示器、耳机、键盘、路由器、扫地机器人和咖啡机等数码产品与小家电。这些品类型号相对标准、决策成本高、兼容性问题明确，也更适合建立可评测的 SKU 与价格数据。
+
+ValuSee 不自动下单、支付、退款或替用户执行未经确认的外部操作，也不把大规模后台爬虫作为核心数据来源。它提供的是一套可解释的消费决策和买后管理流程，最终决定始终由用户作出。
+
+## 路线与贡献
+
+当前版本已经包含消费者 Web、PWA、浏览器扩展、购物多 Agent、价格监控、买后管理、账户安全与运营后台。平台正式 API、联盟跳转和更大规模的历史价格覆盖取决于对应授权与持续积累的可追溯数据。
+
+功能实现记录见 [VALUSee_IMPLEMENTATION_LOG.md](docs/VALUSee_IMPLEMENTATION_LOG.md)，生产验收与外部服务清单见 [VALUSee_PRODUCTION_RELEASE.md](docs/VALUSee_PRODUCTION_RELEASE.md)。Issue 与 Pull Request 均欢迎围绕数据适配、品类规则、可访问性、安全和测试质量提交。
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+# ValuSee English Version
+
+**See the value before you buy.**
+
+ValuSee is an AI shopping decision and savings assistant. Give it product links, screenshots, or a buying need, and it helps determine whether candidates are truly the same SKU, calculate the landed price, evaluate fit and evidence-backed risk, monitor a target price, and keep price-protection, return, and warranty deadlines visible after purchase.
+
+ValuSee is not another list that sorts products by sticker price. It is built around the complete decision loop:
+
+```text
+need / link / screenshot / browser capture
+  -> product identification and confirmation
+  -> SKU and specification matching
+  -> landed-price calculation
+  -> review evidence and risk analysis
+  -> personalized recommendation
+  -> target-price monitoring
+  -> price protection, returns, and warranty management
+```
+
+## Why ValuSee
+
+Shopping comparisons fail when similarly named products hide a different generation, capacity, interface, region, bundle, condition, warranty, or return policy. Discounts add another layer: store coupons, platform promotions, memberships, subsidies, payment offers, shipping, trade-ins, and gifts do not share one simple formula.
+
+ValuSee aligns those facts before ranking candidates. It also considers the user's budget, use case, existing devices, preferences, and accepted risk. The goal is not merely to find the lowest number; it is to find the lowest-risk, best-fitting total-cost option for that person.
+
+## Highlights
+
+- **Multi-input acquisition:** product links, screenshots, model names, natural-language needs, multiple candidates, and browser-assisted capture.
+- **SKU-aware comparison:** separates different configurations, generations, bundles, regions, and product conditions instead of relying on title similarity.
+- **Explainable landed price:** preserves every discount condition, shipping cost, timestamp, region, membership requirement, and source URL.
+- **Shopping multi-agent workflow:** specialized intent, product, matching, price, review, risk, recommendation, supervision, monitoring, after-sales, and reporting roles.
+- **Deterministic fact layer:** code validates money, dates, and hard constraints so the LLM does not invent arithmetic or unsupported risk claims.
+- **Personal shopping memory:** budgets, devices, scenarios, brand preferences, physical constraints, and prior return reasons inform recommendations.
+- **Durable monitoring:** target-price tasks survive restarts and require renewed confirmation for personalized or login-only prices.
+- **After-sales lifecycle:** paid price, invoices, attachments, price protection, return, warranty, renewal, and consumable reminders.
+- **Consumer product surface:** discovery, product details, comparison, favorites, history, savings, purchases, messages, profile, family, and security views.
+- **Operational console:** canonical products/SKUs, source health, prompts, traces, model cost, benchmarks, corrections, content, users, and monitor operations.
+- **Bring your own LLM:** each user can configure an OpenAI-compatible text and vision provider with encrypted key storage and SSRF protection.
+- **Web, PWA, and extension:** responsive React client, installable public-only offline shell, and a Manifest V3 browser collector.
+
+## Browser-Assisted Capture
+
+The browser extension reads only information already visible on the product detail page opened by the user: title, selected SKU, visible price, discounts, store, image, region, membership conditions, specifications, source URL, and capture time.
+
+The user reviews the observation inside the extension and confirms it again in ValuSee before it enters trusted price history. The extension does not crawl search results or bypass login pages, captchas, or access controls.
+
+## Data Integrity Boundary
+
+ValuSee does not fabricate products, prices, reviews, or discount eligibility. Without authorized commerce APIs, it uses bounded parsing of user-submitted public URLs, browser capture, screenshot OCR, vision extraction, and manual confirmation. A blocked or dynamically empty page falls back explicitly instead of being treated as a successful result.
+
+Whole-platform search, affiliate links, and consistently fresh personalized prices require formal platform authorization. Sources remain empty until a real provider is configured.
+
+## Core Modules
+
+| Module | Capability |
+| --- | --- |
+| Discover | Search and buying-needs input, categories, governed deal content, buying guides, and honest empty states |
+| Compare | Multi-candidate editing, SKU matching, discount breakdown, difference highlighting, sorting, saving, and sharing |
+| Screenshot recognition | Browser OCR, optional vision extraction, confidence warnings, and mandatory confirmation |
+| Product details | Price history, source offers, specifications, review evidence, risk, alternatives, and original links |
+| Personal recommendation | Budget, use case, owned devices, preferences, compatibility, and accepted-risk analysis |
+| Savings center | Target-price monitors, status controls, price records, alerts, and measured savings |
+| Favorites and history | Groups, search, bulk operations, recent views, recent comparisons, and followed brands |
+| Purchases | Orders, invoices, attachments, protection, return, warranty, consumables, and renewal deadlines |
+| Messages | Price, after-sales, and system notifications with categories, read state, and destination links |
+| Account and family | Profile, devices, family collaboration, sessions, MFA, export, and account deletion |
+| Administration | Users, catalog/SKU governance, content, providers, prompts, traces, cost, benchmarks, and operations |
+
+## Tech Stack
+
+- React 18, TypeScript, Vite 6, Lucide, and Tesseract.js
+- Python 3.11+, FastAPI, Pydantic, LangGraph, and LangChain
+- PostgreSQL, Redis, RabbitMQ, and S3-compatible object storage
+- Playwright, Pytest, Ruff, and Docker Compose
+- Vercel Web, Cloudflare, and an independent scheduled monitor worker
+
+## Quick Start
+
+```bash
+git clone https://github.com/biheto/ValuSee.git
+cd ValuSee
+python -m venv .venv
+```
+
+Activate the virtual environment and install dependencies:
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+
+# Windows PowerShell
+# .\.venv\Scripts\Activate.ps1
+
+pip install -e ".[dev]"
+cp .env.example .env
+```
+
+Build the Web client and start the integrated service:
+
+```bash
+cd web
+npm install
+npm run build
+cd ..
+python -m uvicorn app.main:app --reload --port 8100
+```
+
+Open [http://127.0.0.1:8100](http://127.0.0.1:8100).
+
+For frontend development, keep the backend running and use:
+
+```bash
+cd web
+npm run dev
+```
+
+## Configuration
+
+Copy `.env.example` for local development. Production values are documented in `.env.production.example`; never commit real credentials.
+
+```env
+OPENAI_API_KEY=your_api_key
+OPENAI_BASE_URL=https://api.openai.com/v1
+DEV_AGENT_LLM_MODEL=your_text_model
+VALUSee_VISION_MODEL=your_vision_model
+```
+
+The LLM is optional for deterministic and account workflows. Users may also save their own compatible provider in the account UI; keys are encrypted at rest and only a masked suffix is returned.
+
+See [ValuSee Production Release](docs/VALUSee_PRODUCTION_RELEASE.md) for PostgreSQL, Redis, RabbitMQ, Cloudflare R2/S3, Vercel, workers, HTTPS, secrets, backups, and release verification.
+
+## Production With Docker
+
+```bash
+cp .env.production.example .env.production
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+```
+
+Expose only the TLS reverse proxy. PostgreSQL, Redis, RabbitMQ, and object-storage ports must remain private.
+
+## Tests
+
+```bash
+pytest
+ruff check app tests
 
 cd web
 npm run build
-cd ..
-
-.\.venv\Scripts\python.exe -c "from app.skills.sandbox import python_skill_sandbox_status; print(python_skill_sandbox_status())"
+npm run test:e2e
+npm run test:collector
 ```
 
-## 项目结构
+## Project Positioning
 
-```text
-ValuSee/
-  app/
-    agents/              # 项目分析、代码审查、RAG、学习、报告逻辑
-    api/                 # FastAPI 路由
-    graphs/              # LangGraph 图与 Workflow 编译器
-    harness/             # 上下文、事件、策略、产物、审核/恢复运行时
-    marketplace/         # 资源包预览、安装、可信信息、SKILL.md 兼容层
-    persistence/         # 任务、治理、RAG、Trace 持久化
-    providers/           # LLM、MCP、RAG Provider
-    skills/              # Registry、契约、版本、依赖、沙箱运行时
-  web/                   # React 工作台
-  scripts/               # MCP 启动和测试脚本
-  docs/                  # 设计和实现说明
-```
+The first release focuses on phones, laptops, monitors, headphones, keyboards, routers, robot vacuums, and coffee machines. ValuSee does not auto-checkout, pay, refund, or perform unconfirmed external actions. It is an explainable decision and post-purchase management system; the user always makes the final decision.
 
-## 后续计划
+## License
 
-- 增加 Docker 沙箱状态和测试调用的前端可视化。
-- 增加外部签名插件发布示例和贡献工具。
-- 补齐 API、Workflow 编译、Harness 状态、MCP 契约、LLM fallback 和 Benchmark 集成自动化测试。
-- 增强 Workflow 条件分支、并行节点和输入输出映射交互。
-
-## License / 引用
-
-项目使用 [MIT License](LICENSE)。分发或修改时请保留原版权和许可证文本。
-
-```text
-ValuSee by biheto
-https://github.com/biheto/DevAgent-Studio
-```
+This project is licensed under the [MIT License](LICENSE).
