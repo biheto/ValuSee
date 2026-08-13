@@ -2954,24 +2954,18 @@ function MembershipPanel() {
   >([]);
   const [orders, setOrders] = useState<Array<{ order_id: string; plan_code: string; billing_cycle: string; amount: number; currency: string; status: string; created_at: string }>>([]);
   const [notice, setNotice] = useState("");
+  const [paymentAvailable, setPaymentAvailable] = useState(false);
   useEffect(() => {
-    void Promise.all([request<{ plan_code: string; limits: Record<string, number> }>("/api/v1/membership"), request<{ plans: typeof plans; payment_available: boolean }>("/api/v1/membership/plans"), request<{ orders: typeof orders }>("/api/v1/membership/orders")])
+    void Promise.all([request<{ plan_code: string; limits: Record<string, number> }>("/api/v1/membership"), request<{ plans: typeof plans; payment_available: boolean; disclosure?: string }>("/api/v1/membership/plans"), request<{ orders: typeof orders }>("/api/v1/membership/orders")])
       .then(([member, catalog, billing]) => {
         setStatus(member);
         setPlans(catalog.plans);
         setOrders(billing.orders);
+        setPaymentAvailable(catalog.payment_available);
+        if (!catalog.payment_available) setNotice(catalog.disclosure || "付费服务暂未开放。");
       })
       .catch(() => setNotice("登录后可查看会员权益。"));
   }, []);
-  async function requestPro() {
-    const result = await request<{ order: (typeof orders)[number]; payment_available: boolean; message: string }>("/api/v1/membership/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_code: "pro", billing_cycle: "monthly" }),
-    });
-    setOrders((current) => current.some((item) => item.order_id === result.order.order_id) ? current : [result.order, ...current]);
-    setNotice(result.message);
-  }
   async function cancelOrder(orderId: string) {
     const result = await request<{ order: (typeof orders)[number] }>(`/api/v1/membership/orders/${encodeURIComponent(orderId)}/cancel`, { method: "POST" });
     setOrders((current) => current.map((item) => item.order_id === orderId ? result.order : item));
@@ -2980,17 +2974,17 @@ function MembershipPanel() {
     <section className="page-section">
       <PageTitle icon={<Crown size={22} />} title="会员权益" subtitle="额度与能力清晰可见，推荐排序不受会员或佣金影响。" />
       {notice && (
-        <div className="toast">
-          <CheckCircle2 size={16} />
+        <div className="membership-unavailable" role="status">
+          <Clock3 size={17} />
           {notice}
         </div>
       )}
       <div className="membership-grid">
         {plans.map((plan) => (
           <article className={`panel ${status?.plan_code === plan.code ? "current" : ""}`} key={plan.code}>
-            <span>{status?.plan_code === plan.code ? "当前方案" : plan.status === "coming_soon" ? "即将开放" : "方案"}</span>
+            <span>{status?.plan_code === plan.code ? "当前方案" : plan.status === "coming_soon" ? "暂未开放" : "方案"}</span>
             <h2>{plan.name}</h2>
-            <strong>{plan.price == null ? (plan.code === "free" ? "免费" : "价格待公布") : money(plan.price)}</strong>
+            <strong>{plan.price == null ? (plan.code === "free" ? "免费" : "暂未开放") : money(plan.price)}</strong>
             <ul>
               {plan.benefits.map((benefit) => (
                 <li key={benefit}>
@@ -3000,8 +2994,8 @@ function MembershipPanel() {
               ))}
             </ul>
             {plan.code === "pro" && status?.plan_code !== "pro" && (
-              <button className="primary-button" onClick={() => void requestPro()}>
-                创建月付订单
+              <button className="primary-button" disabled={!paymentAvailable}>
+                暂未开放
               </button>
             )}
           </article>
@@ -3015,7 +3009,7 @@ function MembershipPanel() {
           <b>{status.limits.family_members} 位家庭成员</b>
         </div>
       )}
-      {orders.length > 0 && <section className="panel membership-orders"><h2>订单记录</h2>{orders.map((order) => <article key={order.order_id}><div><strong>{order.plan_code.toUpperCase()} · {order.billing_cycle === "monthly" ? "月付" : "年付"}</strong><span>{money(order.amount)} · {date(order.created_at)}</span></div><b>{order.status === "pending_external_payment" ? "待外部支付渠道" : order.status}</b>{order.status === "pending_external_payment" && <button className="soft-button" onClick={() => void cancelOrder(order.order_id)}>取消</button>}</article>)}</section>}
+      {orders.length > 0 && <section className="panel membership-orders"><h2>历史订单记录</h2>{orders.map((order) => <article key={order.order_id}><div><strong>{order.plan_code.toUpperCase()} · {order.billing_cycle === "monthly" ? "月付" : "年付"}</strong><span>{money(order.amount)} · {date(order.created_at)}</span></div><b>{order.status === "pending_external_payment" ? "未支付 · 服务暂未开放" : order.status}</b>{order.status === "pending_external_payment" && <button className="soft-button" onClick={() => void cancelOrder(order.order_id)}>取消记录</button>}</article>)}</section>}
     </section>
   );
 }

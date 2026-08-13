@@ -95,6 +95,21 @@ def test_billing_order_never_implies_payment_without_provider():
         assert store.list_billing_orders("another-user") == []
 
 
+def test_public_membership_service_is_marked_unavailable():
+    client = TestClient(app)
+    catalog = client.get("/api/v1/membership/plans")
+    assert catalog.status_code == 200
+    payload = catalog.json()
+    assert payload["payment_available"] is False
+    assert "暂未开放" in payload["disclosure"]
+    assert next(plan for plan in payload["plans"] if plan["code"] == "pro")["status"] == "coming_soon"
+
+    order = client.post("/api/v1/membership/orders", json={"plan_code": "pro", "billing_cycle": "monthly"})
+    upgrade = client.post("/api/v1/membership/upgrade-requests", json={"plan_code": "pro"})
+    assert order.status_code == 503 and order.json()["detail"] == "付费服务暂未开放"
+    assert upgrade.status_code == 503 and upgrade.json()["detail"] == "付费服务暂未开放"
+
+
 def test_admin_totp_enrollment_revokes_old_sessions_and_recovery_codes_are_single_use():
     with TemporaryDirectory() as tmp:
         store = AuthStore(Path(tmp) / "auth.db")

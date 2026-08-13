@@ -90,6 +90,16 @@ test.describe('consumer account navigation', () => {
     await expect(page.getByText('最近看过')).toBeVisible();
     await expect(page.locator('[role="alert"]')).toHaveCount(0);
   });
+
+  test('membership clearly shows paid services are unavailable', async ({ page }) => {
+    await page.getByRole('button', { name: '我的', exact: true }).first().click();
+    await page.getByRole('button', { name: /会员权益/ }).click();
+    await expect(page.getByRole('heading', { name: '会员权益' })).toBeVisible();
+    await expect(page.getByText('付费服务暂未开放，当前不会创建订单、扣款或激活付费会员。')).toBeVisible();
+    const unavailable = page.getByRole('button', { name: '暂未开放' });
+    await expect(unavailable).toBeDisabled();
+    await expect(page.getByRole('button', { name: '创建月付订单' })).toHaveCount(0);
+  });
 });
 
 test('mobile bottom navigation exposes all core consumer journeys', async ({ page }, testInfo) => {

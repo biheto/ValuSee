@@ -362,15 +362,14 @@ def membership_status(authorization: str | None = Header(default=None)) -> dict[
 
 @router.get("/membership/plans", tags=["Membership"])
 def membership_plans() -> dict[str, object]:
-    return {"plans": [{"code": "free", "name": "Free", "price": 0, "benefits": ["每月 10 次对比", "3 个降价监控", "基础购买建议"]}, {"code": "pro", "name": "Pro", "price": 19, "yearly_price": 168, "status": "payment_pending", "benefits": ["100 个降价监控", "每月 1000 次对比", "6 人家庭档案", "长期购买偏好"]}], "payment_available": False, "currency": "CNY", "disclosure": "支付渠道未配置，创建的订单不会扣款或激活会员。"}
+    return {"plans": [{"code": "free", "name": "Free", "price": 0, "benefits": ["每月 10 次对比", "3 个降价监控", "基础购买建议"]}, {"code": "pro", "name": "Pro", "price": None, "yearly_price": None, "status": "coming_soon", "benefits": ["更多降价监控", "更高对比额度", "家庭商品档案", "长期购买偏好"]}], "payment_available": False, "currency": "CNY", "disclosure": "付费服务暂未开放，当前不会创建订单、扣款或激活付费会员。"}
 
 
 @router.post("/membership/upgrade-requests", tags=["Membership"])
 def create_upgrade_request(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
-    try:
-        return auth_store.request_upgrade(_request_user(authorization), str(payload.get("plan_code") or "pro"))
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    del payload
+    _request_user(authorization)
+    raise HTTPException(status_code=503, detail="付费服务暂未开放")
 
 
 @router.get("/membership/orders", tags=["Membership"])
@@ -380,11 +379,9 @@ def membership_orders(authorization: str | None = Header(default=None)) -> dict[
 
 @router.post("/membership/orders", tags=["Membership"])
 def create_membership_order(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
-    try:
-        order = auth_store.create_billing_order(_request_user(authorization), str(payload.get("plan_code") or "pro"), str(payload.get("billing_cycle") or "monthly"))
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"order": order, "payment_available": False, "message": "订单已保存，支付渠道未配置，未发生扣款。"}
+    del payload
+    _request_user(authorization)
+    raise HTTPException(status_code=503, detail="付费服务暂未开放")
 
 
 @router.post("/membership/orders/{order_id}/cancel", tags=["Membership"])
