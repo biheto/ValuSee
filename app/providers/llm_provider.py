@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextvars
 import json
 import os
 import time
@@ -9,6 +10,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import uuid4
+from contextlib import contextmanager
 
 from app.harness.events import utc_now_iso
 from app.persistence.sqlite_store import task_store
@@ -19,6 +21,7 @@ class LLMProvider:
         self.project_root = Path(__file__).resolve().parents[2]
         self.env_path = self.project_root / ".env"
         self.default_model = "gpt-5.5"
+        self._user_config_context: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("valuesee_user_llm_config", default=None)
         self.known_agents = [
             "planner",
             "reporter",
@@ -220,6 +223,14 @@ class LLMProvider:
     def enabled(self) -> bool:
         return bool(self._config()["api_key"])
 
+    @contextmanager
+    def user_config_scope(self, config: dict[str, Any] | None):
+        token = self._user_config_context.set(config)
+        try:
+            yield
+        finally:
+            self._user_config_context.reset(token)
+
     def generate(
         self,
         system_prompt: str,
@@ -247,9 +258,10 @@ class LLMProvider:
         prompt_version: str = "v1",
         use_active_prompt: bool = True,
         model_override: str | None = None,
+        user_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system_prompt, prompt_version = self._resolve_prompt(agent, prompt_version, system_prompt, use_active_prompt=use_active_prompt)
-        config = self._config(agent)
+        config = self._apply_user_config(self._config(agent), user_config or self._user_config_context.get())
         if model_override:
             config = {**config, "model": model_override}
         trace_id = f"llm_{uuid4().hex}"
@@ -406,8 +418,9 @@ class LLMProvider:
         *,
         agent: str = "product_vision",
         prompt_version: str = "product_vision.v1",
+        user_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        config = self._config(agent)
+        config = self._apply_user_config(self._config(agent), user_config or self._user_config_context.get())
         vision_models = self._vision_models(config)
         trace_id = f"llm_{uuid4().hex}"
         started = time.perf_counter()
@@ -430,7 +443,7 @@ class LLMProvider:
             ]},
         ]
         provider_configs = [{**config, "model": model} for model in vision_models]
-        fallback_config = self._vision_fallback_config()
+        fallback_config = None if config.get("source") == "user_config" else self._vision_fallback_config()
         if fallback_config and all(
             (fallback_config["base_url"], fallback_config["model"], fallback_config["wire_api"])
             != (item["base_url"], item["model"], item["wire_api"])
@@ -480,9 +493,25 @@ class LLMProvider:
                 error_message, self._classify_provider_error(error_message),
             )
 
+    @staticmethod
+    def _apply_user_config(config: dict[str, str], user_config: dict[str, Any] | None) -> dict[str, str]:
+        if not user_config or not user_config.get("enabled") or not user_config.get("api_key"):
+            return config
+        return {
+            **config,
+            "api_key": str(user_config["api_key"]),
+            "base_url": str(user_config.get("base_url") or ""),
+            "model": str(user_config.get("model") or config["model"]),
+            "wire_api": str(user_config.get("wire_api") or config["wire_api"]).lower(),
+            "source": "user_config",
+            "vision_model": str(user_config.get("vision_model") or user_config.get("model") or config["model"]),
+        }
+
     def _vision_models(self, config: dict[str, str]) -> list[str]:
+        if config.get("source") == "user_config" and config.get("vision_model"):
+            return [str(config["vision_model"])]
         configured = os.getenv("VALUSee_VISION_MODELS", "").strip()
-        primary = os.getenv("VALUSee_VISION_MODEL", "").strip()
+        primary = str(config.get("vision_model") or os.getenv("VALUSee_VISION_MODEL", "")).strip()
         values = [item.strip() for item in configured.split(",") if item.strip()]
         if primary:
             values.insert(0, primary)

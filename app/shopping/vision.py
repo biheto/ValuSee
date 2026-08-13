@@ -30,7 +30,7 @@ headphone、keyboard、router、robot_vacuum、coffee_machine、unknown。confid
 图片的视觉层级、标签和选中状态为准。"""
 
 
-def inspect_product_image(content: bytes, content_type: str, original_name: str, *, client_ocr_text: str = "") -> dict[str, Any]:
+def inspect_product_image(content: bytes, content_type: str, original_name: str, *, client_ocr_text: str = "", user_config: dict[str, Any] | None = None) -> dict[str, Any]:
     del original_name
     _validate_upload(content, content_type)
     _validate_image_pixels(content)
@@ -42,7 +42,7 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str,
     storage = persist_upload(stored_path, content_type)
 
     supplied_text = client_ocr_text.strip()[:30_000]
-    vision_payload, provider, warning = _extract_with_vision(content, content_type, supplied_text)
+    vision_payload, provider, warning = _extract_with_vision(content, content_type, supplied_text, user_config=user_config)
     if vision_payload:
         model_text = str(vision_payload.get("ocr_text") or "").strip()
         text = supplied_text or model_text
@@ -108,7 +108,7 @@ def _validate_image_pixels(content: bytes) -> None:
         raise ValueError("图片文件已损坏或格式无效") from exc
 
 
-def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "") -> tuple[dict[str, Any], str, str]:
+def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "", *, user_config: dict[str, Any] | None = None) -> tuple[dict[str, Any], str, str]:
     image_content, image_type = _prepare_vision_image(content, content_type)
     user_prompt = "识别这张用户主动上传的电商商品截图，优先读取当前选中规格、当前成交价、店铺和优惠。"
     if ocr_hint:
@@ -118,6 +118,7 @@ def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "") 
         user_prompt,
         image_content,
         image_type,
+        user_config=user_config,
     )
     if result.get("fallback_used"):
         messages = {

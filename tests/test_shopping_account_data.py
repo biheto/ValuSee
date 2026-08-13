@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 
 from app.auth.service import AuthStore
 from app.shopping.store import ShoppingStore
+from app.providers.llm_provider import LLMProvider
 
 
 def _product(title: str = "Test monitor") -> dict[str, object]:
@@ -61,6 +62,36 @@ def test_monitor_update_and_delete_require_owner():
         assert updated and updated["target_price"] == 75 and updated["status"] == "paused"
         assert store.delete_user_monitor("u2", monitor["monitor_id"]) is False
         assert store.delete_user_monitor("u1", monitor["monitor_id"]) is True
+
+
+def test_user_llm_config_is_masked_encrypted_and_deleted():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "llm.db")
+        saved = store.save_llm_config("u1", {"api_key": "sk-user-secret", "base_url": "https://congee.pro", "model": "gpt-5.5", "vision_model": "gpt-5.5", "wire_api": "responses"})
+        assert "api_key" not in saved
+        assert saved["api_key_hint"] == "...cret"
+        assert store.get_llm_config("u1", include_secret=True)["api_key"] == "sk-user-secret"
+        conn = store._connect()
+        encrypted = conn.execute("SELECT api_key_encrypted FROM shopping_llm_user_config WHERE user_id=?", ("u1",)).fetchone()["api_key_encrypted"]
+        conn.close()
+        assert encrypted != "sk-user-secret" and "sk-user-secret" not in encrypted
+        assert store.delete_llm_config("u1") is True
+        assert store.get_llm_config("u1")["configured"] is False
+
+
+def test_user_llm_config_rejects_private_base_urls_and_overrides_models():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "llm-security.db")
+        try:
+            store.save_llm_config("u1", {"api_key": "sk-test", "base_url": "https://127.0.0.1:8443", "model": "gpt-5.5"})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("private base URL must be rejected")
+    provider = LLMProvider()
+    config = provider._apply_user_config({"api_key": "platform", "base_url": "https://platform.example", "model": "platform", "wire_api": "responses", "source": "platform"}, {"enabled": True, "api_key": "user", "base_url": "https://user.example", "model": "user-model", "vision_model": "user-vision", "wire_api": "chat_completions"})
+    assert config["api_key"] == "user"
+    assert provider._vision_models(config) == ["user-vision"]
 
 
 def test_account_export_and_delete_cover_shopping_account_tables():

@@ -770,7 +770,7 @@ class AuthStore:
         tables = (
             "shopping_price_check", "shopping_monitor_action", "shopping_price_monitor",
             "shopping_purchase_record", "shopping_extension_capture", "shopping_price_snapshot",
-            "shopping_notification", "shopping_user_profile", "shopping_comparison_list",
+            "shopping_notification", "shopping_user_profile", "shopping_llm_user_config", "shopping_comparison_list",
             "shopping_decision_report", "shopping_feedback", "shopping_notification_preference",
             "shopping_business_event",
             "shopping_saved_group_item", "shopping_saved_group", "shopping_saved_item",
@@ -869,6 +869,15 @@ def _encrypt_mfa_secret(secret: str) -> str:
 
 def _decrypt_mfa_secret(encrypted: str) -> str:
     return _mfa_cipher().decrypt(encrypted.encode("ascii")).decode("ascii")
+
+
+def encrypt_user_secret(secret: str) -> str:
+    """Encrypt user provider credentials with the deployment Fernet key."""
+    return _mfa_cipher().encrypt(secret.encode("utf-8")).decode("ascii")
+
+
+def decrypt_user_secret(encrypted: str) -> str:
+    return _mfa_cipher().decrypt(encrypted.encode("ascii")).decode("utf-8")
 
 
 def _totp(secret: str, at: int | None = None) -> str:

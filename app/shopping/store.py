@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import json
 import hashlib
+import ipaddress
+import re
+import socket
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from urllib.parse import urlparse
 
 from app.harness.events import utc_now_iso
+from app.auth.service import decrypt_user_secret, encrypt_user_secret
 from app.core.database import connect_database, is_integrity_error
 from app.core.paths import resolve_runtime_path
 from app.shopping.notifications import deliver_notification
@@ -193,6 +198,11 @@ class ShoppingStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_monitor_action_monitor ON shopping_monitor_action(monitor_id, created_at)")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_user_profile(
                 user_id TEXT PRIMARY KEY,profile_json TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_llm_user_config(
+                user_id TEXT PRIMARY KEY,api_key_encrypted TEXT NOT NULL,base_url TEXT NOT NULL,
+                model TEXT NOT NULL,vision_model TEXT NOT NULL,wire_api TEXT NOT NULL,enabled INTEGER NOT NULL,
+                last_test_status TEXT,last_test_at TEXT,last_test_error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
             )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_comparison_list(
                 comparison_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,products_json TEXT NOT NULL,
@@ -1239,6 +1249,62 @@ class ShoppingStore:
             row = conn.execute("SELECT * FROM shopping_user_profile WHERE user_id=?", (user_id,)).fetchone()
         return {"user_id": user_id, "profile": json.loads(row["profile_json"]), "created_at": row["created_at"], "updated_at": row["updated_at"]} if row else {"user_id": user_id, "profile": {}}
 
+    def get_llm_config(self, user_id: str, *, include_secret: bool = False) -> dict[str, Any]:
+        with self._session() as conn:
+            row = conn.execute("SELECT * FROM shopping_llm_user_config WHERE user_id=?", (user_id,)).fetchone()
+        if not row:
+            return {"configured": False, "enabled": False, "model": "", "vision_model": "", "wire_api": "responses", "base_url": ""}
+        try:
+            api_key = decrypt_user_secret(str(row["api_key_encrypted"]))
+        except Exception:
+            api_key = ""
+        result = {
+            "configured": bool(api_key), "enabled": bool(row["enabled"]) and bool(api_key),
+            "api_key_hint": f"...{api_key[-4:]}" if len(api_key) >= 4 else None,
+            "base_url": row["base_url"], "model": row["model"], "vision_model": row["vision_model"],
+            "wire_api": row["wire_api"], "last_test_status": row["last_test_status"],
+            "last_test_at": row["last_test_at"], "last_test_error": row["last_test_error"],
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
+        }
+        if include_secret:
+            result["api_key"] = api_key
+        return result
+
+    def save_llm_config(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_llm_config(user_id, include_secret=True)
+        api_key = str(payload.get("api_key") or current.get("api_key") or "").strip()
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
+        if not api_key or "\n" in api_key or "\r" in api_key or len(api_key) > 512:
+            raise ValueError("请输入有效的 LLM API Key")
+        base_url = str(payload.get("base_url") or "").strip().rstrip("/")
+        if base_url:
+            _validate_llm_base_url(base_url)
+        model = _validate_llm_model(str(payload.get("model") or current.get("model") or "gpt-5.5").strip())
+        vision_model = _validate_llm_model(str(payload.get("vision_model") or current.get("vision_model") or model).strip())
+        wire_api = str(payload.get("wire_api") or current.get("wire_api") or "responses").strip().lower()
+        if wire_api not in {"responses", "chat_completions"}:
+            raise ValueError("协议只能是 responses 或 chat_completions")
+        now = utc_now_iso()
+        with self._session() as conn:
+            existing = conn.execute("SELECT created_at FROM shopping_llm_user_config WHERE user_id=?", (user_id,)).fetchone()
+            created = existing["created_at"] if existing else now
+            conn.execute("""INSERT INTO shopping_llm_user_config(user_id,api_key_encrypted,base_url,model,vision_model,wire_api,enabled,last_test_status,last_test_at,last_test_error,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,NULL,NULL,NULL,?,?) ON CONFLICT(user_id) DO UPDATE SET api_key_encrypted=excluded.api_key_encrypted,base_url=excluded.base_url,model=excluded.model,vision_model=excluded.vision_model,wire_api=excluded.wire_api,enabled=excluded.enabled,updated_at=excluded.updated_at""",
+                (user_id, encrypt_user_secret(api_key), base_url, model, vision_model, wire_api, 1 if payload.get("enabled", True) else 0, created, now))
+        return self.get_llm_config(user_id)
+
+    def delete_llm_config(self, user_id: str) -> bool:
+        with self._session() as conn:
+            cursor = conn.execute("DELETE FROM shopping_llm_user_config WHERE user_id=?", (user_id,))
+        return bool(cursor.rowcount)
+
+    def save_llm_test_result(self, user_id: str, status: str, error: str | None = None) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self._session() as conn:
+            conn.execute("UPDATE shopping_llm_user_config SET last_test_status=?,last_test_at=?,last_test_error=?,updated_at=? WHERE user_id=?", (status, now, (error or "")[:500] or None, now, user_id))
+        return self.get_llm_config(user_id)
+
     def save_item(self, user_id: str, item_type: str, reference_key: str, label: str, product: dict[str, Any] | None = None) -> dict[str, Any]:
         if item_type not in {"favorite", "recent", "brand"}:
             raise ValueError("invalid saved item type")
@@ -1826,4 +1892,28 @@ def _source_confidence(source: str) -> float:
     return 0.5
 
 
+def _validate_llm_base_url(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Base URL 必须是 HTTPS 地址")
+    host = parsed.hostname.lower()
+    if host in {"localhost", "localhost.localdomain"}:
+        raise ValueError("Base URL 不允许指向本机地址")
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)]
+        except OSError as exc:
+            raise ValueError("Base URL 域名无法解析") from exc
+    if any(address.is_private or address.is_loopback or address.is_link_local or address.is_reserved for address in addresses):
+        raise ValueError("Base URL 不允许指向内网地址")
+
+
 shopping_store = ShoppingStore()
+
+
+def _validate_llm_model(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", value):
+        raise ValueError("模型名称格式无效")
+    return value

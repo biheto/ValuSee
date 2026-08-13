@@ -600,12 +600,15 @@ def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | No
 
 
 @router.post("/shopping/parse-image", response_model=ShoppingImageResponse, tags=["Shopping Decision"])
-async def parse_shopping_image(file: UploadFile = File(...), ocr_text: str = Form(default="")) -> ShoppingImageResponse:
+async def parse_shopping_image(file: UploadFile = File(...), ocr_text: str = Form(default=""), authorization: str | None = Header(default=None)) -> ShoppingImageResponse:
     try:
         if len(ocr_text) > 30_000:
             raise ValueError("OCR 文本不能超过 30000 个字符")
         content = await file.read()
-        result = inspect_product_image(content, file.content_type or "", file.filename or "product-image", client_ocr_text=ocr_text)
+        user_id = _request_user(authorization)
+        user_config = shopping_store.get_llm_config(user_id, include_secret=True)
+        with llm_provider.user_config_scope(user_config):
+            result = inspect_product_image(content, file.content_type or "", file.filename or "product-image", client_ocr_text=ocr_text, user_config=user_config)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
@@ -1213,12 +1216,10 @@ def run_shopping_decision(request: ShoppingDecisionRequest, authorization: str |
     context = harness_runtime.create_context(goal=goal, variables={"shopping": True})
     started = time.perf_counter()
     shopping_store.record_business_event(user_id, "analysis_started", context.task_id, idempotency_key=f"analysis-start:{context.task_id}")
+    user_llm_config = shopping_store.get_llm_config(user_id, include_secret=True)
     try:
-        result = harness_runtime.run_graph(
-            context,
-            shopping_decision_graph_runner,
-            {"goal": goal, **request.model_dump()},
-        )
+        with llm_provider.user_config_scope(user_llm_config):
+            result = harness_runtime.run_graph(context, shopping_decision_graph_runner, {"goal": goal, **request.model_dump()})
     except Exception as exc:
         shopping_store.record_business_event(user_id, "analysis_failed", context.task_id, metadata={"error": str(exc)}, idempotency_key=f"analysis-fail:{context.task_id}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1348,6 +1349,36 @@ def list_public_campaigns() -> dict[str, object]:
 @router.put("/shopping/profile", tags=["Shopping Account"])
 def save_shopping_profile(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
     return shopping_store.save_profile(_request_user(authorization), payload)
+
+
+@router.get("/shopping/llm-config", tags=["Shopping Account"])
+def get_shopping_llm_config(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return shopping_store.get_llm_config(_request_user(authorization))
+
+
+@router.put("/shopping/llm-config", tags=["Shopping Account"])
+def save_shopping_llm_config(payload: dict[str, object], authorization: str | None = Header(default=None)) -> dict[str, object]:
+    try:
+        return shopping_store.save_llm_config(_request_user(authorization), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/shopping/llm-config", tags=["Shopping Account"])
+def delete_shopping_llm_config(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    return {"deleted": shopping_store.delete_llm_config(_request_user(authorization)), "configured": False}
+
+
+@router.post("/shopping/llm-config/test", tags=["Shopping Account"])
+def test_shopping_llm_config(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    user_id = _request_user(authorization)
+    config = shopping_store.get_llm_config(user_id, include_secret=True)
+    if not config.get("enabled"):
+        raise HTTPException(status_code=422, detail="请先保存并启用用户 LLM 配置")
+    result = llm_provider.generate_with_status("You are a connection test. Return only OK.", "Reply OK.", "连接失败", agent="shopping_connection_test", user_config=config)
+    status = "ok" if result.get("answer_source") == "llm" else "failed"
+    saved = shopping_store.save_llm_test_result(user_id, status, result.get("error_message"))
+    return {"status": status, "model": result.get("model"), "error": result.get("error_message"), "config": saved}
 
 
 @router.get("/shopping/dashboard", tags=["Shopping Account"])

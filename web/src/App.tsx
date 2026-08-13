@@ -123,6 +123,18 @@ type NotificationPreference = {
   quiet_start: string | null;
   quiet_end: string | null;
 };
+type UserLLMConfig = {
+  configured: boolean;
+  enabled: boolean;
+  api_key_hint?: string | null;
+  base_url: string;
+  model: string;
+  vision_model: string;
+  wire_api: "responses" | "chat_completions" | string;
+  last_test_status?: string | null;
+  last_test_at?: string | null;
+  last_test_error?: string | null;
+};
 type View = "discover" | "analyze" | "monitors" | "purchases" | "saved" | "messages" | "account" | "profile" | "history" | "family" | "settings" | "security" | "membership";
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
@@ -284,6 +296,7 @@ export function App() {
     quiet_start: null,
     quiet_end: null,
   });
+  const [llmConfig, setLlmConfig] = useState<UserLLMConfig>({ configured: false, enabled: false, base_url: "", model: "gpt-5.5", vision_model: "gpt-5.5", wire_api: "responses" });
   const [url, setUrl] = useState("");
   const linkRequestInFlight = useRef(false);
   const [linkLoading, setLinkLoading] = useState(false);
@@ -312,7 +325,7 @@ export function App() {
 
   const refreshRecords = async () => {
     try {
-      const [m, p, c, n, savedReports, savedComparisons, savedProfile, preferences, saved, overview, groups] = await Promise.all([request<Monitor[]>("/api/v1/shopping/monitors"), request<Purchase[]>("/api/v1/shopping/purchases"), request<Capture[]>("/api/v1/shopping/extension/captures"), request<Notification[]>("/api/v1/shopping/notifications"), request<SavedReport[]>("/api/v1/shopping/reports"), request<SavedComparison[]>("/api/v1/shopping/comparisons"), request<{ profile: Partial<ShoppingProfile> }>("/api/v1/shopping/profile"), request<NotificationPreference>("/api/v1/shopping/notification-preferences"), request<SavedItem[]>("/api/v1/shopping/saved"), request<Dashboard>("/api/v1/shopping/dashboard"), request<{ groups: SavedGroup[] }>("/api/v1/shopping/saved-groups")]);
+      const [m, p, c, n, savedReports, savedComparisons, savedProfile, preferences, saved, overview, groups, userModel] = await Promise.all([request<Monitor[]>("/api/v1/shopping/monitors"), request<Purchase[]>("/api/v1/shopping/purchases"), request<Capture[]>("/api/v1/shopping/extension/captures"), request<Notification[]>("/api/v1/shopping/notifications"), request<SavedReport[]>("/api/v1/shopping/reports"), request<SavedComparison[]>("/api/v1/shopping/comparisons"), request<{ profile: Partial<ShoppingProfile> }>("/api/v1/shopping/profile"), request<NotificationPreference>("/api/v1/shopping/notification-preferences"), request<SavedItem[]>("/api/v1/shopping/saved"), request<Dashboard>("/api/v1/shopping/dashboard"), request<{ groups: SavedGroup[] }>("/api/v1/shopping/saved-groups"), request<UserLLMConfig>("/api/v1/shopping/llm-config")]);
       setMonitors(m);
       setPurchases(p);
       setCaptures(c.filter((item) => item.status === "pending_confirmation"));
@@ -323,6 +336,7 @@ export function App() {
       setSavedItems(saved);
       setDashboard(overview);
       setSavedGroups(groups.groups);
+      setLlmConfig(userModel);
       if (Object.keys(savedProfile.profile || {}).length) {
         setProfile((current) => ({ ...current, ...savedProfile.profile }));
         setBudget(Number(savedProfile.profile.budget || 1800));
@@ -834,6 +848,24 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存设置失败");
     }
+  }
+  async function saveUserLLMConfig(payload: Record<string, unknown>) {
+    try {
+      const next = await request<UserLLMConfig>("/api/v1/shopping/llm-config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      setLlmConfig(next);
+      setMessage("用户 LLM 配置已加密保存，后续购物分析优先使用它。");
+    } catch (err) { setError(err instanceof Error ? err.message : "用户模型配置保存失败"); }
+  }
+  async function testUserLLMConfig() {
+    try {
+      const result = await request<{ status: string; config: UserLLMConfig }>("/api/v1/shopping/llm-config/test", { method: "POST" });
+      setLlmConfig(result.config);
+      if (result.status === "ok") setMessage("用户 LLM 连接测试成功。"); else setError("用户 LLM 连接失败，请检查 Key、地址和模型。");
+    } catch (err) { setError(err instanceof Error ? err.message : "用户 LLM 连接测试失败"); }
+  }
+  async function deleteUserLLMConfig() {
+    try { await request("/api/v1/shopping/llm-config", { method: "DELETE" }); setLlmConfig({ configured: false, enabled: false, base_url: "", model: "gpt-5.5", vision_model: "gpt-5.5", wire_api: "responses" }); setMessage("用户 LLM 配置已清除，将回退到平台默认模型。"); }
+    catch (err) { setError(err instanceof Error ? err.message : "用户 LLM 配置清除失败"); }
   }
   async function submitAccount(event: FormEvent) {
     event.preventDefault();
@@ -1392,7 +1424,7 @@ export function App() {
         />
       )}
       {view === "family" && <FamilyWorkspacePanel />}
-      {view === "settings" && <SettingsPanel profile={profile} budget={budget} preferences={notificationPreference} onProfile={setProfile} onBudget={setBudget} onPreferences={setNotificationPreference} onSubmit={saveSettings} />}
+      {view === "settings" && <SettingsPanel profile={profile} budget={budget} preferences={notificationPreference} llmConfig={llmConfig} onProfile={setProfile} onBudget={setBudget} onPreferences={setNotificationPreference} onSubmit={saveSettings} onSaveLLM={saveUserLLMConfig} onTestLLM={testUserLLMConfig} onDeleteLLM={deleteUserLLMConfig} />}
       {view === "security" && <SecurityPanel onLoggedOut={logout} />}
       {view === "membership" && <MembershipPanel />}
       {(detailRef || detailProduct) && (
@@ -1902,12 +1934,18 @@ function SavedWork({ reports, comparisons, onOpenReport, onOpenComparison, onDel
   );
 }
 
-function SettingsPanel({ profile, budget, preferences, onProfile, onBudget, onPreferences, onSubmit }: { profile: ShoppingProfile; budget: number; preferences: NotificationPreference; onProfile: (value: ShoppingProfile) => void; onBudget: (value: number) => void; onPreferences: (value: NotificationPreference) => void; onSubmit: (event: FormEvent) => Promise<void> }) {
+function SettingsPanel({ profile, budget, preferences, llmConfig, onProfile, onBudget, onPreferences, onSubmit, onSaveLLM, onTestLLM, onDeleteLLM }: { profile: ShoppingProfile; budget: number; preferences: NotificationPreference; llmConfig: UserLLMConfig; onProfile: (value: ShoppingProfile) => void; onBudget: (value: number) => void; onPreferences: (value: NotificationPreference) => void; onSubmit: (event: FormEvent) => Promise<void>; onSaveLLM: (payload: Record<string, unknown>) => Promise<void>; onTestLLM: () => Promise<void>; onDeleteLLM: () => Promise<void> }) {
   const list = (value: string) =>
     value
       .split(/[,，\n]/)
       .map((item) => item.trim())
       .filter(Boolean);
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState(llmConfig.base_url);
+  const [model, setModel] = useState(llmConfig.model || "gpt-5.5");
+  const [visionModel, setVisionModel] = useState(llmConfig.vision_model || "gpt-5.5");
+  const [wireApi, setWireApi] = useState(llmConfig.wire_api || "responses");
+  useEffect(() => { setBaseUrl(llmConfig.base_url); setModel(llmConfig.model || "gpt-5.5"); setVisionModel(llmConfig.vision_model || "gpt-5.5"); setWireApi(llmConfig.wire_api || "responses"); }, [llmConfig.base_url, llmConfig.model, llmConfig.vision_model, llmConfig.wire_api]);
   return (
     <section className="page-section">
       <PageTitle icon={<Settings size={22} />} title="偏好设置" subtitle="让每次推荐都结合你的预算、已有设备和可接受风险。" />
@@ -2018,6 +2056,15 @@ function SettingsPanel({ profile, budget, preferences, onProfile, onBudget, onPr
             <Save size={17} />
             保存设置
           </button>
+        </section>
+        <section className="panel compact-form user-llm-panel">
+          <div className="settings-section-title"><div><h3>我的 LLM 配置</h3><p>使用你自己的模型额度，平台不会看到原始 Key。</p></div><span className={llmConfig.configured && llmConfig.enabled ? "config-status ready" : "config-status"}>{llmConfig.configured && llmConfig.enabled ? "已启用" : "使用平台默认"}</span></div>
+          <label>API Key<input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={llmConfig.api_key_hint ? `已配置 ${llmConfig.api_key_hint}，留空保持不变` : "粥或其他 OpenAI 兼容平台的 Key"} /></label>
+          <label>Base URL<input type="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://congee.pro" /></label>
+          <div className="field-grid user-llm-fields"><label>文本模型<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5.5" /></label><label>视觉模型<input value={visionModel} onChange={(event) => setVisionModel(event.target.value)} placeholder="支持 Vision/VL 的模型" /></label><label>协议<select value={wireApi} onChange={(event) => setWireApi(event.target.value)}><option value="responses">Responses</option><option value="chat_completions">Chat Completions</option></select></label></div>
+          <p className="settings-note">用户配置优先用于购物 Agent、决策报告和截图识别；删除后自动回退到平台配置。Key 只加密存储，日志不会记录原文。</p>
+          <div className="user-llm-actions"><button type="button" className="primary-button" onClick={() => { setApiKey(""); void onSaveLLM({ api_key: apiKey || undefined, base_url: baseUrl, model, vision_model: visionModel, wire_api: wireApi, enabled: true }); }}><Save size={16} />保存并启用</button><button type="button" className="soft-button" disabled={!llmConfig.configured} onClick={() => void onTestLLM()}><CheckCircle2 size={16} />测试连接</button><button type="button" className="danger-button" disabled={!llmConfig.configured} onClick={() => void onDeleteLLM()}><Trash2 size={16} />清除配置</button></div>
+          {llmConfig.last_test_status && <small className="llm-test-result">上次测试：{llmConfig.last_test_status === "ok" ? "成功" : "失败"}{llmConfig.last_test_at ? ` · ${new Date(llmConfig.last_test_at).toLocaleString("zh-CN")}` : ""}</small>}
         </section>
       </form>
     </section>
