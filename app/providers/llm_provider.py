@@ -673,7 +673,7 @@ class LLMProvider:
         default_model = self._read_env_value("DEV_AGENT_LLM_MODEL", env_file, self.default_model)
         agent_model = self._agent_model(agent or "", env_file, default_model)
         return {
-            "api_key": api_key_from_process or env_file.get("OPENAI_API_KEY", ""),
+            "api_key": self._normalize_api_key(api_key_from_process or env_file.get("OPENAI_API_KEY", "")),
             "model": agent_model,
             "base_url": base_url_from_process or env_file.get("OPENAI_BASE_URL", ""),
             "wire_api": (
@@ -683,6 +683,14 @@ class LLMProvider:
             ).strip().lower(),
             "source": "process_env" if api_key_from_process else ".env" if env_file.get("OPENAI_API_KEY") else "fallback",
         }
+
+    @staticmethod
+    def _normalize_api_key(value: str) -> str:
+        """Accept pasted keys without allowing a duplicated Bearer prefix."""
+        normalized = str(value or "").strip().strip('"').strip("'").strip()
+        if normalized.lower().startswith("bearer "):
+            normalized = normalized[7:].strip()
+        return normalized
 
     def _read_env_file(self) -> dict[str, str]:
         if not self.env_path.exists():

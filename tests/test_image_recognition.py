@@ -198,3 +198,10 @@ def test_vision_provider_errors_are_classified_without_exposing_secrets() -> Non
     assert provider._classify_provider_error("https://example/v1/chat/completions: HTTP 401 {\"error\":\"invalid_api_key\"}") == "auth_failed"
     assert provider._classify_provider_error("HTTP 400 model vision-basic is not supported") == "model_unsupported"
     assert provider._classify_provider_error("vision provider returned no message content") == "invalid_response"
+
+
+def test_api_key_normalization_accepts_pasted_bearer_values() -> None:
+    provider = LLMProvider()
+
+    assert provider._normalize_api_key(' "Bearer sk-test" ') == "sk-test"
+    assert provider._normalize_api_key("sk-test") == "sk-test"
