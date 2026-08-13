@@ -71,9 +71,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .account-inline-notice { padding:10px 11px; border-radius:8px; color:#176e5a; background:#eaf7f1; font-size:12px; line-height:1.55; }
 .account-inline-notice.error { color:#9b3b46; background:#ffe7e7; }
 .account-switch { display:block; margin:13px auto 0; color:#566762; background:transparent; font-size:12px; } .account-switch.danger { color:#c85462; }
-.toast, .error-banner { display: flex; align-items: center; gap: 9px; margin: 0 0 14px; padding: 11px 14px; border-radius: 13px; color: #187a67; background: #e6fbf4; font-size: 13px; font-weight: 700; }
-.toast button { margin-left: auto; color: inherit; background: transparent; font-size: 12px; }
-.error-banner { color: #9b3040; background: #ffe7e8; }
+.toast-stack { position:fixed; z-index:120; top:18px; left:50%; display:flex; width:min(720px,calc(100vw - 28px)); max-height:calc(100vh - 36px); flex-direction:column; gap:9px; overflow:auto; transform:translateX(-50%); pointer-events:none; }
+.toast, .error-banner { display:flex; align-items:flex-start; gap:10px; width:100%; margin:0; padding:13px 15px; border:1px solid rgba(255,255,255,.92); border-radius:10px; color:#187a67; background:rgba(230,251,244,.96); box-shadow:0 14px 35px rgba(36,85,71,.16); font-size:13px; font-weight:700; line-height:1.55; backdrop-filter:blur(18px); pointer-events:auto; animation:toast-enter .24s ease-out; }
+.toast > svg { flex:0 0 auto; margin-top:1px; }
+.toast > span { min-width:0; flex:1; overflow-wrap:anywhere; }
+.toast button { flex:0 0 auto; margin-left:auto; padding:2px 3px; color:inherit; background:transparent; font-size:12px; font-weight:900; }
+.toast-error,.error-banner { color:#9b3040; background:rgba(255,231,232,.97); }
+@keyframes toast-enter { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
+@media (max-width:700px) { .toast-stack { top:10px; width:calc(100vw - 20px); } .toast { padding:12px; font-size:12px; } }
 .hero { display: grid; grid-template-columns: 1.08fr .92fr; min-height: 495px; overflow: hidden; padding: 52px 64px; border: 1px solid rgba(255,255,255,.9); border-radius: 31px; background: linear-gradient(135deg, rgba(255,255,255,.88), rgba(251,250,245,.7)); box-shadow: 0 24px 70px rgba(53, 72, 60, .1), inset 0 1px 0 #fff; backdrop-filter: blur(22px); }
 .hero-copy { min-width: 0; align-self: center; max-width: 650px; }
 .eyebrow { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 99px; color: #d44f58; background: #fff0c9; font-size: 13px; font-weight: 900; }

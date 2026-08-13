@@ -1224,6 +1224,13 @@ def run_shopping_decision(request: ShoppingDecisionRequest, authorization: str |
         shopping_store.record_business_event(user_id, "analysis_failed", context.task_id, metadata={"error": str(exc)}, idempotency_key=f"analysis-fail:{context.task_id}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     response = TaskRunResponse(**result)
+    expected_candidates = len(request.products)
+    comparison_rows = response.result.get("comparison_rows") if isinstance(response.result.get("comparison_rows"), list) else []
+    price_breakdowns = response.result.get("price_breakdowns") if isinstance(response.result.get("price_breakdowns"), list) else []
+    risk_reports = response.result.get("risk_reports") if isinstance(response.result.get("risk_reports"), list) else []
+    if not all(len(items) == expected_candidates for items in (comparison_rows, price_breakdowns, risk_reports)):
+        shopping_store.record_business_event(user_id, "analysis_incomplete", response.task_id, metadata={"expected_candidates": expected_candidates, "comparison_rows": len(comparison_rows), "price_breakdowns": len(price_breakdowns), "risk_reports": len(risk_reports)}, idempotency_key=f"analysis-incomplete:{response.task_id}")
+        raise HTTPException(status_code=502, detail=f"提交了 {expected_candidates} 个候选，但分析结果不完整，请重新分析")
     shopping_store.save_report(user_id, response.task_id, goal, [item.model_dump() for item in request.products], response.result)
     shopping_store.record_business_event(user_id, "analysis_completed", response.task_id, metadata={"latency_ms": int((time.perf_counter() - started) * 1000)}, idempotency_key=f"analysis-complete:{response.task_id}")
     return response

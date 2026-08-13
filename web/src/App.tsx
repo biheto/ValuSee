@@ -136,6 +136,7 @@ type UserLLMConfig = {
   last_test_error?: string | null;
 };
 type View = "discover" | "analyze" | "monitors" | "purchases" | "saved" | "messages" | "account" | "profile" | "history" | "family" | "settings" | "security" | "membership";
+type ToastNotice = { id: string; text: string; tone: "success" | "error" };
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
 const sample: Product[] = [
@@ -251,6 +252,16 @@ const riskLabel: Record<string, string> = {
 const analyticsSession = sessionStorage.getItem("valuesee-analytics-session") || crypto.randomUUID();
 sessionStorage.setItem("valuesee-analytics-session", analyticsSession);
 
+function isSameCandidate(left: Product, right: Product) {
+  const leftUrl = (left.url || "").trim().toLowerCase();
+  const rightUrl = (right.url || "").trim().toLowerCase();
+  const leftVariant = (left.sku || left.selected_variant || "").trim().toLowerCase();
+  const rightVariant = (right.sku || right.selected_variant || "").trim().toLowerCase();
+  if (leftUrl && rightUrl && leftUrl !== rightUrl) return false;
+  if (leftVariant || rightVariant) return Boolean(leftVariant && rightVariant && leftUrl === rightUrl && leftVariant === rightVariant);
+  return Boolean(leftUrl && rightUrl && leftUrl === rightUrl);
+}
+
 export function App() {
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view");
@@ -302,8 +313,34 @@ export function App() {
   const [linkLoading, setLinkLoading] = useState(false);
   const [linkRecovery, setLinkRecovery] = useState<LinkRecovery | null>(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [toastNotices, setToastNotices] = useState<ToastNotice[]>([]);
+  const message = "";
+  const error = "";
+  const setMessage = (text: string) => {
+    if (!text) {
+      setToastNotices((items) => items.filter((item) => item.tone !== "success"));
+      return;
+    }
+    setToastNotices((items) => {
+      const progress = text.startsWith("正在识别截图");
+      const existing = progress ? items.find((item) => item.tone === "success" && item.text.startsWith("正在识别截图")) : undefined;
+      if (existing) return items.map((item) => item.id === existing.id ? { ...item, text } : item);
+      if (items.some((item) => item.tone === "success" && item.text === text)) return items;
+      return [{ id: crypto.randomUUID(), text, tone: "success" as const }, ...items].slice(0, 5);
+    });
+  };
+  const setError = (text: string) => {
+    if (!text) {
+      setToastNotices((items) => items.filter((item) => item.tone !== "error"));
+      return;
+    }
+    setToastNotices((items) => items.some((item) => item.tone === "error" && item.text === text) ? items : [{ id: crypto.randomUUID(), text, tone: "error" as const }, ...items].slice(0, 5));
+  };
+  useEffect(() => {
+    if (!toastNotices.length) return;
+    const timers = toastNotices.map((item) => window.setTimeout(() => setToastNotices((current) => current.filter((notice) => notice.id !== item.id)), item.tone === "error" ? 9000 : 6500));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [toastNotices]);
   const [monitorProduct, setMonitorProduct] = useState(0);
   const [targetPrice, setTargetPrice] = useState(1300);
   const [purchaseProduct, setPurchaseProduct] = useState(0);
@@ -348,6 +385,9 @@ export function App() {
   useEffect(() => {
     void refreshRecords();
   }, []);
+  useEffect(() => {
+    setResult(null);
+  }, [products]);
   useEffect(() => {
     const timer = window.setInterval(() => void refreshRecords(), 30_000);
     return () => window.clearInterval(timer);
@@ -459,6 +499,11 @@ export function App() {
           require_human_review: false,
         }),
       });
+      const expected = products.length;
+      const actual = data.result.comparison_rows.length;
+      if (actual !== expected || data.result.price_breakdowns.length !== expected || data.result.risk_reports.length !== expected) {
+        throw new Error(`提交了 ${expected} 个候选，但分析只返回 ${actual} 个，请重新分析或检查候选信息。`);
+      }
       setResult(data);
       setMessage("分析完成，报告已保存到账户。");
       localStorage.setItem("valuesee-last-report", JSON.stringify(data));
@@ -487,8 +532,8 @@ export function App() {
         setMessage("");
         return;
       }
-      const duplicate = products.some((item) => item.url === data.product.url);
-      setProducts((items) => items.some((item) => item.url === data.product.url) ? items : [...items, data.product]);
+      const duplicate = products.some((item) => isSameCandidate(item, data.product));
+      setProducts((items) => items.some((item) => isSameCandidate(item, data.product)) ? items : [...items, data.product]);
       setLinkRecovery(null);
       setUrl("");
       setMessage(duplicate ? "该商品已经在候选清单中，没有重复添加。" : data.message);
@@ -501,7 +546,7 @@ export function App() {
   }
   function addLinkManually() {
     if (!linkRecovery) return;
-    setProducts((items) => items.some((item) => item.url === linkRecovery.product.url) ? items : [...items, linkRecovery.product]);
+    setProducts((items) => items.some((item) => isSameCandidate(item, linkRecovery.product)) ? items : [...items, linkRecovery.product]);
     setLinkRecovery(null);
     setUrl("");
     setMessage("已加入手动补充区，请填写商品标题、规格与当前价格。");
@@ -564,7 +609,7 @@ export function App() {
     setCaptures((items) => items.map((item) => item.capture_id === captureId ? { ...item, product: { ...item.product, ...patch } } : item));
   }
   async function addProduct(product: Product, openDetail = false) {
-    setProducts((items) => (items.some((item) => item.url && item.url === product.url) ? items : [...items, product]));
+    setProducts((items) => (items.some((item) => isSameCandidate(item, product)) ? items : [...items, product]));
     if (openDetail) setDetailProduct(product);
     try {
       const registered = await request<{ product_ref: string }>("/api/v1/shopping/products", {
@@ -1042,6 +1087,7 @@ export function App() {
         </button>
       </header>
       {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} confirmPassword={confirmPassword} verificationCode={verificationCode} displayName={displayName} busy={accountBusy} notice={accountNotice} noticeError={accountNoticeError} codeCooldown={registrationCodeCooldown} onEmail={setEmail} onPassword={setPassword} onConfirmPassword={setConfirmPassword} onVerificationCode={setVerificationCode} onDisplayName={setDisplayName} onMode={changeAccountMode} onRequestCode={requestRegistrationCode} onSubmit={submitAccount} onClose={closeAccount} onLogout={logout} />}
+      <ToastStack notices={toastNotices} onDismiss={(id) => setToastNotices((items) => items.filter((item) => item.id !== id))} />
       {message && (
         <div className="toast">
           <CheckCircle2 size={16} />
@@ -3288,6 +3334,20 @@ function PageTitle({ icon, title, subtitle }: { icon: React.ReactNode; title: st
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
+    </div>
+  );
+}
+function ToastStack({ notices, onDismiss }: { notices: ToastNotice[]; onDismiss: (id: string) => void }) {
+  if (!notices.length) return null;
+  return (
+    <div className="toast-stack" aria-live="polite" aria-atomic="false">
+      {notices.map((notice) => (
+        <div className={`toast ${notice.tone === "error" ? "toast-error" : ""}`} role={notice.tone === "error" ? "alert" : "status"} key={notice.id}>
+          {notice.tone === "error" ? <MessageSquareWarning size={17} /> : <CheckCircle2 size={17} />}
+          <span>{notice.text}</span>
+          <button aria-label="关闭提示" onClick={() => onDismiss(notice.id)}>关闭</button>
+        </div>
+      ))}
     </div>
   );
 }

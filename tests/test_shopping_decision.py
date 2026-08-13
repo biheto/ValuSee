@@ -107,6 +107,21 @@ def test_true_price_is_calculated_from_discount_breakdown():
     assert breakdown["final_price"] == 1279.0
 
 
+def test_three_candidates_are_all_compared_and_reported():
+    products = [
+        {"title": f"Monitor {index}", "platform": platform, "brand": "Dell", "model": f"U27{index}", "sku": f"SKU-{index}", "price": 1200 + index * 100, "official_store": True}
+        for index, platform in enumerate(("JD", "Tmall", "PDD"), start=1)
+    ]
+    result = _run(products, {"budget": 1800, "acceptable_risk": "medium"})["result"]
+
+    assert len(result["comparison_rows"]) == 3
+    assert len(result["price_breakdowns"]) == 3
+    assert len(result["same_item_matches"]) == 3
+    assert len(result["risk_reports"]) == 3
+    assert [row["index"] for row in result["comparison_rows"]] == [0, 1, 2]
+    assert "候选 3" in result["final_report"]
+
+
 def test_risk_and_budget_change_recommendation():
     result = _run(
         [
