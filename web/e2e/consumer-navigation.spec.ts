@@ -126,6 +126,15 @@ test('product acquisition exposes working link, extension, and screenshot paths'
   expect(chooser.isMultiple()).toBe(false);
 });
 
+test('smart comparison requires a tested personal LLM key', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'covered once on desktop');
+  await page.goto('/?view=analyze');
+  await expect(page.getByRole('button', { name: '配置个人 Key' })).toBeVisible();
+  await expect(page.getByText('智能对比只使用你的个人 LLM Key')).toBeVisible();
+  await page.getByRole('button', { name: '配置个人 Key' }).click();
+  await expect(page.getByRole('heading', { name: '登录 ValuSee' })).toBeVisible();
+});
+
 test('shopping candidates survive refresh and report markdown renders as document structure', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'covered once on desktop');
   const product = {

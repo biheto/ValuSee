@@ -1292,6 +1292,7 @@ class ShoppingStore:
             conn.execute("""INSERT INTO shopping_llm_user_config(user_id,api_key_encrypted,base_url,model,vision_model,wire_api,enabled,last_test_status,last_test_at,last_test_error,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,?,NULL,NULL,NULL,?,?) ON CONFLICT(user_id) DO UPDATE SET api_key_encrypted=excluded.api_key_encrypted,base_url=excluded.base_url,model=excluded.model,vision_model=excluded.vision_model,wire_api=excluded.wire_api,enabled=excluded.enabled,updated_at=excluded.updated_at""",
                 (user_id, encrypt_user_secret(api_key), base_url, model, vision_model, wire_api, 1 if payload.get("enabled", True) else 0, created, now))
+            conn.execute("UPDATE shopping_llm_user_config SET last_test_status=NULL,last_test_at=NULL,last_test_error=NULL WHERE user_id=?", (user_id,))
         return self.get_llm_config(user_id)
 
     def delete_llm_config(self, user_id: str) -> bool:

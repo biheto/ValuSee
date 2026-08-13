@@ -15,6 +15,14 @@ The first release focuses on digital products and small appliances. The system m
 
 ## Completed
 
+### Personal LLM enforcement
+
+- Consumer smart comparison now requires an authenticated user to save, enable, and successfully test a personal OpenAI-compatible LLM configuration before a shopping Agent task can be created.
+- The `/shopping/decide` server endpoint enforces the same rule with HTTP 428, so the requirement cannot be bypassed by calling the API directly. A configured platform key is never used as a fallback for consumer shopping decisions.
+- Saving a changed API key, Base URL, text model, vision model, or wire protocol clears the previous successful test state and requires a fresh connection test.
+- Online product-image recognition uses only the user's personal visual-model configuration. Without it, ValuSee keeps browser/local OCR and manual confirmation available but does not call the platform visual model.
+- The consumer UI exposes the requirement before analysis, routes unconfigured users to login/settings, and distinguishes `尚未配置`, `等待测试`, and `连接可用` states.
+
 ### Productization and release hardening
 
 - Production Compose profile includes API, monitor worker, PostgreSQL/pgvector, Redis, RabbitMQ, and MinIO with health checks and non-root/read-only runtime settings.

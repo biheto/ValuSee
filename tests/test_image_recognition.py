@@ -19,7 +19,7 @@ def prepare_storage(monkeypatch, tmp_path) -> None:
 
 def test_unavailable_ocr_never_uses_upload_filename_as_product_title(monkeypatch, tmp_path) -> None:
     prepare_storage(monkeypatch, tmp_path)
-    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args: ({}, "vision_unavailable", "视觉模型不可用。"))
+    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args, **_kwargs: ({}, "vision_unavailable", "视觉模型不可用。"))
     monkeypatch.setattr(vision, "_extract_with_tesseract", lambda _path: ("", "tesseract_error", "OCR 不可用。"))
 
     result = vision.inspect_product_image(png_bytes(), "image/png", "iPhone-16-Pro-5999元.png")
@@ -48,7 +48,7 @@ def test_multimodal_result_becomes_an_editable_structured_product(monkeypatch, t
         "specs": {"接口": "USB-C"},
         "confidence": 0.93,
     }
-    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args: (payload, "vision:gpt-4o-mini", "请核对。"))
+    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args, **_kwargs: (payload, "vision:gpt-4o-mini", "请核对。"))
 
     result = vision.inspect_product_image(png_bytes(), "image/png", "screenshot.png")
 
@@ -64,7 +64,7 @@ def test_multimodal_result_becomes_an_editable_structured_product(monkeypatch, t
 
 def test_browser_ocr_text_falls_back_when_external_vision_is_unavailable(monkeypatch, tmp_path) -> None:
     prepare_storage(monkeypatch, tmp_path)
-    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args: ({}, "vision_unavailable", "视觉模型不可用。"))
+    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args, **_kwargs: ({}, "vision_unavailable", "视觉模型不可用。"))
     text = """JD Product Detail
 Apple AirPods Pro 2 USB-C
 SKU: MTJV3CH/A
@@ -85,11 +85,25 @@ Selected: White / China Version"""
     assert result["recognition_status"] == "recognized"
 
 
+def test_online_vision_never_uses_platform_key_without_user_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        vision.llm_provider,
+        "analyze_image_with_status",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("platform vision must not be called")),
+    )
+
+    payload, provider, warning = vision._extract_with_vision(png_bytes(), "image/png", user_config=None)
+
+    assert payload == {}
+    assert provider == "vision_unavailable"
+    assert "你自己的视觉模型 API Key" in warning
+
+
 def test_browser_ocr_is_fused_with_visual_result(monkeypatch, tmp_path) -> None:
     prepare_storage(monkeypatch, tmp_path)
     captured = {}
 
-    def visual(_content, _content_type, ocr_hint=""):
+    def visual(_content, _content_type, ocr_hint="", **_kwargs):
         captured["ocr_hint"] = ocr_hint
         return ({
             "ocr_text": "券后 ¥83.26",

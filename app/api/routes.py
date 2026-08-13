@@ -1213,10 +1213,14 @@ async def run_business_scenario_stream(request: BusinessScenarioRequest) -> Stre
 def run_shopping_decision(request: ShoppingDecisionRequest, authorization: str | None = Header(default=None)) -> TaskRunResponse:
     goal = request.goal or "为商品候选生成购买决策"
     user_id = _request_user(authorization)
+    user_llm_config = shopping_store.get_llm_config(user_id, include_secret=True)
+    if not user_llm_config.get("configured") or not user_llm_config.get("enabled") or not user_llm_config.get("api_key"):
+        raise HTTPException(status_code=428, detail="智能对比需要先配置并启用你自己的 LLM API Key")
+    if user_llm_config.get("last_test_status") != "ok":
+        raise HTTPException(status_code=428, detail="请先在“我的 LLM 配置”中测试连接，成功后再使用智能对比")
     context = harness_runtime.create_context(goal=goal, variables={"shopping": True})
     started = time.perf_counter()
     shopping_store.record_business_event(user_id, "analysis_started", context.task_id, idempotency_key=f"analysis-start:{context.task_id}")
-    user_llm_config = shopping_store.get_llm_config(user_id, include_secret=True)
     try:
         with llm_provider.user_config_scope(user_llm_config):
             result = harness_runtime.run_graph(context, shopping_decision_graph_runner, {"goal": goal, **request.model_dump()})
@@ -1373,7 +1377,7 @@ def save_shopping_llm_config(payload: dict[str, object], authorization: str | No
 
 @router.delete("/shopping/llm-config", tags=["Shopping Account"])
 def delete_shopping_llm_config(authorization: str | None = Header(default=None)) -> dict[str, object]:
-    return {"deleted": shopping_store.delete_llm_config(_request_user(authorization)), "configured": False}
+    return {"deleted": shopping_store.delete_llm_config(_request_user(authorization)), "configured": False, "enabled": False}
 
 
 @router.post("/shopping/llm-config/test", tags=["Shopping Account"])

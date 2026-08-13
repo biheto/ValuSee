@@ -554,6 +554,16 @@ export function App() {
 
   async function runDecision(event?: FormEvent) {
     event?.preventDefault();
+    if (!localStorage.getItem("valuesee-token")) {
+      setError("请先登录并配置你自己的 LLM API Key，再使用智能对比。");
+      openAccount();
+      return;
+    }
+    if (!llmConfig.configured || !llmConfig.enabled || llmConfig.last_test_status !== "ok") {
+      setError(llmConfig.configured ? "请先测试个人 LLM 连接，成功后再使用智能对比。" : "请先配置你自己的 LLM API Key，再使用智能对比。");
+      setView("settings");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -966,7 +976,7 @@ export function App() {
     try {
       const next = await request<UserLLMConfig>("/api/v1/shopping/llm-config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       setLlmConfig(next);
-      setMessage("用户 LLM 配置已加密保存，后续购物分析优先使用它。");
+      setMessage("个人 LLM 配置已加密保存，请测试连接后使用智能对比。");
     } catch (err) { setError(err instanceof Error ? err.message : "用户模型配置保存失败"); }
   }
   async function testUserLLMConfig() {
@@ -977,7 +987,7 @@ export function App() {
     } catch (err) { setError(err instanceof Error ? err.message : "用户 LLM 连接测试失败"); }
   }
   async function deleteUserLLMConfig() {
-    try { await request("/api/v1/shopping/llm-config", { method: "DELETE" }); setLlmConfig({ configured: false, enabled: false, base_url: "", model: "gpt-5.5", vision_model: "gpt-5.5", wire_api: "responses" }); setMessage("用户 LLM 配置已清除，将回退到平台默认模型。"); }
+    try { await request("/api/v1/shopping/llm-config", { method: "DELETE" }); setLlmConfig({ configured: false, enabled: false, base_url: "", model: "gpt-5.5", vision_model: "gpt-5.5", wire_api: "responses" }); setMessage("个人 LLM 配置已清除，智能对比将暂停使用。"); }
     catch (err) { setError(err instanceof Error ? err.message : "用户 LLM 配置清除失败"); }
   }
   async function submitAccount(event: FormEvent) {
@@ -1229,11 +1239,12 @@ export function App() {
                     预算 <input type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /> 元
                   </label>
                   <button type="submit" disabled={loading}>
-                    {loading ? <Loader2 className="spin" size={18} /> : <Search size={18} />}
-                    立即分析
+                    {loading ? <Loader2 className="spin" size={18} /> : llmConfig.last_test_status === "ok" && llmConfig.configured && llmConfig.enabled ? <Search size={18} /> : <Settings size={18} />}
+                    {llmConfig.last_test_status === "ok" && llmConfig.configured && llmConfig.enabled ? "立即分析" : "配置个人 Key"}
                   </button>
                 </div>
               </form>
+              {(!llmConfig.configured || !llmConfig.enabled || llmConfig.last_test_status !== "ok") && <div className="decision-key-notice"><ShieldCheck size={16} /><span>智能对比只使用你的个人 LLM Key，不会调用平台模型。配置并测试成功后即可分析。</span></div>}
             </div>
             <div className="hero-aside">
               <div className="hero-visual">
@@ -2183,11 +2194,11 @@ function SettingsPanel({ profile, budget, preferences, llmConfig, onProfile, onB
           </button>
         </section>
         <section className="panel compact-form user-llm-panel">
-          <div className="settings-section-title"><div><h3>我的 LLM 配置</h3><p>使用你自己的模型额度，平台不会看到原始 Key。</p></div><span className={llmConfig.configured && llmConfig.enabled ? "config-status ready" : "config-status"}>{llmConfig.configured && llmConfig.enabled ? "已启用" : "使用平台默认"}</span></div>
+          <div className="settings-section-title"><div><h3>我的 LLM 配置</h3><p>智能对比必须使用你自己的模型额度，平台不会看到原始 Key。</p></div><span className={llmConfig.last_test_status === "ok" && llmConfig.configured && llmConfig.enabled ? "config-status ready" : "config-status"}>{llmConfig.last_test_status === "ok" && llmConfig.configured && llmConfig.enabled ? "连接可用" : llmConfig.configured ? "等待测试" : "尚未配置"}</span></div>
           <label>API Key<input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={llmConfig.api_key_hint ? `已配置 ${llmConfig.api_key_hint}，留空保持不变` : "OpenAI API Key，例如 sk-..."} /></label>
           <label>Base URL<input type="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label>
           <div className="field-grid user-llm-fields"><label>文本模型<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="例如 gpt-5" /></label><label>视觉模型<input value={visionModel} onChange={(event) => setVisionModel(event.target.value)} placeholder="例如 gpt-5" /></label><label>协议<select value={wireApi} onChange={(event) => setWireApi(event.target.value)}><option value="responses">Responses</option><option value="chat_completions">Chat Completions</option></select></label></div>
-          <p className="settings-note">用户配置优先用于购物 Agent、决策报告和截图识别；删除后自动回退到平台配置。Key 只加密存储，日志不会记录原文。</p>
+          <p className="settings-note">个人配置用于购物 Agent、决策报告和在线截图识别。未配置或测试失败时，智能对比不会运行，也不会回退到平台 Key；本地 OCR 和手动商品编辑仍可使用。Key 只加密存储，日志不会记录原文。</p>
           <div className="user-llm-actions"><button type="button" className="primary-button" onClick={() => { setApiKey(""); void onSaveLLM({ api_key: apiKey || undefined, base_url: baseUrl, model, vision_model: visionModel, wire_api: wireApi, enabled: true }); }}><Save size={16} />保存并启用</button><button type="button" className="soft-button" disabled={!llmConfig.configured} onClick={() => void onTestLLM()}><CheckCircle2 size={16} />测试连接</button><button type="button" className="danger-button" disabled={!llmConfig.configured} onClick={() => void onDeleteLLM()}><Trash2 size={16} />清除配置</button></div>
           {llmConfig.last_test_status && <small className="llm-test-result">上次测试：{llmConfig.last_test_status === "ok" ? "成功" : "失败"}{llmConfig.last_test_at ? ` · ${new Date(llmConfig.last_test_at).toLocaleString("zh-CN")}` : ""}</small>}
         </section>

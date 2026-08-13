@@ -99,7 +99,7 @@ The free invitation release can launch without JD/Taobao/Pinduoduo credentials. 
 
 ### LLM configuration
 
-The production image includes the OpenAI-compatible LangChain adapter. Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` for a compatible gateway, and select the default model with `DEV_AGENT_LLM_MODEL`. Per-Agent overrides and embedding settings are listed in `.env.production.example`. An empty key intentionally keeps deterministic fallback mode; startup and non-LLM workflows remain available.
+The production image includes the OpenAI-compatible LangChain adapter. Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` for a compatible gateway, and select the default model with `DEV_AGENT_LLM_MODEL` for administrator and non-consumer workflows. Per-Agent overrides and embedding settings are listed in `.env.production.example`. Consumer smart comparison and online product-image recognition require each user to save and successfully test a personal LLM configuration; those shopping paths never fall back to the platform key. An empty platform key intentionally keeps deterministic and non-LLM workflows available.
 
 After changing model configuration, recreate the API and worker containers and verify the provider inside the container without printing the secret:
 

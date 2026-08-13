@@ -86,6 +86,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .hero p { max-width: 600px; margin: 0 0 24px; overflow-wrap: anywhere; color: #66716f; font-size: 16px; line-height: 1.8; }
 .decision-box { width: min(620px, 100%); padding: 12px; border: 1px solid rgba(222, 226, 218, .8); border-radius: 20px; background: rgba(255,255,255,.84); box-shadow: 0 14px 30px rgba(50, 71, 60, .09); }
 .decision-box textarea { display: block; width: 100%; min-height: 82px; resize: vertical; border: 0; outline: 0; padding: 13px; color: #253332; background: transparent; line-height: 1.6; }
+.decision-key-notice { display:flex; align-items:center; gap:8px; width:min(620px,100%); margin-top:10px; color:#6e6250; font-size:11px; line-height:1.5; }.decision-key-notice svg { flex:0 0 auto; color:#d88443; }
 .decision-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 8px 0; border-top: 1px solid #edf0eb; }
 .decision-controls label, .compact-form label { display: flex; align-items: center; gap: 8px; color: #6c7875; font-size: 13px; font-weight: 800; }
 input, select { border: 1px solid #e1e7e0; border-radius: 10px; padding: 10px 11px; outline: 0; color: #263635; background: rgba(255,255,255,.86); }

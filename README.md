@@ -123,7 +123,7 @@ ValuSee 保留每项优惠条件并展示完整算式：
 | 我的购买 | 订单、发票和附件、保价、退货、保修、耗材与续费期限管理 |
 | 消息中心 | 降价、保价、售后和系统消息，支持分类、已读状态与页面跳转 |
 | 家庭与账户 | 个人资料、设备档案、家庭协作、会话安全、MFA、数据导出与账号删除 |
-| 用户 LLM | 用户可配置自己的 OpenAI 兼容文本/视觉服务；密钥加密保存，平台配置仅作回退 |
+| 用户 LLM | 智能对比必须使用用户自己的 OpenAI 兼容文本/视觉服务；密钥加密保存，不回退到平台 Key |
 | 管理后台 | 用户与商品治理、标准商品/SKU、内容、来源状态、Prompt、Trace、成本、Benchmark 和监控任务 |
 | Web / PWA | 响应式消费者界面、移动端底部导航、可安装 PWA、公开离线壳与错误恢复 |
 
@@ -317,7 +317,7 @@ S3_ACCESS_KEY=...
 S3_SECRET_KEY=...
 ```
 
-用户也可以在“我的 -> 我的 LLM 配置”中保存自己的 OpenAI 兼容服务。用户密钥使用应用加密密钥加密存储，接口只返回脱敏尾号；系统会拦截指向本机和内网的 Base URL。
+用户需要在“我的 -> 我的 LLM 配置”中保存并测试自己的 OpenAI 兼容服务，测试成功后才能运行智能对比。用户密钥使用应用加密密钥加密存储，接口只返回脱敏尾号；系统会拦截指向本机和内网的 Base URL。消费者购物 Agent 与在线图片识别不会回退到平台 Key。
 
 完整变量、Cloudflare R2、Vercel、周期任务、备份恢复和安全检查见 [生产发布文档](docs/VALUSee_PRODUCTION_RELEASE.md)。
 
@@ -519,7 +519,7 @@ DEV_AGENT_LLM_MODEL=your_text_model
 VALUSee_VISION_MODEL=your_vision_model
 ```
 
-The LLM is optional for deterministic and account workflows. Users may also save their own compatible provider in the account UI; keys are encrypted at rest and only a masked suffix is returned.
+The LLM is optional for deterministic and account workflows. Smart comparison requires each user to save and successfully test an OpenAI-compatible provider in the account UI. Keys are encrypted at rest and only a masked suffix is returned; consumer shopping agents never fall back to the platform key.
 
 See [ValuSee Production Release](docs/VALUSee_PRODUCTION_RELEASE.md) for PostgreSQL, Redis, RabbitMQ, Cloudflare R2/S3, Vercel, workers, HTTPS, secrets, backups, and release verification.
 

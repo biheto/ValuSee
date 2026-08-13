@@ -79,6 +79,20 @@ def test_user_llm_config_is_masked_encrypted_and_deleted():
         assert store.get_llm_config("u1")["configured"] is False
 
 
+def test_saving_user_llm_config_requires_a_new_connection_test():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "llm-test-state.db")
+        payload = {"api_key": "sk-user-secret", "base_url": "https://api.openai.com/v1", "model": "gpt-5", "vision_model": "gpt-5", "wire_api": "responses"}
+        store.save_llm_config("u1", payload)
+        tested = store.save_llm_test_result("u1", "ok")
+        assert tested["last_test_status"] == "ok"
+
+        changed = store.save_llm_config("u1", {**payload, "model": "gpt-5-mini"})
+        assert changed["configured"] is True
+        assert changed["last_test_status"] is None
+        assert changed["last_test_at"] is None
+
+
 def test_user_llm_config_rejects_private_base_urls_and_overrides_models():
     with TemporaryDirectory() as tmp:
         store = ShoppingStore(Path(tmp) / "llm-security.db")

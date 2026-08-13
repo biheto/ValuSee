@@ -109,6 +109,8 @@ def _validate_image_pixels(content: bytes) -> None:
 
 
 def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "", *, user_config: dict[str, Any] | None = None) -> tuple[dict[str, Any], str, str]:
+    if not user_config or not user_config.get("enabled") or not user_config.get("api_key"):
+        return {}, "vision_unavailable", "在线图片识别需要配置你自己的视觉模型 API Key，已尝试本地 OCR。"
     image_content, image_type = _prepare_vision_image(content, content_type)
     user_prompt = "识别这张用户主动上传的电商商品截图，优先读取当前选中规格、当前成交价、店铺和优惠。"
     if ocr_hint:
