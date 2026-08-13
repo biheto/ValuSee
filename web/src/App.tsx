@@ -2,6 +2,7 @@ import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Com
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
+import { MarkdownContent } from "./MarkdownContent";
 import { apiUrl } from "./runtime";
 
 type Product = ConsumerProduct;
@@ -12,6 +13,13 @@ type ParsedLink = {
   fallback_actions: string[];
 };
 type LinkRecovery = ParsedLink & { submittedUrl: string };
+type ShoppingDraft = {
+  version: 1;
+  goal: string;
+  budget: number;
+  products: Product[];
+  updated_at: string;
+};
 type Decision = {
   task_id: string;
   status: string;
@@ -252,6 +260,41 @@ const riskLabel: Record<string, string> = {
 const analyticsSession = sessionStorage.getItem("valuesee-analytics-session") || crypto.randomUUID();
 sessionStorage.setItem("valuesee-analytics-session", analyticsSession);
 
+function currentDraftOwner() {
+  const token = localStorage.getItem("valuesee-token");
+  if (!token) return "guest";
+  try {
+    const payload = token.split(".")[1];
+    const decoded = JSON.parse(decodeURIComponent(Array.from(atob(payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "="))).map((character) => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`).join(""))) as { sub?: string };
+    return decoded.sub ? `user:${decoded.sub}` : "guest";
+  } catch {
+    return "guest";
+  }
+}
+
+function draftStorageKey(owner: string) {
+  return `valuesee-shopping-draft:${owner}`;
+}
+
+function readShoppingDraft(owner: string): ShoppingDraft | null {
+  try {
+    const saved = localStorage.getItem(draftStorageKey(owner));
+    if (!saved) return null;
+    const draft = JSON.parse(saved) as Partial<ShoppingDraft>;
+    if (draft.version !== 1 || !Array.isArray(draft.products)) throw new Error("invalid draft");
+    return {
+      version: 1,
+      goal: typeof draft.goal === "string" ? draft.goal : "",
+      budget: Number.isFinite(Number(draft.budget)) ? Math.max(0, Number(draft.budget)) : 0,
+      products: draft.products.filter((product): product is Product => Boolean(product && typeof product === "object")).slice(0, 50),
+      updated_at: typeof draft.updated_at === "string" ? draft.updated_at : new Date().toISOString(),
+    };
+  } catch {
+    localStorage.removeItem(draftStorageKey(owner));
+    return null;
+  }
+}
+
 function isSameCandidate(left: Product, right: Product) {
   const leftUrl = (left.url || "").trim().toLowerCase();
   const rightUrl = (right.url || "").trim().toLowerCase();
@@ -263,14 +306,18 @@ function isSameCandidate(left: Product, right: Product) {
 }
 
 export function App() {
+  const [draftOwner, setDraftOwner] = useState(currentDraftOwner);
+  const initialDraft = useRef(readShoppingDraft(draftOwner));
+  const loadedDraftOwner = useRef(draftOwner);
+  const skipDraftSave = useRef(true);
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view");
     const valid: View[] = ["discover", "analyze", "monitors", "purchases", "saved", "messages", "account", "profile", "history", "family", "settings", "security", "membership"];
     return valid.includes(requested as View) ? (requested as View) : "discover";
   });
-  const [goal, setGoal] = useState("想买一副适合 iPhone 的降噪耳机，预算 1800 元以内");
-  const [budget, setBudget] = useState(1800);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [goal, setGoal] = useState(initialDraft.current?.goal || "想买一副适合 iPhone 的降噪耳机，预算 1800 元以内");
+  const [budget, setBudget] = useState(initialDraft.current?.budget ?? 1800);
+  const [products, setProducts] = useState<Product[]>(initialDraft.current?.products || []);
   const [result, setResult] = useState<Decision | null>(null);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -385,6 +432,27 @@ export function App() {
   useEffect(() => {
     void refreshRecords();
   }, []);
+  useEffect(() => {
+    if (loadedDraftOwner.current === draftOwner) return;
+    loadedDraftOwner.current = draftOwner;
+    const draft = readShoppingDraft(draftOwner);
+    skipDraftSave.current = true;
+    setGoal(draft?.goal || "想买一副适合 iPhone 的降噪耳机，预算 1800 元以内");
+    setBudget(draft?.budget ?? 1800);
+    setProducts(draft?.products || []);
+  }, [draftOwner]);
+  useEffect(() => {
+    if (skipDraftSave.current) {
+      skipDraftSave.current = false;
+      return;
+    }
+    const draft: ShoppingDraft = { version: 1, goal, budget, products, updated_at: new Date().toISOString() };
+    try {
+      localStorage.setItem(draftStorageKey(draftOwner), JSON.stringify(draft));
+    } catch {
+      /* A full or disabled local store must not interrupt product editing. */
+    }
+  }, [budget, draftOwner, goal, products]);
   useEffect(() => {
     setResult(null);
   }, [products]);
@@ -962,6 +1030,16 @@ export function App() {
       });
       localStorage.setItem("valuesee-token", data.access_token);
       localStorage.setItem("valuesee-account-name", data.user.display_name);
+      const nextDraftOwner = currentDraftOwner();
+      if (!readShoppingDraft(nextDraftOwner) && (products.length || goal.trim())) {
+        const migratedDraft: ShoppingDraft = { version: 1, goal, budget, products, updated_at: new Date().toISOString() };
+        try {
+          localStorage.setItem(draftStorageKey(nextDraftOwner), JSON.stringify(migratedDraft));
+        } catch {
+          /* Login still succeeds when local draft storage is unavailable. */
+        }
+      }
+      setDraftOwner(nextDraftOwner);
       setAccountName(data.user.display_name);
       setAccountOpen(false);
       setMessage(accountMode === "login" ? "登录成功。" : "邮箱验证完成，账户创建成功。");
@@ -1031,6 +1109,7 @@ export function App() {
   function logout() {
     localStorage.removeItem("valuesee-token");
     localStorage.removeItem("valuesee-account-name");
+    setDraftOwner("guest");
     setAccountName("本地账户");
     setAccountOpen(false);
     void refreshRecords();
@@ -1280,7 +1359,7 @@ export function App() {
                   <article className="product-editor" key={`${index}-${product.title}`}>
                     <div className="product-editor-head">
                       <span>候选 {index + 1}</span>
-                      <button className="icon-button" title="删除候选" onClick={() => setProducts((items) => items.filter((_, i) => i !== index))} disabled={products.length <= 1}>
+                      <button className="icon-button" title="删除候选" onClick={() => setProducts((items) => items.filter((_, i) => i !== index))}>
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -1419,7 +1498,7 @@ export function App() {
                       <FileText size={16} />
                       查看完整决策报告
                     </summary>
-                    <pre>{result.result.report_markdown}</pre>
+                    <MarkdownContent className="report-markdown">{result.result.report_markdown}</MarkdownContent>
                   </details>
                 </div>
               ) : (

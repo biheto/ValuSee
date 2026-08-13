@@ -126,6 +126,34 @@ test('product acquisition exposes working link, extension, and screenshot paths'
   expect(chooser.isMultiple()).toBe(false);
 });
 
+test('shopping candidates survive refresh and report markdown renders as document structure', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'covered once on desktop');
+  const product = {
+    title: '刷新后仍保留的显示器', platform: '京东', url: 'https://item.jd.com/10001.html', brand: 'Example', model: 'M27', sku: 'M27-4K',
+    specs: { 分辨率: '3840x2160' }, price: 1999, coupon: 100, platform_discount: 0, member_discount: 0, subsidy: 0, pay_discount: 0,
+    shipping: 0, gift_value: 0, condition: 'new', official_store: true, return_days: 7, warranty_months: 36, notes: '',
+  };
+  await page.addInitScript(({ draftProduct }) => {
+    localStorage.setItem('valuesee-shopping-draft:guest', JSON.stringify({ version: 1, goal: '比较 4K 显示器', budget: 2500, products: [draftProduct], updated_at: new Date().toISOString() }));
+    localStorage.setItem('valuesee-last-report', JSON.stringify({
+      task_id: 'task-markdown', status: 'completed', events: [], result: {
+        best_index: 0, recommendation: 'buy', recommendation_reason: '规格适合当前需求。', summary: '建议购买候选 1',
+        comparison_rows: [{ index: 0, title: draftProduct.title, platform: draftProduct.platform, model: draftProduct.model, same_item_relation: 'same', same_item_confidence: 1, final_price: 1899, value_score: 90, risk_level: 'low', suitable_for_user: true }],
+        price_breakdowns: [{ final_price: 1899 }], risk_reports: [{ overall_risk: 'low', reasons: [] }],
+        report_markdown: '## 购买建议\n\n- **到手价**：1899 元\n- 支持 4K\n\n> 下单前核对当前 SKU。',
+      },
+    }));
+  }, { draftProduct: product });
+
+  await page.goto('/?view=analyze');
+  await expect(page.locator('.title-input')).toHaveValue('刷新后仍保留的显示器');
+  await page.reload();
+  await expect(page.locator('.title-input')).toHaveValue('刷新后仍保留的显示器');
+  await page.getByText('查看完整决策报告').click();
+  await expect(page.locator('.report-markdown').getByRole('heading', { name: '购买建议' })).toBeVisible();
+  await expect(page.locator('.report-markdown').getByText('到手价')).toBeVisible();
+});
+
 test('an unreadable commerce page shows recovery actions instead of an empty candidate', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'covered once on desktop');
   let requestCount = 0;
