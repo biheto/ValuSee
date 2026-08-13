@@ -582,6 +582,7 @@ class LLMProvider:
             "vision_enabled": bool(config["api_key"]),
             "vision_model": vision_model,
             "base_url": config["base_url"] or None,
+            "wire_api": config["wire_api"],
             "env_path": str(self.env_path),
             "source": config["source"],
             "agent_models": {agent: self._config(agent)["model"] for agent in self.known_agents},
