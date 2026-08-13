@@ -127,13 +127,20 @@ def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "") 
             "invalid_response": "视觉模型返回格式无效，已尝试本地 OCR。",
             "network_error": "视觉模型网络连接失败，已尝试本地 OCR。",
             "provider_unavailable": "在线图片识别暂不可用，已尝试本地 OCR。",
+            "all_providers_failed": "主视觉模型和备用视觉模型均不可用，已尝试本地 OCR。",
         }
         code = str(result.get("error_code") or "provider_unavailable")
-        return {}, "vision_unavailable", messages.get(code, messages["provider_unavailable"])
+        provider_name = str(result.get("provider_name") or "primary")
+        warning = messages.get(code, messages["provider_unavailable"])
+        if provider_name == "fallback":
+            warning = "主视觉模型不可用，已切换备用视觉模型；请核对识别结果。"
+        return {}, "vision_unavailable", warning
     payload = _json_object(str(result.get("text") or ""))
     if not payload:
         return {}, f"vision:{result.get('model') or 'configured'}", "视觉模型未返回有效结构，已尝试本地 OCR。"
-    return payload, f"vision:{result.get('model') or 'configured'}", "AI 截图识别可能存在误差，请核对商品和价格。"
+    provider_name = str(result.get("provider_name") or "primary")
+    provider_label = "备用视觉模型" if provider_name == "fallback" else "视觉模型"
+    return payload, f"vision:{result.get('model') or 'configured'}", f"已使用{provider_label}识别，结果可能存在误差，请核对商品和价格。"
 
 
 def _prepare_vision_image(content: bytes, content_type: str) -> tuple[bytes, str]:

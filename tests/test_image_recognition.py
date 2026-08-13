@@ -205,3 +205,16 @@ def test_api_key_normalization_accepts_pasted_bearer_values() -> None:
 
     assert provider._normalize_api_key(' "Bearer sk-test" ') == "sk-test"
     assert provider._normalize_api_key("sk-test") == "sk-test"
+
+
+def test_vision_fallback_config_requires_key_and_endpoint(monkeypatch) -> None:
+    provider = LLMProvider()
+    monkeypatch.setenv("OPENAI_VISION_FALLBACK_API_KEY", "sk-fallback")
+    monkeypatch.setenv("OPENAI_VISION_FALLBACK_BASE_URL", "https://fallback.example/v1")
+    monkeypatch.setenv("OPENAI_VISION_FALLBACK_MODEL", "vision-model")
+    monkeypatch.setenv("OPENAI_VISION_FALLBACK_WIRE_API", "chat_completions")
+
+    config = provider._vision_fallback_config()
+    assert config is not None
+    assert config["base_url"] == "https://fallback.example/v1"
+    assert config["model"] == "vision-model"

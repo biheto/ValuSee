@@ -360,39 +360,75 @@ class LLMProvider:
                 trace_id, agent, prompt_version, trace_input, fallback, started, None,
                 "OPENAI_API_KEY is not configured", "not_configured",
             )
+        encoded = base64.b64encode(image_content).decode("ascii")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}", "detail": "high"}},
+            ]},
+        ]
+        provider_configs = [config]
+        fallback_config = self._vision_fallback_config()
+        if fallback_config and (
+            fallback_config["base_url"], fallback_config["model"], fallback_config["wire_api"]
+        ) != (config["base_url"], config["model"], config["wire_api"]):
+            provider_configs.append(fallback_config)
+        errors = []
         try:
-            encoded = base64.b64encode(image_content).decode("ascii")
-            response = self._invoke_vision_http(
-                config,
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": [
-                        {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}", "detail": "high"}},
-                    ]},
-                ],
+            for index, provider_config in enumerate(provider_configs):
+                try:
+                    response = self._invoke_vision_http(provider_config, messages)
+                    output_text = self._vision_response_text(response)
+                    if not output_text:
+                        raise ValueError("vision provider returned no message content")
+                    latency_ms = self._elapsed_ms(started)
+                    token_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+                    provider_name = "fallback" if index else "primary"
+                    self._save_trace(
+                        trace_id=trace_id, agent=agent, prompt_version=prompt_version, model=provider_config["model"],
+                        input_payload=trace_input, output_text=output_text, fallback_used=False,
+                        error_message=None, latency_ms=latency_ms, token_usage=token_usage,
+                    )
+                    return {
+                        "text": output_text, "answer_source": "llm", "fallback_used": False,
+                        "model": provider_config["model"], "provider_name": provider_name,
+                        "trace_id": trace_id, "latency_ms": latency_ms, "token_usage": token_usage,
+                    }
+                except Exception as exc:
+                    error_message = str(exc)
+                    errors.append(self._classify_provider_error(error_message))
+            error_code = errors[-1] if errors else "provider_unavailable"
+            if len(provider_configs) > 1:
+                error_code = "all_providers_failed"
+            return self._image_fallback(
+                trace_id, agent, prompt_version, trace_input, fallback, started, config["model"],
+                "; ".join(errors), error_code,
             )
-            output_text = self._vision_response_text(response)
-            if not output_text:
-                raise ValueError("vision provider returned no message content")
-            latency_ms = self._elapsed_ms(started)
-            token_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
-            self._save_trace(
-                trace_id=trace_id, agent=agent, prompt_version=prompt_version, model=config["model"],
-                input_payload=trace_input, output_text=output_text, fallback_used=False,
-                error_message=None, latency_ms=latency_ms, token_usage=token_usage,
-            )
-            return {
-                "text": output_text, "answer_source": "llm", "fallback_used": False,
-                "model": config["model"], "trace_id": trace_id, "latency_ms": latency_ms,
-                "token_usage": token_usage,
-            }
         except Exception as exc:
             error_message = str(exc)
             return self._image_fallback(
                 trace_id, agent, prompt_version, trace_input, fallback, started, config["model"],
                 error_message, self._classify_provider_error(error_message),
             )
+
+    def _vision_fallback_config(self) -> dict[str, str] | None:
+        env_file = self._read_env_file()
+
+        def value(name: str) -> str:
+            return self._read_env_value(name, env_file).strip()
+
+        api_key = self._normalize_api_key(value("OPENAI_VISION_FALLBACK_API_KEY"))
+        base_url = value("OPENAI_VISION_FALLBACK_BASE_URL")
+        if not api_key or not base_url:
+            return None
+        return {
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": value("OPENAI_VISION_FALLBACK_MODEL") or "gpt-4o-mini",
+            "wire_api": value("OPENAI_VISION_FALLBACK_WIRE_API") or "chat_completions",
+            "source": "vision_fallback",
+        }
 
     def _invoke_vision_http(self, config: dict[str, str], messages: list[dict[str, Any]]) -> dict[str, Any]:
         wire_api = config.get("wire_api", "chat_completions")
