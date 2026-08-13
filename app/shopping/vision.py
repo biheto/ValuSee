@@ -124,7 +124,7 @@ def _extract_with_vision(content: bytes, content_type: str, ocr_hint: str = "", 
         messages = {
             "not_configured": "在线图片识别尚未配置视觉模型，已尝试本地 OCR。",
             "auth_failed": "在线图片识别的 API 密钥或 Base URL 鉴权失败，已尝试本地 OCR。",
-            "model_unsupported": "当前模型不支持图片输入，请在粥后台选择带 Vision 或 VL 能力的模型，并配置视觉模型名称，已尝试本地 OCR。",
+            "model_unsupported": "当前模型不支持图片输入，请在模型服务后台选择支持图片输入的模型，并配置视觉模型名称，已尝试本地 OCR。",
             "invalid_response": "视觉模型返回格式无效，已尝试本地 OCR。",
             "network_error": "视觉模型网络连接失败，已尝试本地 OCR。",
             "provider_unavailable": "在线图片识别暂不可用，已尝试本地 OCR。",
