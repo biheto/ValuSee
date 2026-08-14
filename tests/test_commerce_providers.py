@@ -198,3 +198,21 @@ def test_pdd_product_link_uses_official_provider_before_public_page(monkeypatch:
     assert response.source == "pinduoduo_official_ddk_api"
     assert response.product.title == "官方接口商品"
     assert response.product.price == 199
+
+
+def test_admin_provider_health_exposes_sanitized_platform_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RejectedProvider:
+        name = "pdd"
+
+        def health_check(self) -> dict[str, object]:
+            raise ProviderError("Pinduoduo API rejected the request (access.denied): 接口无权限")
+
+    monkeypatch.setattr(routes, "_require_admin", lambda _authorization: "admin-1")
+    monkeypatch.setattr(routes, "configured_providers", lambda: {"pdd": RejectedProvider()})
+
+    result = routes.admin_provider_health("pdd", authorization="Bearer token")
+
+    assert result["status"] == "unhealthy"
+    assert result["error_type"] == "ProviderError"
+    assert "access.denied" in str(result["error"])
+    assert "接口无权限" in str(result["error"])

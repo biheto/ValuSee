@@ -756,8 +756,20 @@ def admin_provider_health(provider_name: str, authorization: str | None = Header
         raise HTTPException(status_code=404, detail="Commerce provider is not configured")
     try:
         return provider.health_check()
+    except (ProviderError, ValueError) as exc:
+        return {
+            "provider": provider.name,
+            "status": "unhealthy",
+            "error": str(exc)[:220],
+            "error_type": type(exc).__name__,
+        }
     except Exception as exc:
-        return {"provider": provider.name, "status": "unhealthy", "error": type(exc).__name__}
+        return {
+            "provider": provider.name,
+            "status": "unhealthy",
+            "error": type(exc).__name__,
+            "error_type": type(exc).__name__,
+        }
 
 
 @router.get("/admin/prompts", tags=["Admin Console"])
