@@ -290,7 +290,7 @@ class PinduoduoProvider:
         ]
 
     def search(self, query: str, category: str = "", limit: int = 12) -> list[dict[str, object]]:
-        params: dict[str, object] = {"keyword": query.strip(), "page": 1, "page_size": min(limit, 50)}
+        params: dict[str, object] = {"keyword": query.strip(), "page": 1, "page_size": max(10, min(limit, 50))}
         if self.pid:
             params["pid"] = self.pid
         if category.strip().isdigit():
@@ -315,7 +315,7 @@ class PinduoduoProvider:
         goods_id = (parse_qs(parsed.query).get("goods_id") or [""])[0]
         if not goods_id.isdigit():
             raise ValueError("链接中没有可识别的拼多多 goods_id，请使用浏览器扩展采集短链接")
-        params: dict[str, object] = {"goods_id_list": [int(goods_id)], "page": 1, "page_size": 1}
+        params: dict[str, object] = {"goods_id_list": [int(goods_id)], "page": 1, "page_size": 10}
         if self.pid:
             params["pid"] = self.pid
         payload = self._call("pdd.ddk.goods.search", params)
@@ -329,7 +329,7 @@ class PinduoduoProvider:
         started = time.perf_counter()
         payload = self._call(
             "pdd.ddk.goods.search",
-            {"keyword": os.getenv("PDD_HEALTH_QUERY", "耳机"), "page": 1, "page_size": 1},
+            {"keyword": os.getenv("PDD_HEALTH_QUERY", "耳机"), "page": 1, "page_size": 10},
             cache=False,
         )
         items = self._goods(payload, "goods_search_response", "goods_list")

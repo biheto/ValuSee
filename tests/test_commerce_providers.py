@@ -116,6 +116,7 @@ def test_pdd_search_uses_disclosed_promotion_link_when_pid_is_configured(monkeyp
                     }
                 }
             )
+        assert params["page_size"] == "10"
         return FakeResponse(goods_fixture())
 
     monkeypatch.setattr(providers, "urlopen", fake_urlopen)
@@ -152,6 +153,26 @@ def test_pdd_lookup_rejects_untrusted_hosts() -> None:
 
     with pytest.raises(ValueError, match="只支持拼多多"):
         provider.lookup("https://notpinduoduo.com/goods.html?goods_id=123456")
+
+
+def test_pdd_lookup_and_health_use_platform_minimum_page_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, str]] = []
+
+    def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+        del timeout
+        params = {key: values[0] for key, values in parse_qs(request.data.decode("utf-8")).items()}
+        calls.append(params)
+        return FakeResponse(goods_fixture())
+
+    monkeypatch.setattr(providers, "urlopen", fake_urlopen)
+    provider = PinduoduoProvider(client_id="client", client_secret="secret")
+
+    lookup = provider.lookup("https://mobile.yangkeduo.com/goods.html?goods_id=123456")
+    health = provider.health_check()
+
+    assert lookup["product"]["title"] == "测试降噪耳机"
+    assert health["status"] == "healthy"
+    assert [call["page_size"] for call in calls] == ["10", "10"]
 
 
 def test_configured_providers_enables_pdd_only_with_complete_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
