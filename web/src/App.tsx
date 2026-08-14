@@ -1,7 +1,7 @@
 import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
-import { AccountHome, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
+import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
 import { MarkdownContent } from "./MarkdownContent";
 import { apiUrl } from "./runtime";
 
@@ -715,6 +715,17 @@ export function App() {
     }
     await refreshRecords();
   }
+  async function searchCommerceProducts(query: string) {
+    if (!localStorage.getItem("valuesee-token")) {
+      openAccount();
+      throw new Error("请先登录，再搜索授权平台商品。");
+    }
+    return request<CommerceSearchResponse>("/api/v1/shopping/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, provider: "", category: "", limit: 12 }),
+    });
+  }
   async function toggleFavorite(product: Product) {
     const key = product.url || `${product.brand}:${product.model}:${product.sku}`;
     const existing = savedItems.find((item) => item.item_type === "favorite" && item.reference_key === key);
@@ -1203,6 +1214,11 @@ export function App() {
           onStart={(nextGoal) => {
             setGoal(nextGoal);
             setView("analyze");
+          }}
+          onSearch={searchCommerceProducts}
+          onAdd={(product) => {
+            void addProduct(product);
+            setMessage("商品已加入候选清单，可前往“对比”继续核对规格并生成决策报告。");
           }}
           onOpen={(product) => void addProduct(product, true)}
           onOpenContent={(id) => {

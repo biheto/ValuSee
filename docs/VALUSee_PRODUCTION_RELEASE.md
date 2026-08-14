@@ -110,7 +110,9 @@ docker compose --env-file .env.production -f docker-compose.production.yml exec 
 
 The platform adapter boundary is implemented at `app/shopping/providers.py`. Real JD/Taobao/affiliate use requires an approved provider contract and credentials. All credential placeholders and the `VALUSee_COMMERCE_PROVIDERS` JSON registry are consolidated in `.env.production.example`; ValuSee does not claim to provide live platform data without those credentials.
 
-JD/Taobao/Pinduoduo `App Secret`/`Client Secret` values are not directly interchangeable with the unified adapter token: each platform still needs a signed adapter that maps its official response into ValuSee's product schema. The application intentionally returns an empty source state until that adapter and authorization are both available.
+Pinduoduo Duoduo Jinbao is supported directly through the official gateway. Configure `PDD_CLIENT_ID` and `PDD_CLIENT_SECRET` to enable `pdd.ddk.goods.search`; configure `PDD_PID` after creating a Duoduo Jinbao promotion slot to generate disclosed affiliate links. The homepage then shows official search results with source timestamps and lets users add them to the comparison workspace. Never expose the client secret to the browser or commit it to Git.
+
+JD and Taobao `App Secret` values are not directly interchangeable with the unified adapter token: each platform still needs a signed adapter that maps its official response into ValuSee's product schema. Pinduoduo now has a built-in signed adapter, but it still remains disabled until its official credentials and permissions are available.
 
 The user search panel and `/admin` console are usable without changing the consumer workflow. Search results are intentionally empty until an approved provider is configured or a user supplies a product URL/extension capture; this is a data-integrity boundary, not a placeholder catalog.
 

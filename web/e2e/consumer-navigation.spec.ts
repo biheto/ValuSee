@@ -100,6 +100,40 @@ test.describe('consumer account navigation', () => {
     await expect(unavailable).toBeDisabled();
     await expect(page.getByRole('button', { name: '创建月付订单' })).toHaveCount(0);
   });
+
+  test('authorized commerce search displays sourced products and adds one to comparison', async ({ page }) => {
+    await page.route('**/api/v1/shopping/search', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          query: '降噪耳机',
+          sources: [{ provider: 'pdd', status: 'ok', count: 1 }],
+          message: '结果来自已授权平台接口，价格和优惠可能变化，下单前请回到原平台核验。',
+          results: [{
+            provider: 'pdd',
+            kind: 'official_affiliate',
+            product: {
+              title: '测试降噪耳机', platform: '拼多多', url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456',
+              brand: 'TestAudio', model: '', sku: 'goods-sign-1', specs: { 类目: '耳机' }, price: 1599,
+              coupon: 100, platform_discount: 0, member_discount: 0, subsidy: 0, pay_discount: 0,
+              shipping: 0, gift_value: 0, condition: '新品', official_store: false, return_days: 7,
+              warranty_months: 0, store_name: '测试官方旗舰店', image_url: '', notes: '官方接口测试商品',
+            },
+          }],
+        }),
+      });
+    });
+
+    await page.getByPlaceholder('搜索商品，例如：降噪耳机、27 英寸显示器').fill('降噪耳机');
+    await page.getByRole('button', { name: '搜索商品' }).click();
+    await expect(page.getByRole('heading', { name: '测试降噪耳机' })).toBeVisible();
+    await expect(page.getByText('拼多多 · 测试官方旗舰店')).toBeVisible();
+    await page.getByRole('button', { name: '加入对比' }).click();
+    await expect(page.getByText(/商品已加入候选清单/)).toBeVisible();
+    await page.getByRole('button', { name: '智能对比', exact: true }).click();
+    await expect.poll(() => page.locator('input').evaluateAll((inputs) => inputs.some((input) => input.value === '测试降噪耳机'))).toBe(true);
+  });
 });
 
 test('mobile bottom navigation exposes all core consumer journeys', async ({ page }, testInfo) => {

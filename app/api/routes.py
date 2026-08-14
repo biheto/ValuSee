@@ -36,7 +36,7 @@ from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
 from app.shopping.notifications import send_transactional_email
-from app.shopping.providers import configured_providers
+from app.shopping.providers import ProviderError, configured_providers
 from app.shopping.public_pages import fetch_public_product
 from app.shopping.catalog import commerce_catalog
 from app.graphs.collaboration_runner import run_collaboration_task
@@ -575,6 +575,28 @@ def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | No
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=422, detail="请输入有效的商品链接")
 
+    host = (parsed.hostname or "").lower().rstrip(".")
+    is_pdd = any(host == domain or host.endswith(f".{domain}") for domain in ("pinduoduo.com", "yangkeduo.com"))
+    pdd_provider = configured_providers().get("pdd") if is_pdd else None
+    if pdd_provider:
+        try:
+            official = pdd_provider.lookup(request.url)
+            official_product = official.get("product", {})
+            if isinstance(official_product, dict):
+                if request.title.strip():
+                    official_product["title"] = request.title.strip()
+                return ShoppingParseUrlResponse(
+                    product=ShoppingProductInput(**official_product),
+                    source="pinduoduo_official_ddk_api",
+                    message="已通过拼多多官方接口读取商品，请在下单前确认当前 SKU、地区价和优惠资格。",
+                    fetch_status="parsed",
+                    cached=False,
+                    fallback_actions=[],
+                )
+        except (ProviderError, ValueError):
+            # Short links and products outside the DDK catalog still use the bounded public-page path.
+            pass
+
     try:
         result = fetch_public_product(request.url)
     except ValueError as exc:
@@ -1105,6 +1127,8 @@ def lookup_commerce_product(provider_name: str, request: ShoppingParseUrlRequest
         raise HTTPException(status_code=404, detail="平台适配器未配置或未获授权")
     try:
         return provider.lookup(request.url)
+    except (ProviderError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"平台数据暂时不可用：{str(exc)[:220] or type(exc).__name__}") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"平台数据暂时不可用：{type(exc).__name__}") from exc
 
@@ -1115,7 +1139,7 @@ def search_commerce_products(request: ShoppingSearchRequest, authorization: str 
     providers = configured_providers()
     selected = [providers[request.provider]] if request.provider in providers else list(providers.values())
     if not selected:
-        return {"query": request.query, "results": [], "sources": [], "message": "尚未配置已授权的商品搜索来源，请使用商品链接或浏览器扩展采集。"}
+        return {"query": request.query, "results": [], "sources": [], "message": "尚未配置已授权的商品搜索来源，请使用商品链接、截图或浏览器扩展采集。"}
     results: list[dict[str, object]] = []
     source_status: list[dict[str, object]] = []
     for provider in selected:
@@ -1124,8 +1148,14 @@ def search_commerce_products(request: ShoppingSearchRequest, authorization: str 
             results.extend(provider_results)
             source_status.append({"provider": provider.name, "status": "ok", "count": len(provider_results)})
         except Exception as exc:
-            source_status.append({"provider": provider.name, "status": "error", "error": type(exc).__name__})
-    return {"query": request.query, "results": results[:request.limit], "sources": source_status, "message": "结果均来自已授权平台，点击商品链接查看最新页面价格。"}
+            source_status.append({"provider": provider.name, "status": "error", "error": type(exc).__name__, "message": str(exc)[:220]})
+    if results:
+        message = "结果来自已授权平台接口，价格和优惠可能变化，下单前请回到原平台核验。"
+    elif any(item["status"] == "error" for item in source_status):
+        message = "授权平台接口当前调用失败，请检查应用权限、密钥和推广位配置。"
+    else:
+        message = "授权平台没有返回匹配商品，商品可能不在推广库或关键词需要调整。"
+    return {"query": request.query, "results": results[:request.limit], "sources": source_status, "message": message}
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])
