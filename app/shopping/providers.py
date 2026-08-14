@@ -116,6 +116,7 @@ class PinduoduoProvider:
     client_id: str
     client_secret: str
     pid: str = ""
+    custom_parameters: str = ""
     endpoint: str = "https://gw-api.pinduoduo.com/api/router"
     name: str = "pdd"
     kind: str = "official_affiliate"
@@ -161,6 +162,14 @@ class PinduoduoProvider:
                 oldest = min(self._cache, key=lambda item: self._cache[item][0])
                 self._cache.pop(oldest, None)
 
+    def _promotion_identity(self) -> dict[str, str]:
+        if not self.pid or not self.custom_parameters:
+            raise ProviderError(
+                "拼多多商品搜索需要已授权备案的推广身份：请同时配置 PDD_PID 与 "
+                "PDD_CUSTOM_PARAMETERS，并确保两项与备案参数完全一致"
+            )
+        return {"pid": self.pid, "custom_parameters": self.custom_parameters}
+
     def _call(self, api_type: str, params: dict[str, object] | None = None, *, cache: bool = True) -> dict[str, object]:
         cache_key = f"{api_type}:{json.dumps(params or {}, ensure_ascii=False, sort_keys=True, default=str)}"
         if cache:
@@ -189,6 +198,11 @@ class PinduoduoProvider:
         if isinstance(error, dict):
             code = str(error.get("sub_code") or error.get("error_code") or "unknown")
             message = str(error.get("sub_msg") or error.get("error_msg") or "request rejected")
+            if code == "60001":
+                raise ProviderError(
+                    "拼多多未认可当前推广身份（60001）：请确认 PDD_PID 与 "
+                    "PDD_CUSTOM_PARAMETERS 均已在多多进宝授权备案，并与备案时的参数完全一致"
+                )
             raise ProviderError(f"Pinduoduo API rejected the request ({code}): {message[:180]}")
         if cache:
             self._save_cache(cache_key, payload)
@@ -276,7 +290,12 @@ class PinduoduoProvider:
             return []
         payload = self._call(
             "pdd.ddk.goods.promotion.url.generate",
-            {"p_id": self.pid, "goods_sign_list": goods_signs, "generate_short_url": True},
+            {
+                "p_id": self.pid,
+                "custom_parameters": self.custom_parameters,
+                "goods_sign_list": goods_signs,
+                "generate_short_url": True,
+            },
             cache=False,
         )
         response = payload.get("goods_promotion_url_generate_response")
@@ -290,9 +309,12 @@ class PinduoduoProvider:
         ]
 
     def search(self, query: str, category: str = "", limit: int = 12) -> list[dict[str, object]]:
-        params: dict[str, object] = {"keyword": query.strip(), "page": 1, "page_size": max(10, min(limit, 50))}
-        if self.pid:
-            params["pid"] = self.pid
+        params: dict[str, object] = {
+            "keyword": query.strip(),
+            "page": 1,
+            "page_size": max(10, min(limit, 50)),
+            **self._promotion_identity(),
+        }
         if category.strip().isdigit():
             params["opt_id"] = int(category.strip())
         payload = self._call("pdd.ddk.goods.search", params)
@@ -315,9 +337,12 @@ class PinduoduoProvider:
         goods_id = (parse_qs(parsed.query).get("goods_id") or [""])[0]
         if not goods_id.isdigit():
             raise ValueError("链接中没有可识别的拼多多 goods_id，请使用浏览器扩展采集短链接")
-        params: dict[str, object] = {"goods_id_list": [int(goods_id)], "page": 1, "page_size": 10}
-        if self.pid:
-            params["pid"] = self.pid
+        params: dict[str, object] = {
+            "goods_id_list": [int(goods_id)],
+            "page": 1,
+            "page_size": 10,
+            **self._promotion_identity(),
+        }
         payload = self._call("pdd.ddk.goods.search", params)
         items = self._goods(payload, "goods_search_response", "goods_list")
         if not items:
@@ -329,7 +354,12 @@ class PinduoduoProvider:
         started = time.perf_counter()
         payload = self._call(
             "pdd.ddk.goods.search",
-            {"keyword": os.getenv("PDD_HEALTH_QUERY", "耳机"), "page": 1, "page_size": 10},
+            {
+                "keyword": os.getenv("PDD_HEALTH_QUERY", "耳机"),
+                "page": 1,
+                "page_size": 10,
+                **self._promotion_identity(),
+            },
             cache=False,
         )
         items = self._goods(payload, "goods_search_response", "goods_list")
@@ -340,12 +370,45 @@ class PinduoduoProvider:
             "sample_count": len(items),
             "latency_ms": round((time.perf_counter() - started) * 1000, 2),
             "pid_configured": bool(self.pid),
+            "custom_parameters_configured": bool(self.custom_parameters),
         }
 
 
 @lru_cache(maxsize=8)
-def _pdd_provider(client_id: str, client_secret: str, pid: str) -> PinduoduoProvider:
-    return PinduoduoProvider(client_id=client_id, client_secret=client_secret, pid=pid)
+def _pdd_provider(client_id: str, client_secret: str, pid: str, custom_parameters: str) -> PinduoduoProvider:
+    return PinduoduoProvider(
+        client_id=client_id,
+        client_secret=client_secret,
+        pid=pid,
+        custom_parameters=custom_parameters,
+    )
+
+
+def commerce_provider_statuses() -> list[dict[str, object]]:
+    """Return sanitized provider readiness for the operations console."""
+    active = configured_providers()
+    statuses = [
+        {"name": item.name, "kind": item.kind, "status": "ready", "missing": []}
+        for item in active.values()
+        if item.name != "pdd"
+    ]
+    pdd_values = {
+        "PDD_CLIENT_ID": os.getenv("PDD_CLIENT_ID", "").strip(),
+        "PDD_CLIENT_SECRET": os.getenv("PDD_CLIENT_SECRET", "").strip(),
+        "PDD_PID": os.getenv("PDD_PID", "").strip(),
+        "PDD_CUSTOM_PARAMETERS": os.getenv("PDD_CUSTOM_PARAMETERS", "").strip(),
+    }
+    missing = [name for name, value in pdd_values.items() if not value]
+    if len(missing) < len(pdd_values):
+        statuses.append(
+            {
+                "name": "pdd",
+                "kind": "official_affiliate",
+                "status": "ready" if not missing else "configuration_required",
+                "missing": missing,
+            }
+        )
+    return statuses
 
 
 def configured_providers() -> dict[str, ProviderLike]:
@@ -353,8 +416,15 @@ def configured_providers() -> dict[str, ProviderLike]:
 
     pdd_client_id = os.getenv("PDD_CLIENT_ID", "").strip()
     pdd_client_secret = os.getenv("PDD_CLIENT_SECRET", "").strip()
-    if pdd_client_id and pdd_client_secret:
-        providers["pdd"] = _pdd_provider(pdd_client_id, pdd_client_secret, os.getenv("PDD_PID", "").strip())
+    pdd_pid = os.getenv("PDD_PID", "").strip()
+    pdd_custom_parameters = os.getenv("PDD_CUSTOM_PARAMETERS", "").strip()
+    if pdd_client_id and pdd_client_secret and pdd_pid and pdd_custom_parameters:
+        providers["pdd"] = _pdd_provider(
+            pdd_client_id,
+            pdd_client_secret,
+            pdd_pid,
+            pdd_custom_parameters,
+        )
 
     raw = os.getenv("VALUSee_COMMERCE_PROVIDERS", "[]")
     try:

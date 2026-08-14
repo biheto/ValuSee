@@ -36,7 +36,7 @@ from app.shopping.store import final_price_from_breakdown, shopping_store
 from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
 from app.shopping.notifications import send_transactional_email
-from app.shopping.providers import ProviderError, configured_providers
+from app.shopping.providers import ProviderError, commerce_provider_statuses, configured_providers
 from app.shopping.public_pages import fetch_public_product
 from app.shopping.catalog import commerce_catalog
 from app.graphs.collaboration_runner import run_collaboration_task
@@ -852,7 +852,7 @@ def admin_overview(authorization: str | None = Header(default=None)) -> dict[str
         "benchmarks": benchmarks,
         "llm_usage": usage,
         "mcp": mcp_provider.status(),
-        "commerce_providers": [{"name": item.name, "kind": item.kind} for item in configured_providers().values()],
+        "commerce_providers": commerce_provider_statuses(),
     }
 
 

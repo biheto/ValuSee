@@ -55,7 +55,12 @@ def goods_fixture() -> dict[str, object]:
 
 def test_pdd_signature_is_sorted_uppercase_and_does_not_send_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(providers.time, "time", lambda: 1_700_000_000)
-    provider = PinduoduoProvider(client_id="client", client_secret="secret")
+    provider = PinduoduoProvider(
+        client_id="client",
+        client_secret="secret",
+        pid="pid-1",
+        custom_parameters='{"uid":"user-1"}',
+    )
 
     params = provider._signed_params("pdd.ddk.goods.search", {"page_size": 10, "keyword": "耳机"})
 
@@ -72,21 +77,36 @@ def test_pdd_signature_is_sorted_uppercase_and_does_not_send_secret(monkeypatch:
 
 
 def test_pdd_search_maps_official_goods_to_valuesee_product(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, str] = {}
+    calls: list[dict[str, str]] = []
 
     def fake_urlopen(request: object, timeout: int) -> FakeResponse:
         assert timeout == 10
-        captured.update({key: values[0] for key, values in parse_qs(request.data.decode("utf-8")).items()})
+        captured = {key: values[0] for key, values in parse_qs(request.data.decode("utf-8")).items()}
+        calls.append(captured)
+        if captured["type"] == "pdd.ddk.goods.promotion.url.generate":
+            return FakeResponse({"goods_promotion_url_generate_response": {"goods_promotion_url_list": []}})
         return FakeResponse(goods_fixture())
 
     monkeypatch.setattr(providers, "urlopen", fake_urlopen)
-    provider = PinduoduoProvider(client_id="client", client_secret="secret")
+    provider = PinduoduoProvider(
+        client_id="client",
+        client_secret="secret",
+        pid="pid-1",
+        custom_parameters='{"uid":"user-1"}',
+    )
 
     result = provider.search("降噪耳机", limit=12)
 
+    captured = calls[0]
     assert captured["type"] == "pdd.ddk.goods.search"
     assert captured["keyword"] == "降噪耳机"
     assert captured["page_size"] == "12"
+    assert captured["pid"] == "pid-1"
+    assert captured["custom_parameters"] == '{"uid":"user-1"}'
+    assert [call["type"] for call in calls] == [
+        "pdd.ddk.goods.search",
+        "pdd.ddk.goods.promotion.url.generate",
+    ]
     assert len(result) == 1
     product = result[0]["product"]
     assert product["title"] == "测试降噪耳机"
@@ -108,6 +128,7 @@ def test_pdd_search_uses_disclosed_promotion_link_when_pid_is_configured(monkeyp
         calls.append(params["type"])
         if params["type"] == "pdd.ddk.goods.promotion.url.generate":
             assert params["p_id"] == "pid-1"
+            assert params["custom_parameters"] == '{"uid":"user-1"}'
             assert json.loads(params["goods_sign_list"]) == ["goods-sign-1"]
             return FakeResponse(
                 {
@@ -120,7 +141,12 @@ def test_pdd_search_uses_disclosed_promotion_link_when_pid_is_configured(monkeyp
         return FakeResponse(goods_fixture())
 
     monkeypatch.setattr(providers, "urlopen", fake_urlopen)
-    provider = PinduoduoProvider(client_id="client", client_secret="secret", pid="pid-1")
+    provider = PinduoduoProvider(
+        client_id="client",
+        client_secret="secret",
+        pid="pid-1",
+        custom_parameters='{"uid":"user-1"}',
+    )
 
     product = provider.search("耳机", limit=1)[0]["product"]
 
@@ -138,7 +164,12 @@ def test_pdd_api_error_is_sanitized_and_never_contains_secret(monkeypatch: pytes
             {"error_response": {"error_code": 10000, "sub_code": "access.denied", "sub_msg": "接口无权限"}}
         ),
     )
-    provider = PinduoduoProvider(client_id="client", client_secret="top-secret")
+    provider = PinduoduoProvider(
+        client_id="client",
+        client_secret="top-secret",
+        pid="pid-1",
+        custom_parameters='{"uid":"user-1"}',
+    )
 
     with pytest.raises(ProviderError) as error:
         provider.search("耳机")
@@ -165,7 +196,12 @@ def test_pdd_lookup_and_health_use_platform_minimum_page_size(monkeypatch: pytes
         return FakeResponse(goods_fixture())
 
     monkeypatch.setattr(providers, "urlopen", fake_urlopen)
-    provider = PinduoduoProvider(client_id="client", client_secret="secret")
+    provider = PinduoduoProvider(
+        client_id="client",
+        client_secret="secret",
+        pid="pid-1",
+        custom_parameters='{"uid":"user-1"}',
+    )
 
     lookup = provider.lookup("https://mobile.yangkeduo.com/goods.html?goods_id=123456")
     health = provider.health_check()
@@ -173,6 +209,40 @@ def test_pdd_lookup_and_health_use_platform_minimum_page_size(monkeypatch: pytes
     assert lookup["product"]["title"] == "测试降噪耳机"
     assert health["status"] == "healthy"
     assert [call["page_size"] for call in calls] == ["10", "10"]
+    assert all(call["pid"] == "pid-1" for call in calls)
+    assert all(call["custom_parameters"] == '{"uid":"user-1"}' for call in calls)
+
+
+def test_pdd_rejects_incomplete_promotion_identity_before_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(providers, "urlopen", lambda *_args, **_kwargs: pytest.fail("network must not be called"))
+    provider = PinduoduoProvider(client_id="client", client_secret="secret", pid="pid-1")
+
+    with pytest.raises(ProviderError, match="PDD_CUSTOM_PARAMETERS"):
+        provider.search("耳机")
+
+
+def test_pdd_60001_has_actionable_sanitized_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        providers,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeResponse(
+            {"error_response": {"error_code": 10000, "sub_code": "60001", "sub_msg": "未传入备案参数"}}
+        ),
+    )
+    provider = PinduoduoProvider(
+        client_id="client",
+        client_secret="top-secret",
+        pid="pid-1",
+        custom_parameters='{"uid":"user-1"}',
+    )
+
+    with pytest.raises(ProviderError) as error:
+        provider.search("耳机")
+
+    assert "60001" in str(error.value)
+    assert "PDD_PID" in str(error.value)
+    assert "PDD_CUSTOM_PARAMETERS" in str(error.value)
+    assert "top-secret" not in str(error.value)
 
 
 def test_configured_providers_enables_pdd_only_with_complete_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,9 +253,32 @@ def test_configured_providers_enables_pdd_only_with_complete_credentials(monkeyp
 
     monkeypatch.setenv("PDD_CLIENT_SECRET", "secret")
     monkeypatch.setenv("PDD_PID", "pid-1")
+    assert "pdd" not in providers.configured_providers()
+
+    monkeypatch.setenv("PDD_CUSTOM_PARAMETERS", '{"uid":"user-1"}')
     configured = providers.configured_providers()
     assert isinstance(configured["pdd"], PinduoduoProvider)
     assert configured["pdd"].pid == "pid-1"
+    assert configured["pdd"].custom_parameters == '{"uid":"user-1"}'
+
+
+def test_provider_status_reports_missing_pdd_promotion_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VALUSee_COMMERCE_PROVIDERS", "[]")
+    monkeypatch.setenv("PDD_CLIENT_ID", "client")
+    monkeypatch.setenv("PDD_CLIENT_SECRET", "secret")
+    monkeypatch.delenv("PDD_PID", raising=False)
+    monkeypatch.delenv("PDD_CUSTOM_PARAMETERS", raising=False)
+
+    status = providers.commerce_provider_statuses()
+
+    assert status == [
+        {
+            "name": "pdd",
+            "kind": "official_affiliate",
+            "status": "configuration_required",
+            "missing": ["PDD_PID", "PDD_CUSTOM_PARAMETERS"],
+        }
+    ]
 
 
 def test_pdd_product_link_uses_official_provider_before_public_page(monkeypatch: pytest.MonkeyPatch) -> None:
