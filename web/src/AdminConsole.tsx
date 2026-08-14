@@ -90,6 +90,19 @@ function TraceTab({ traces, usage }: { traces: Array<Record<string, unknown>>; u
 function SourceTab({ providers, mcp }: { providers: Array<Record<string, unknown>>; mcp: Record<string, unknown> }) {
   const configured = new Set(providers.map((item) => String(item.name).toLowerCase()));
   const platforms = [['jd', '京东'], ['taobao', '淘宝 / 天猫'], ['pdd', '拼多多']] as const;
-  return <section className="admin-content"><div className="admin-grid"><section className="admin-panel"><div className="admin-panel-title"><h2>商品数据来源</h2><span>授权后在用户端展示真实商品</span></div>{platforms.map(([code, label]) => <div className="admin-row" key={code}><div><strong>{label}</strong><span>{configured.has(code) ? '官方或联盟适配器已登记' : '已保留搜索结果、价格、优惠和跳转链接展示位'}</span></div><b className={configured.has(code) ? 'status-ok' : ''}>{configured.has(code) ? '已配置' : '待授权'}</b></div>)}</section><section className="admin-panel"><div className="admin-panel-title"><h2>接入状态</h2><span>不会用假商品填充空结果</span></div><div className="dependency-list"><div><ShoppingBag size={17} /><span>已配置来源</span><b>{providers.length}</b></div><div><Server size={17} /><span>内部工具服务</span><b className="status-ok">{String(mcp.status ?? 'ready')}</b></div></div><a className="admin-doc-link" href="/docs" target="_blank" rel="noreferrer"><ExternalLink size={14} />查看接口文档</a></section></div></section>;
+  const [checks, setChecks] = useState<Record<string, Record<string, unknown>>>({});
+  const [checking, setChecking] = useState('');
+  async function checkProvider(code: string) {
+    setChecking(code);
+    try {
+      const result = await adminRequest<Record<string, unknown>>(`/api/v1/admin/providers/${encodeURIComponent(code)}/health`, { method: 'POST' });
+      setChecks((items) => ({ ...items, [code]: result }));
+    } catch (error) {
+      setChecks((items) => ({ ...items, [code]: { status: 'unhealthy', error: error instanceof Error ? error.message : '来源测试失败' } }));
+    } finally {
+      setChecking('');
+    }
+  }
+  return <section className="admin-content"><div className="admin-grid"><section className="admin-panel"><div className="admin-panel-title"><h2>商品数据来源</h2><span>授权后在用户端展示真实商品</span></div>{platforms.map(([code, label]) => { const check = checks[code]; return <div className="admin-row" key={code}><div><strong>{label}</strong><span>{configured.has(code) ? '官方或联盟适配器已登记' : '已保留搜索结果、价格、优惠和跳转链接展示位'}</span>{check && <span className={check.status === 'healthy' ? 'source-check-ok' : 'source-check-error'}>{check.status === 'healthy' ? `调用正常 · ${String(check.latency_ms ?? 0)} ms · 样本 ${String(check.sample_count ?? 0)}` : `调用失败 · ${String(check.error ?? '请检查权限与密钥')}`}</span>}</div><div className="source-row-actions"><b className={configured.has(code) ? 'status-ok' : ''}>{configured.has(code) ? '已配置' : '待授权'}</b>{configured.has(code) && <button title={`测试${label}接口`} onClick={() => void checkProvider(code)} disabled={checking === code}><RefreshCw size={14} className={checking === code ? 'spin' : ''} /></button>}</div></div>; })}</section><section className="admin-panel"><div className="admin-panel-title"><h2>接入状态</h2><span>不会用假商品填充空结果</span></div><div className="dependency-list"><div><ShoppingBag size={17} /><span>已配置来源</span><b>{providers.length}</b></div><div><Server size={17} /><span>内部工具服务</span><b className="status-ok">{String(mcp.status ?? 'ready')}</b></div></div><a className="admin-doc-link" href="/docs" target="_blank" rel="noreferrer"><ExternalLink size={14} />查看接口文档</a></section></div></section>;
 }
 function EmptyAdmin({ text }: { text: string }) { return <div className="admin-empty">{text}</div>; }

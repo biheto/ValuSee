@@ -469,6 +469,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .admin-inline-form button,.admin-row-buttons button { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 8px; color: #fff; background: #398f7c; }
 .admin-row-buttons { display: flex; gap: 6px; flex: 0 0 auto; }
 .admin-row-buttons button { width: 30px; height: 30px; color: #317e70; background: #e6f7f0; }
+.source-row-actions { display:flex; flex:0 0 auto; align-items:center; gap:8px; }
+.source-row-actions button { display:grid; width:30px; height:30px; place-items:center; border-radius:7px; color:#317e70; background:#e6f7f0; }
+.source-check-ok { color:#258a72 !important; }
+.source-check-error { color:#a64651 !important; overflow-wrap:anywhere; white-space:normal !important; }
 .admin-sub-row { margin-left: 18px; padding: 9px 0 9px 12px; border-left: 2px solid #e5eee8; }
 .benchmark-runner { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px 0 14px; border-top: 1px solid #edf1ed; }
 .benchmark-runner select { min-height: 36px; padding: 0 10px; border: 1px solid #dde7e1; border-radius: 8px; background: rgba(255,255,255,.78); }
