@@ -122,6 +122,55 @@ def test_three_candidates_are_all_compared_and_reported():
     assert "候选 3" in result["final_report"]
 
 
+def test_orchestrator_emits_followups_for_blocking_missing_fields():
+    result = _run(
+        [
+            {
+                "title": "新商品候选",
+                "platform": "JD",
+                "price": 0,
+                "official_store": True,
+            }
+        ],
+        {"budget": 1800, "acceptable_risk": "medium"},
+    )["result"]
+
+    orchestration = result["orchestration"]
+    assert orchestration["schema_version"] == "shopping_orchestration.v1"
+    assert orchestration["status"] == "needs_input"
+    assert any(item["field"] == "price" and item["severity"] == "blocking" for item in orchestration["missing_information"])
+    assert any(question["suggested_tool"] == "browser_extension_capture" for question in result["follow_up_questions"])
+    assert any(step["tool"] == "browser_extension_capture" for step in result["tool_plan"])
+    assert "自治执行计划" in result["final_report"]
+
+
+def test_orchestrator_can_recommend_real_monitor_action():
+    result = _run(
+        [
+            {
+                "title": "Dell U2723QE 显示器",
+                "platform": "JD",
+                "brand": "Dell",
+                "model": "U2723QE",
+                "sku": "U2723QE",
+                "specs": {"size": "27", "interface": "USB-C"},
+                "price": 3199,
+                "official_store": True,
+                "return_days": 7,
+                "warranty_months": 36,
+            }
+        ],
+        {"budget": 2500, "acceptable_risk": "medium"},
+    )["result"]
+
+    orchestration = result["orchestration"]
+    monitor_actions = [item for item in orchestration["actions"] if item["type"] == "create_price_monitor"]
+    assert monitor_actions
+    assert monitor_actions[0]["status"] == "ready"
+    assert monitor_actions[0]["target_price"] == 2500
+    assert orchestration["interface_contracts"]["price_monitor"]["endpoint"] == "POST /api/v1/shopping/monitors"
+
+
 def test_risk_and_budget_change_recommendation():
     result = _run(
         [

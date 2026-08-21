@@ -37,6 +37,9 @@ class ShoppingState(TypedDict, total=False):
     agent_recommendation: dict[str, Any]
     supervisor_review: dict[str, Any]
     agent_status: dict[str, dict[str, Any]]
+    orchestration: dict[str, Any]
+    follow_up_questions: list[dict[str, Any]]
+    tool_plan: list[dict[str, Any]]
 
 
 _MODEL_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
@@ -61,6 +64,7 @@ def _build_graph():
     graph.add_node("recommend", _recommend)
     graph.add_node("recommendation_agent", _recommendation_agent)
     graph.add_node("supervisor_agent", _supervisor_agent)
+    graph.add_node("orchestrate", _orchestrate_next_actions)
     graph.add_node("report", _report)
     graph.set_entry_point("intent_agent")
     graph.add_edge("intent_agent", "understand")
@@ -74,7 +78,8 @@ def _build_graph():
     graph.add_edge("risk_agent", "recommend")
     graph.add_edge("recommend", "recommendation_agent")
     graph.add_edge("recommendation_agent", "supervisor_agent")
-    graph.add_edge("supervisor_agent", "report")
+    graph.add_edge("supervisor_agent", "orchestrate")
+    graph.add_edge("orchestrate", "report")
     graph.add_edge("report", END)
     return graph.compile()
 
@@ -490,6 +495,27 @@ def _supervisor_agent(state: ShoppingState) -> ShoppingState:
     return {**state, "supervisor_review": payload, "agent_status": statuses, "events": _emit_event(state, "supervisor_agent", "购物 Supervisor 完成（事实一致性校验）", data=_agent_event_data(result), agent="shopping_supervisor")}
 
 
+def _orchestrate_next_actions(state: ShoppingState) -> ShoppingState:
+    orchestration = _build_orchestration_plan(state)
+    return {
+        **state,
+        "orchestration": orchestration,
+        "follow_up_questions": orchestration["follow_up_questions"],
+        "tool_plan": orchestration["tool_plan"],
+        "events": _emit_event(
+            state,
+            "orchestrator",
+            "购物 Orchestrator 已生成追问、工具链和可执行下一步",
+            data={
+                "status": orchestration["status"],
+                "missing_information_count": len(orchestration["missing_information"]),
+                "action_count": len(orchestration["actions"]),
+            },
+            agent="shopping_orchestrator",
+        ),
+    }
+
+
 def _report(state: ShoppingState) -> ShoppingState:
     fallback_report = _build_report(state)
     report_result = llm_provider.generate_with_status(
@@ -548,6 +574,9 @@ def _report(state: ShoppingState) -> ShoppingState:
             "recommendation": state.get("agent_recommendation", {}),
             "supervisor": state.get("supervisor_review", {}),
         },
+        "orchestration": state.get("orchestration", {}),
+        "follow_up_questions": state.get("follow_up_questions", []),
+        "tool_plan": state.get("tool_plan", []),
     }
     return {
         **state,
@@ -569,7 +598,242 @@ def _build_rule_fact_sheet(state: ShoppingState) -> str:
         lines.append(f"- 候选 {index + 1} 同款关系：{match.get('relation')}（置信度 {float(match.get('confidence') or 0):.2f}）")
     for index, risk in enumerate(state.get("risk_reports", [])):
         lines.append(f"- 候选 {index + 1} 规则风险：{risk.get('overall_risk')}（价格 {risk.get('price_risk')} / 规格 {risk.get('spec_risk')} / 店铺 {risk.get('store_risk')} / 售后 {risk.get('after_sales_risk')}）")
+    orchestration = state.get("orchestration", {})
+    if orchestration:
+        lines.extend(["", "## 自治执行计划"])
+        lines.append(f"- 执行状态：{orchestration.get('status')}")
+        lines.append(f"- 缺失信息：{len(orchestration.get('missing_information', []))} 项")
+        lines.append(f"- 可执行动作：{len(orchestration.get('actions', []))} 个")
+        for action in orchestration.get("actions", [])[:5]:
+            lines.append(f"- {action.get('label')}：{action.get('type')} / {action.get('status')}")
     return "\n".join(lines)
+
+
+def _build_orchestration_plan(state: ShoppingState) -> dict[str, Any]:
+    products = state.get("normalized_products", [])
+    profile = state.get("profile", {})
+    rows = state.get("comparison_rows", [])
+    risks = state.get("risk_reports", [])
+    best_index = state.get("best_index")
+    recommendation = state.get("recommendation", "need_input")
+    missing = _missing_information(state)
+    follow_ups = _follow_up_questions(missing)
+    tool_plan = _tool_plan(state, missing)
+    actions = _next_actions(state, missing)
+    blocking = [item for item in missing if item.get("severity") == "blocking"]
+    if blocking:
+        status = "needs_input"
+    elif any(action.get("status") == "ready" for action in actions):
+        status = "actionable"
+    else:
+        status = "completed"
+    return {
+        "schema_version": "shopping_orchestration.v1",
+        "status": status,
+        "mode": "orchestrator_worker",
+        "goal": state.get("goal", ""),
+        "recommendation": recommendation,
+        "best_index": best_index,
+        "missing_information": missing,
+        "follow_up_questions": follow_ups,
+        "tool_plan": tool_plan,
+        "actions": actions,
+        "progress": [
+            {"step": "capture", "status": "completed" if products else "waiting_user", "detail": f"已收到 {len(products)} 个候选"},
+            {"step": "compare", "status": "completed" if rows else "waiting_input", "detail": f"已比较 {len(rows)} 个候选"},
+            {"step": "risk_governance", "status": "completed" if risks else "waiting_input", "detail": f"已生成 {len(risks)} 份风险报告"},
+            {"step": "autonomous_next_step", "status": status, "detail": _next_step_summary(status, actions, follow_ups)},
+        ],
+        "interface_contracts": {
+            "parse_url": {
+                "endpoint": "POST /api/v1/shopping/parse-url",
+                "input": {"url": "string", "title": "string?"},
+                "output": {"product": "ShoppingProductInput", "fetch_status": "parsed|fallback|blocked"},
+            },
+            "image_ocr": {
+                "endpoint": "POST /api/v1/shopping/parse-image",
+                "input": {"file": "image/jpeg|image/png|image/webp", "ocr_text": "string?"},
+                "output": {"product": "ShoppingProductInput", "missing_fields": "string[]"},
+            },
+            "extension_capture": {
+                "endpoint": "POST /api/v1/shopping/extension/captures",
+                "input": {"product": "ShoppingProductInput", "source": "browser_extension"},
+                "output": {"capture_id": "string", "status": "pending_confirmation|confirmed"},
+            },
+            "price_monitor": {
+                "endpoint": "POST /api/v1/shopping/monitors",
+                "input": {"product": "ShoppingProductInput", "target_price": "number", "monitor_days": "number"},
+                "output": {"monitor_id": "string", "status": "watching|target_reached"},
+            },
+            "purchase_record": {
+                "endpoint": "POST /api/v1/shopping/purchases",
+                "input": {"product": "ShoppingProductInput", "paid_price": "number", "return_days": "number", "warranty_months": "number"},
+                "output": {"purchase_id": "string", "reminders": "array"},
+            },
+        },
+    }
+
+
+def _missing_information(state: ShoppingState) -> list[dict[str, Any]]:
+    profile = state.get("profile", {})
+    products = state.get("normalized_products", [])
+    missing: list[dict[str, Any]] = []
+    if not str(state.get("goal") or "").strip():
+        missing.append(_missing_item("goal", None, "goal", "blocking", "你主要想买什么、使用场景是什么？", "manual_follow_up"))
+    if not products:
+        missing.append(_missing_item("products", None, "products", "blocking", "请至少添加一个商品链接、截图或手动候选。", "parse_url"))
+    if float(profile.get("budget") or 0.0) <= 0:
+        missing.append(_missing_item("profile", None, "budget", "recommended", "你的心理预算或最高可接受价格是多少？", "manual_follow_up"))
+    for item in products:
+        index = int(item.get("index") or 0)
+        title = str(item.get("title") or "").strip()
+        if not title or title in {"新商品候选", "商品详情"}:
+            missing.append(_missing_item("product", index, "title", "blocking", f"候选 {index + 1} 的商品标题是什么？", "browser_extension_capture"))
+        if float(item.get("price") or 0.0) <= 0:
+            missing.append(_missing_item("product", index, "price", "blocking", f"候选 {index + 1} 当前页面价或券后价是多少？", "browser_extension_capture"))
+        if not item.get("model") and not item.get("sku") and not item.get("specs"):
+            missing.append(_missing_item("product", index, "identity", "recommended", f"候选 {index + 1} 缺少型号/SKU/关键规格，可能影响同款判断。", "browser_extension_capture"))
+        if str(item.get("region") or "unknown") == "unknown":
+            missing.append(_missing_item("product", index, "region", "recommended", f"候选 {index + 1} 没有地区信息，部分补贴和运费可能不准。", "browser_extension_capture"))
+        if str(item.get("membership") or "unknown") == "unknown" and any(float(item.get(key) or 0.0) > 0 for key in ("member_discount", "coupon", "platform_discount")):
+            missing.append(_missing_item("product", index, "membership", "recommended", f"候选 {index + 1} 有优惠但缺少会员/用券条件。", "browser_extension_capture"))
+        if not item.get("official_store") and int(item.get("return_days") or 0) < 7:
+            missing.append(_missing_item("product", index, "after_sales_policy", "recommended", f"候选 {index + 1} 需要确认店铺资质、退货期和保修。", "manual_follow_up"))
+    return missing
+
+
+def _missing_item(scope: str, product_index: int | None, field: str, severity: str, question: str, suggested_tool: str) -> dict[str, Any]:
+    return {
+        "scope": scope,
+        "product_index": product_index,
+        "field": field,
+        "severity": severity,
+        "question": question,
+        "suggested_tool": suggested_tool,
+    }
+
+
+def _follow_up_questions(missing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    questions = []
+    for index, item in enumerate(missing[:8], start=1):
+        questions.append(
+            {
+                "question_id": f"fu_{index}_{item['scope']}_{item['field']}",
+                "scope": item["scope"],
+                "product_index": item.get("product_index"),
+                "field": item["field"],
+                "severity": item["severity"],
+                "question": item["question"],
+                "suggested_tool": item["suggested_tool"],
+            }
+        )
+    return questions
+
+
+def _tool_plan(state: ShoppingState, missing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    missing_tools = {str(item.get("suggested_tool")) for item in missing}
+    return [
+        _tool_step("ingest_url", "parse_url", "completed" if state.get("products") else "available", "把商品链接解析为 ShoppingProductInput", {"url": "string"}, {"product": "ShoppingProductInput"}),
+        _tool_step("ingest_image", "image_ocr", "waiting_user" if "image_ocr" in missing_tools else "available", "截图识别标题、价格、SKU 和优惠", {"file": "image"}, {"product": "ShoppingProductInput", "missing_fields": "string[]"}),
+        _tool_step("extension_capture", "browser_extension_capture", "waiting_user" if "browser_extension_capture" in missing_tools else "available", "读取当前页面可见 SKU、地区价、会员优惠并等待用户确认", {"product": "ShoppingProductInput"}, {"capture_id": "string", "status": "pending_confirmation"}),
+        _tool_step("state_graph_decision", "langgraph_state_graph", "completed", "StateGraph 节点用共享 ShoppingState 逐层累积匹配、价格、风险和推荐", {"ShoppingState": "dict"}, {"result": "ShoppingDecisionResult"}),
+        _tool_step("memory_and_report", "shopping_report_store", "completed" if state.get("result") else "running", "保存决策报告和商品版本，供历史、追问和复盘使用", {"task_id": "string", "result": "dict"}, {"report_id": "string"}),
+        _tool_step("monitor_worker", "price_monitor_worker", "recommended" if _should_recommend_monitor(state) else "available", "创建持久化降价监控，由 Worker 周期恢复和通知", {"product": "ShoppingProductInput", "target_price": "number"}, {"monitor_id": "string"}),
+        _tool_step("post_purchase", "purchase_record", "recommended" if state.get("recommendation") == "recommend_buy" else "available", "购买后建立保价、退货、保修提醒", {"paid_price": "number"}, {"purchase_id": "string", "reminders": "array"}),
+    ]
+
+
+def _tool_step(step_id: str, tool: str, status: str, purpose: str, input_schema: dict[str, Any], output_schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "step_id": step_id,
+        "tool": tool,
+        "status": status,
+        "purpose": purpose,
+        "input_schema": input_schema,
+        "output_schema": output_schema,
+    }
+
+
+def _next_actions(state: ShoppingState, missing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    if missing:
+        actions.append(
+            {
+                "action_id": "act_complete_missing_info",
+                "type": "complete_missing_info",
+                "label": "先补齐关键信息",
+                "status": "waiting_user",
+                "reason": "缺少价格、标题或规格会影响同款和到手价判断。",
+                "missing_fields": missing[:8],
+            }
+        )
+    best_index = state.get("best_index")
+    rows = state.get("comparison_rows", [])
+    products = state.get("normalized_products", [])
+    if isinstance(best_index, int) and 0 <= best_index < len(rows) and 0 <= best_index < len(products):
+        row = rows[best_index]
+        product = products[best_index]
+        final_price = float(row.get("final_price") or product.get("price") or 0.0)
+        target = _recommended_target_price(final_price, state.get("profile", {}))
+        if _should_recommend_monitor(state) and target > 0:
+            actions.append(
+                {
+                    "action_id": f"act_monitor_{best_index}",
+                    "type": "create_price_monitor",
+                    "label": f"监控候选 {best_index + 1} 到 {target:.0f} 元",
+                    "status": "ready" if not any(item.get("severity") == "blocking" for item in missing) else "waiting_input",
+                    "product_index": best_index,
+                    "target_price": target,
+                    "monitor_days": 30,
+                    "reason": "当前建议偏向等待或继续对比，适合交给 Monitor Worker 持续观察。",
+                }
+            )
+        if state.get("recommendation") == "recommend_buy":
+            actions.append(
+                {
+                    "action_id": f"act_purchase_{best_index}",
+                    "type": "open_purchase_record",
+                    "label": f"购买后记录候选 {best_index + 1} 的售后提醒",
+                    "status": "ready",
+                    "product_index": best_index,
+                    "paid_price": round(final_price, 2),
+                    "reason": "记录真实成交价后，会建立保价、退货和保修提醒。",
+                }
+            )
+    if products:
+        actions.append(
+            {
+                "action_id": "act_save_comparison",
+                "type": "save_comparison",
+                "label": "保存当前候选清单",
+                "status": "ready",
+                "reason": "保存后可以在报告与清单中继续复盘或追加候选。",
+            }
+        )
+    return actions
+
+
+def _should_recommend_monitor(state: ShoppingState) -> bool:
+    return state.get("recommendation") in {"wait", "compare_more", "need_input"}
+
+
+def _recommended_target_price(final_price: float, profile: dict[str, Any]) -> float:
+    budget = float(profile.get("budget") or 0.0)
+    if final_price <= 0:
+        return 0.0
+    target = final_price * 0.92
+    if budget > 0 and final_price > budget:
+        target = min(target, budget)
+    return round(max(1.0, target), 2)
+
+
+def _next_step_summary(status: str, actions: list[dict[str, Any]], follow_ups: list[dict[str, Any]]) -> str:
+    if status == "needs_input":
+        return f"需要先回答 {len(follow_ups)} 个追问或用扩展/截图补齐字段"
+    ready = [action for action in actions if action.get("status") == "ready"]
+    if ready:
+        return f"有 {len(ready)} 个动作可以直接执行"
+    return "当前链路已完成，等待用户下一次商品变更或购买记录"
 
 
 def _normalize_product(product: dict[str, Any], index: int) -> dict[str, Any]:

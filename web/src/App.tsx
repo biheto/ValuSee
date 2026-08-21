@@ -43,6 +43,9 @@ type Decision = {
     price_breakdowns: Array<{ final_price: number }>;
     risk_reports: Array<{ overall_risk: string; reasons: string[] }>;
     report_markdown: string;
+    orchestration?: ShoppingOrchestration;
+    follow_up_questions?: FollowUpQuestion[];
+    tool_plan?: ToolPlanStep[];
   };
   events: Array<{
     node?: string;
@@ -51,6 +54,48 @@ type Decision = {
     content?: string;
     timestamp?: string;
   }>;
+};
+type FollowUpQuestion = {
+  question_id: string;
+  scope: string;
+  product_index?: number | null;
+  field: string;
+  severity: string;
+  question: string;
+  suggested_tool: string;
+};
+type ToolPlanStep = {
+  step_id: string;
+  tool: string;
+  status: string;
+  purpose: string;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+};
+type OrchestrationAction = {
+  action_id: string;
+  type: "complete_missing_info" | "create_price_monitor" | "open_purchase_record" | "save_comparison" | string;
+  label: string;
+  status: string;
+  reason: string;
+  product_index?: number | null;
+  target_price?: number;
+  monitor_days?: number;
+  paid_price?: number;
+  missing_fields?: FollowUpQuestion[];
+};
+type ShoppingOrchestration = {
+  schema_version: string;
+  status: string;
+  mode: string;
+  recommendation: string;
+  best_index: number | null;
+  missing_information: FollowUpQuestion[];
+  follow_up_questions: FollowUpQuestion[];
+  tool_plan: ToolPlanStep[];
+  actions: OrchestrationAction[];
+  progress: Array<{ step: string; status: string; detail: string }>;
+  interface_contracts?: Record<string, unknown>;
 };
 type Monitor = {
   monitor_id: string;
@@ -852,6 +897,22 @@ export function App() {
       setError(err instanceof Error ? err.message : "创建监控失败");
     }
   }
+  async function createSuggestedMonitor(productIndex: number, nextTargetPrice: number, monitorDays = 30) {
+    const product = products[productIndex];
+    if (!product) throw new Error("候选商品不存在，请先刷新候选清单。");
+    await request<Monitor>("/api/v1/shopping/monitors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        product,
+        target_price: nextTargetPrice,
+        monitor_days: monitorDays,
+        notify_channel: "in_app",
+      }),
+    });
+    setMonitorProduct(productIndex);
+    setTargetPrice(nextTargetPrice);
+  }
   async function createPurchase(event: FormEvent) {
     event.preventDefault();
     const product = products[purchaseProduct];
@@ -891,6 +952,37 @@ export function App() {
       await refreshRecords();
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存清单失败");
+    }
+  }
+  async function runOrchestrationAction(action: OrchestrationAction) {
+    try {
+      if (action.type === "complete_missing_info") {
+        document.getElementById("products")?.scrollIntoView({ behavior: "smooth" });
+        setMessage("请在候选清单里补齐提示字段，也可以继续用链接、截图或浏览器扩展采集。");
+        return;
+      }
+      if (action.type === "create_price_monitor") {
+        const index = Number(action.product_index ?? result?.result.best_index ?? 0);
+        await createSuggestedMonitor(index, Number(action.target_price || targetPrice || products[index]?.price || 1), Number(action.monitor_days || 30));
+        setMessage("已按 Agent 建议创建降价监控，后台 Worker 会持续恢复和检查。");
+        await refreshRecords();
+        return;
+      }
+      if (action.type === "open_purchase_record") {
+        const index = Number(action.product_index ?? result?.result.best_index ?? 0);
+        setPurchaseProduct(index);
+        setPaidPrice(Number(action.paid_price || products[index]?.price || 0));
+        setView("purchases");
+        setMessage("已带入推荐候选，确认实际支付价后保存购买记录。");
+        return;
+      }
+      if (action.type === "save_comparison") {
+        await saveComparison();
+        return;
+      }
+      setError(`暂不支持执行动作：${action.type}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "执行自治动作失败");
     }
   }
   async function removeComparison(id: string) {
@@ -1136,7 +1228,23 @@ export function App() {
     void refreshRecords();
   }
 
+  const draftFollowUps = useMemo(() => buildDraftFollowUps(goal, budget, products), [budget, goal, products]);
   const best = useMemo(() => (result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index]), [result]);
+  function focusDraftFollowUp(item: FollowUpQuestion) {
+    if (item.field === "goal") {
+      document.querySelector<HTMLTextAreaElement>(".decision-box textarea")?.focus();
+      return;
+    }
+    if (item.field === "budget") {
+      document.querySelector<HTMLInputElement>(".decision-controls input")?.focus();
+      return;
+    }
+    if (item.scope === "products" || item.suggested_tool === "parse_url") {
+      document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus();
+      return;
+    }
+    document.getElementById("products")?.scrollIntoView({ behavior: "smooth" });
+  }
   if (window.location.pathname.startsWith("/share/")) return <SharedDecisionPage share={publicShare} />;
   if (contentId)
     return (
@@ -1293,6 +1401,7 @@ export function App() {
             onFocusLink={() => document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus()}
             onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()}
           />
+          <ProactiveFollowUpPanel questions={draftFollowUps} onSelect={focusDraftFollowUp} onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()} />
           {products.length > 0 && (
             <div className="comparison-savebar">
               <div>
@@ -1308,6 +1417,7 @@ export function App() {
           {products.length > 0 && <ComparisonWorkbench products={products} onChange={setProducts} onShare={() => void shareSnapshot("comparison", goal.slice(0, 60) || "购物对比", { products })} />}
           {result && (
             <>
+              <OrchestrationPanel orchestration={result.result.orchestration} onAction={(action) => void runOrchestrationAction(action)} onFocusLink={() => document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus()} />
               <DecisionEvidence events={result.events} />
               <div className="feedback-bar">
                 <MessageSquareWarning size={18} />
@@ -3400,6 +3510,152 @@ function CapturePathPanel({ onFocusLink, onUploadScreenshot }: { onFocusLink: ()
       <div className="platform-readiness"><span>不批量爬取</span><span>不绕过登录/验证码</span><span>确认后才沉淀价格</span></div>
     </section>
   );
+}
+
+function ProactiveFollowUpPanel({ questions, onSelect, onUploadScreenshot }: { questions: FollowUpQuestion[]; onSelect: (question: FollowUpQuestion) => void; onUploadScreenshot: () => void }) {
+  if (!questions.length) return null;
+  return (
+    <section className="proactive-followup-panel">
+      <div className="proactive-followup-head">
+        <div>
+          <span>主动追问</span>
+          <h2>分析前先补齐关键信息</h2>
+        </div>
+        <MessageSquareWarning size={22} />
+      </div>
+      <div className="proactive-followup-list">
+        {questions.slice(0, 6).map((item) => (
+          <button key={item.question_id} type="button" onClick={() => onSelect(item)}>
+            <span>{item.product_index == null ? "全局" : `候选 ${item.product_index + 1}`}</span>
+            <strong>{item.question}</strong>
+            <b>{item.severity === "blocking" ? "必填" : "建议"}</b>
+          </button>
+        ))}
+      </div>
+      <div className="proactive-followup-actions">
+        <button type="button" onClick={() => onSelect(questions[0])}>
+          <ClipboardList size={16} />
+          补当前字段
+        </button>
+        <button type="button" onClick={onUploadScreenshot}>
+          <Camera size={16} />
+          用截图补齐
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function OrchestrationPanel({ orchestration, onAction, onFocusLink }: { orchestration?: ShoppingOrchestration; onAction: (action: OrchestrationAction) => void; onFocusLink: () => void }) {
+  if (!orchestration) return null;
+  const readyActions = orchestration.actions.filter((action) => action.status === "ready");
+  const waitingActions = orchestration.actions.filter((action) => action.status !== "ready");
+  const statusText: Record<string, string> = {
+    needs_input: "等待补齐",
+    actionable: "可继续执行",
+    completed: "已完成",
+  };
+  const toolStatus: Record<string, string> = {
+    completed: "完成",
+    running: "运行中",
+    available: "可用",
+    recommended: "建议",
+    waiting_user: "等确认",
+    waiting_input: "等输入",
+  };
+  return (
+    <section className="orchestration-panel">
+      <div className="orchestration-head">
+        <div>
+          <span>Orchestrator-Worker</span>
+          <h2>{statusText[orchestration.status] || orchestration.status}</h2>
+        </div>
+        <ShieldCheck size={22} />
+      </div>
+      <div className="orchestration-progress">
+        {orchestration.progress.map((step) => (
+          <article key={step.step}>
+            <CheckCircle2 size={16} />
+            <div>
+              <strong>{step.step}</strong>
+              <span>{step.detail}</span>
+            </div>
+            <b>{toolStatus[step.status] || step.status}</b>
+          </article>
+        ))}
+      </div>
+      {orchestration.follow_up_questions.length > 0 && (
+        <div className="follow-up-queue">
+          <div className="mini-section-title">
+            <MessageSquareWarning size={17} />
+            <strong>需要确认</strong>
+          </div>
+          <div>
+            {orchestration.follow_up_questions.slice(0, 5).map((item) => (
+              <button key={item.question_id} type="button" onClick={item.suggested_tool === "parse_url" ? onFocusLink : () => document.getElementById("products")?.scrollIntoView({ behavior: "smooth" })}>
+                <span>{item.product_index == null ? "全局" : `候选 ${item.product_index + 1}`}</span>
+                <strong>{item.question}</strong>
+                <b>{item.severity === "blocking" ? "必填" : "建议"}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="autonomous-actions">
+        {[...readyActions, ...waitingActions].map((action) => (
+          <button key={action.action_id} type="button" disabled={action.status === "waiting_input"} onClick={() => onAction(action)}>
+            {action.type === "create_price_monitor" ? <Bell size={17} /> : action.type === "open_purchase_record" ? <Receipt size={17} /> : action.type === "save_comparison" ? <Save size={17} /> : <ClipboardList size={17} />}
+            <span>
+              <strong>{action.label}</strong>
+              <small>{action.reason}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+      <details className="tool-contracts">
+        <summary>
+          <FileText size={16} />
+          工具链路与接口契约
+        </summary>
+        <div>
+          {orchestration.tool_plan.map((tool) => (
+            <article key={tool.step_id}>
+              <strong>{tool.tool}</strong>
+              <span>{tool.purpose}</span>
+              <b>{toolStatus[tool.status] || tool.status}</b>
+            </article>
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function buildDraftFollowUps(goal: string, budget: number, products: Product[]): FollowUpQuestion[] {
+  const questions: FollowUpQuestion[] = [];
+  const add = (scope: string, productIndex: number | null, field: string, severity: string, question: string, suggestedTool: string) => {
+    questions.push({
+      question_id: `draft_${questions.length + 1}_${scope}_${field}_${productIndex ?? "global"}`,
+      scope,
+      product_index: productIndex,
+      field,
+      severity,
+      question,
+      suggested_tool: suggestedTool,
+    });
+  };
+  if (!goal.trim()) add("goal", null, "goal", "blocking", "你主要想买什么，使用场景是什么？", "manual_follow_up");
+  if (!Number.isFinite(Number(budget)) || Number(budget) <= 0) add("profile", null, "budget", "recommended", "你的最高预算或心理价位是多少？", "manual_follow_up");
+  if (!products.length) add("products", null, "products", "blocking", "请先添加一个商品链接、截图或手动候选。", "parse_url");
+  products.forEach((product, index) => {
+    const title = String(product.title || "").trim();
+    if (!title || title === "新商品候选" || title === "截图商品（待确认）") add("product", index, "title", "blocking", `候选 ${index + 1} 的商品标题是什么？`, "browser_extension_capture");
+    if (Number(product.price || 0) <= 0) add("product", index, "price", "blocking", `候选 ${index + 1} 当前页面价、券后价或到手价是多少？`, "browser_extension_capture");
+    if (!product.model && !product.sku && !product.selected_variant && !Object.keys(product.specs || {}).length) add("product", index, "identity", "recommended", `候选 ${index + 1} 缺少型号、SKU 或已选规格。`, "browser_extension_capture");
+    if ((product.region || "unknown") === "unknown") add("product", index, "region", "recommended", `候选 ${index + 1} 没有地区信息，补贴和运费可能不准。`, "browser_extension_capture");
+    if ((product.membership || "unknown") === "unknown" && [product.coupon, product.platform_discount, product.member_discount].some((value) => Number(value || 0) > 0)) add("product", index, "membership", "recommended", `候选 ${index + 1} 有优惠但缺少会员或用券条件。`, "browser_extension_capture");
+  });
+  return questions;
 }
 
 function DecisionEvidence({ events }: { events: Decision["events"] }) {
