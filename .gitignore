@@ -25,3 +25,6 @@ __pycache__/
 .vercel/
 .vercel-web-check/
 .vercel-api-check/
+
+.vercel
+.env*
