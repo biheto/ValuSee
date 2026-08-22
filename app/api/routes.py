@@ -967,7 +967,7 @@ def admin_delete_campaign(campaign_id: str, authorization: str | None = Header(d
 @router.get("/admin/risk-rules", tags=["Admin Operations"])
 def admin_risk_rules(authorization: str | None = Header(default=None)) -> dict[str, object]:
     _require_admin(authorization)
-    return {"rules": shopping_store.list_risk_rules()}
+    return {"rules": shopping_store.list_risk_rules(), "snapshot": shopping_store.risk_rule_snapshot_status()}
 
 
 @router.post("/admin/risk-rules", tags=["Admin Operations"])
@@ -978,7 +978,15 @@ def admin_save_risk_rule(payload: dict[str, object], authorization: str | None =
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     shopping_store.record_admin_audit(actor_id, "risk_rule.save", "risk_rule", rule["rule_id"], {"enabled": bool(rule["enabled"])})
-    return {"rule": rule}
+    return {"rule": rule, "snapshot": shopping_store.risk_rule_snapshot_status()}
+
+
+@router.post("/admin/risk-rules/reload", tags=["Admin Operations"])
+def admin_reload_risk_rules(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    actor_id = _require_admin(authorization)
+    snapshot = shopping_store.reload_risk_rule_snapshot()
+    shopping_store.record_admin_audit(actor_id, "risk_rule.reload", "risk_rule", None, snapshot)
+    return {"snapshot": shopping_store.risk_rule_snapshot_status(), "reload": snapshot}
 
 
 @router.delete("/admin/risk-rules/{rule_id}", tags=["Admin Operations"])
@@ -987,7 +995,7 @@ def admin_delete_risk_rule(rule_id: str, authorization: str | None = Header(defa
     if not shopping_store.delete_risk_rule(rule_id):
         raise HTTPException(status_code=404, detail="风控规则不存在")
     shopping_store.record_admin_audit(actor_id, "risk_rule.delete", "risk_rule", rule_id)
-    return {"deleted": True}
+    return {"deleted": True, "snapshot": shopping_store.risk_rule_snapshot_status()}
 
 
 @router.get("/admin/shares", tags=["Admin Operations"])

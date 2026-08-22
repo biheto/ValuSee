@@ -30,11 +30,17 @@ def test_governed_risk_rules_match_fields_and_are_audited():
     with TemporaryDirectory() as tmp:
         store = ShoppingStore(Path(tmp) / "operations.db")
         rule = store.save_risk_rule({"code": "refurbished", "name": "翻新风险", "field_name": "title", "pattern": "翻新", "severity": "high", "action": "block"})
+        snapshot = store.risk_rule_snapshot_status()
+        assert snapshot["strategy"] == "double_buffer_atomic_snapshot"
+        assert snapshot["rule_count"] == 1
         matches = store.evaluate_risk_rules({"title": "官方翻新耳机"})
         assert matches and matches[0]["severity"] == "high" and matches[0]["action"] == "block"
+        store.list_risk_rules = lambda: (_ for _ in ()).throw(AssertionError("read path should use the active snapshot"))  # type: ignore[method-assign]
+        assert store.evaluate_risk_rules({"title": "官方翻新耳机"})[0]["code"] == "refurbished"
         audit = store.record_admin_audit("admin", "risk_rule.save", "risk_rule", rule["rule_id"], {"enabled": True})
         assert store.list_admin_audits()[0]["audit_id"] == audit["audit_id"]
         assert store.delete_risk_rule(rule["rule_id"]) is True
+        assert store.evaluate_risk_rules({"title": "官方翻新耳机"}) == []
 
 
 def test_suspending_user_revokes_all_sessions_and_upgrade_is_governed():

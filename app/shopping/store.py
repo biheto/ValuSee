@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import re
 import socket
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,10 @@ class ShoppingStore:
         self.db_path = resolve_runtime_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+        self._risk_rules_lock = threading.Lock()
+        self._risk_rule_buffers: list[tuple[dict[str, Any], ...]] = [tuple(), tuple()]
+        self._active_risk_rule_buffer = 0
+        self.reload_risk_rule_snapshot()
 
     def _connect(self):
         return connect_database(self.db_path)
@@ -1154,6 +1159,7 @@ class ShoppingStore:
             created_at = old["created_at"] if old else now
             conn.execute("""INSERT INTO shopping_risk_rule VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(rule_id) DO UPDATE SET code=excluded.code,name=excluded.name,field_name=excluded.field_name,pattern=excluded.pattern,severity=excluded.severity,action=excluded.action,enabled=excluded.enabled,updated_at=excluded.updated_at""", (rule_id, code, str(payload.get("name") or "风控规则")[:120], field_name, pattern, severity, action, 1 if payload.get("enabled", True) else 0, created_at, now))
             row = conn.execute("SELECT * FROM shopping_risk_rule WHERE rule_id=?", (rule_id,)).fetchone()
+        self.reload_risk_rule_snapshot()
         return dict(row)
 
     def list_risk_rules(self) -> list[dict[str, Any]]:
@@ -1163,13 +1169,37 @@ class ShoppingStore:
 
     def delete_risk_rule(self, rule_id: str) -> bool:
         with self._session() as conn:
-            return conn.execute("DELETE FROM shopping_risk_rule WHERE rule_id=?", (rule_id,)).rowcount > 0
+            deleted = conn.execute("DELETE FROM shopping_risk_rule WHERE rule_id=?", (rule_id,)).rowcount > 0
+        if deleted:
+            self.reload_risk_rule_snapshot()
+        return deleted
+
+    def reload_risk_rule_snapshot(self) -> dict[str, Any]:
+        with self._session() as conn:
+            rows = conn.execute("SELECT * FROM shopping_risk_rule WHERE enabled=1 ORDER BY updated_at DESC LIMIT 500").fetchall()
+        snapshot = tuple(_risk_rule_snapshot_row(dict(row)) for row in rows)
+        with self._risk_rules_lock:
+            standby = 1 - self._active_risk_rule_buffer
+            self._risk_rule_buffers[standby] = snapshot
+            self._active_risk_rule_buffer = standby
+            active = self._active_risk_rule_buffer
+        return {"active_buffer": active, "rule_count": len(snapshot), "reloaded_at": utc_now_iso()}
+
+    def risk_rule_snapshot_status(self) -> dict[str, Any]:
+        snapshot = self._risk_rules_snapshot()
+        return {
+            "active_buffer": self._active_risk_rule_buffer,
+            "standby_buffer": 1 - self._active_risk_rule_buffer,
+            "rule_count": len(snapshot),
+            "strategy": "double_buffer_atomic_snapshot",
+        }
+
+    def _risk_rules_snapshot(self) -> tuple[dict[str, Any], ...]:
+        return self._risk_rule_buffers[self._active_risk_rule_buffer]
 
     def evaluate_risk_rules(self, product: dict[str, Any]) -> list[dict[str, Any]]:
         matches = []
-        for rule in self.list_risk_rules():
-            if not rule["enabled"]:
-                continue
+        for rule in self._risk_rules_snapshot():
             value = str(product.get(str(rule["field_name"])) or "").lower()
             if str(rule["pattern"]) in value:
                 matches.append({"rule_id": rule["rule_id"], "code": rule["code"], "name": rule["name"], "severity": rule["severity"], "action": rule["action"]})
@@ -1728,6 +1758,18 @@ def _decode_json_columns(row: Any, mapping: dict[str, str]) -> dict[str, Any]:
         raw = result.pop(source, None)
         result[target] = json.loads(raw) if raw else ([] if target == "products" else {})
     return result
+
+
+def _risk_rule_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "rule_id": str(row["rule_id"]),
+        "code": str(row["code"]),
+        "name": str(row["name"]),
+        "field_name": str(row["field_name"]),
+        "pattern": str(row["pattern"]).lower(),
+        "severity": str(row["severity"]),
+        "action": str(row["action"]),
+    }
 
 
 def _public_share_payload(payload: dict[str, Any]) -> dict[str, Any]:
