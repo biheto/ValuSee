@@ -189,7 +189,7 @@ type UserLLMConfig = {
   last_test_error?: string | null;
 };
 type View = "discover" | "analyze" | "monitors" | "purchases" | "saved" | "messages" | "account" | "profile" | "history" | "family" | "settings" | "security" | "membership";
-type ToastNotice = { id: string; text: string; tone: "success" | "error" };
+type ToastNotice = { id: string; text: string; tone: "success" | "error"; autoDismissMs?: number };
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
 const sample: Product[] = [
@@ -413,12 +413,22 @@ export function App() {
       setToastNotices((items) => items.filter((item) => item.tone !== "success"));
       return;
     }
+    const isOcrNotice = (value: string) =>
+      value.startsWith("正在加载本地 OCR") ||
+      value.startsWith("正在识别截图") ||
+      value.startsWith("本地 OCR") ||
+      value.startsWith("截图文字已在") ||
+      value.startsWith("截图识别完成");
     setToastNotices((items) => {
       const progress = text.startsWith("正在识别截图");
-      const existing = progress ? items.find((item) => item.tone === "success" && item.text.startsWith("正在识别截图")) : undefined;
-      if (existing) return items.map((item) => item.id === existing.id ? { ...item, text } : item);
+      const existing = isOcrNotice(text)
+        ? items.find((item) => item.tone === "success" && isOcrNotice(item.text))
+        : progress
+          ? items.find((item) => item.tone === "success" && item.text.startsWith("正在识别截图"))
+          : undefined;
+      if (existing) return items.map((item) => item.id === existing.id ? { ...item, text, autoDismissMs: isOcrNotice(text) ? 120_000 : item.autoDismissMs } : item);
       if (items.some((item) => item.tone === "success" && item.text === text)) return items;
-      return [{ id: crypto.randomUUID(), text, tone: "success" as const }, ...items].slice(0, 5);
+      return [{ id: crypto.randomUUID(), text, tone: "success" as const, autoDismissMs: isOcrNotice(text) ? 120_000 : undefined }, ...items].slice(0, 5);
     });
   };
   const setError = (text: string) => {
@@ -430,7 +440,7 @@ export function App() {
   };
   useEffect(() => {
     if (!toastNotices.length) return;
-    const timers = toastNotices.map((item) => window.setTimeout(() => setToastNotices((current) => current.filter((notice) => notice.id !== item.id)), item.tone === "error" ? 9000 : 6500));
+    const timers = toastNotices.map((item) => window.setTimeout(() => setToastNotices((current) => current.filter((notice) => notice.id !== item.id)), item.autoDismissMs ?? (item.tone === "error" ? 9000 : 6500)));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [toastNotices]);
   const [monitorProduct, setMonitorProduct] = useState(0);
@@ -688,6 +698,9 @@ export function App() {
         browserOcrText = await recognizeProductScreenshot(file, (progress) => {
           setMessage(`正在识别截图 ${Math.max(1, Math.round(progress * 100))}%`);
         });
+        if (browserOcrText.trim()) {
+          setMessage("截图文字已在你的浏览器中识别，正在提取商品信息...");
+        }
       } catch {
         setMessage("本地 OCR 未完成，正在尝试在线图片识别...");
       }
@@ -707,7 +720,10 @@ export function App() {
       }
       setProducts((items) => [...items, data.product]);
       const missing = data.missing_fields.length ? `仍需补充：${data.missing_fields.join("、")}。` : "";
-      setMessage(`${data.warning || `截图识别完成（${data.ocr_provider}）。`} ${missing}请确认后再分析。`);
+      const ocrStatus = browserOcrText.trim()
+        ? "截图文字已在你的浏览器中识别，商品信息已提取。"
+        : `截图识别完成（${data.ocr_provider}）。`;
+      setMessage(`${ocrStatus} ${data.warning || ""} ${missing}请确认后再分析。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "截图识别失败");
     } finally {
