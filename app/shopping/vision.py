@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import unicodedata
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -220,7 +221,7 @@ def normalize_product_text(text: str, fallback_title: str = "") -> dict[str, Any
     clean = " ".join(text.replace("\u3000", " ").split())
     price = _labeled_amount(clean, ("券后价", "券后", "预估到手价", "到手价", "实付价", "成交价", "会员价", "活动价", "促销价", "当前价格", "current price"))
     if not price:
-        generic_price = re.search(r"(?:(?:￥|¥|RMB)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元)", clean, re.IGNORECASE)
+        generic_price = re.search(r"(?:(?:￥|¥|RMB|Y)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元)", unicodedata.normalize("NFKC", clean), re.IGNORECASE)
         price = float(generic_price.group(1) or generic_price.group(2)) if generic_price else 0.0
     model_match = re.search(r"\b((?:AirPods\s+Pro\s+\d+)|(?:[A-Z]{1,8}[- ]?\d{2,}[A-Z0-9-]*))\b", clean, re.IGNORECASE)
     sku_match = re.search(r"(?:SKU|商品编号|货号)\s*[:：]?\s*([A-Z0-9][A-Z0-9/_-]{3,})", clean, re.IGNORECASE)
@@ -288,10 +289,13 @@ def _title_from_ocr(lines: list[str]) -> str:
 
 
 def _labeled_amount(text: str, labels: tuple[str, ...]) -> float:
-    normalized = text.replace(",", "")
+    normalized = unicodedata.normalize("NFKC", text).replace(",", "")
     for label in labels:
         match = re.search(
-            rf"{re.escape(label)}\s*(?:约|低至|后|为)?\s*[:：]?\s*(?:￥|¥|RMB)?\s*(\d+(?:\.\d{{1,2}})?)",
+            # OCR engines may replace currency glyphs with Y or add arbitrary
+            # punctuation between a label and its amount. Keep the scan local
+            # to the labeled value so nearby sales/review counts are ignored.
+            rf"{re.escape(label)}[^\n\d]{{0,24}}(?:￥|¥|RMB|Y)?\s*(\d+(?:\.\d{{1,2}})?)",
             normalized,
             re.IGNORECASE,
         )

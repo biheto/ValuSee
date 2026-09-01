@@ -149,6 +149,20 @@ def test_ocr_extracts_slash_sku_when_its_chinese_label_is_noisy() -> None:
     assert product["price"] == 1499
 
 
+def test_ocr_extracts_chinese_labeled_price_with_noisy_currency() -> None:
+    product = vision.normalize_product_text(
+        "京东商城 商品详情\n"
+        "Apple AirPods Pro 2 USB-C 主动降噪耳机\n"
+        "商品编号: MTJV3CH/A\n"
+        "当前价格: Y1499\n"
+        "优惠券: ￥100\n"
+        "已选: USB-C 国行 白色"
+    )
+
+    assert product["price"] == 1499
+    assert product["coupon"] == 100
+
+
 def test_json_fence_from_vision_provider_is_parsed() -> None:
     result = vision._json_object('```json\n{"title":"Dell U2723QE","price":3499}\n```')
 
