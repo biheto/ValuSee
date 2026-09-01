@@ -5,7 +5,7 @@ import tarfile
 
 import pytest
 
-from scripts.verify_backup import verify_backup
+from app.core.backup_verification import verify_backup
 
 
 def make_backup(tmp_path, unsafe_tar=False):

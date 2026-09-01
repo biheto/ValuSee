@@ -38,6 +38,9 @@ ocr = [
     "pytesseract>=0.3.13"
 ]
 
+[project.scripts]
+valuesee-verify-backup = "app.core.backup_verification:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

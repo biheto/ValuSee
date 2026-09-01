@@ -14,7 +14,10 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -e ".[dev]"
-      - run: pytest -q tests
+      - name: Verify installed package is independent of repository cwd
+        working-directory: ${{ runner.temp }}
+        run: python -c "from app.core.backup_verification import verify_backup; print(verify_backup.__module__)"
+      - run: python -m pytest -q tests
       # This release gate catches invalid Python and undefined names. The
       # existing style backlog is tracked separately from release correctness.
       - run: ruff check app tests --select E9,F63,F7,F82 --no-cache
