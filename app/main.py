@@ -107,6 +107,24 @@ def ready() -> JSONResponse:
 app.include_router(project_router)
 
 web_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+
+
+def _web_document() -> str:
+    index_path = web_dist / "index.html"
+    if index_path.is_file():
+        return index_path.read_text(encoding="utf-8")
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>ValuSee - 买之前，先看清价值</title>
+  <meta property="og:title" content="ValuSee - 买之前，先看清价值" />
+  <meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />
+</head>
+<body><main id="root">ValuSee</main></body>
+</html>"""
+
+
 if web_dist.exists():
     assets_dir = web_dist / "assets"
     if assets_dir.exists():
@@ -138,28 +156,52 @@ if web_dist.exists():
         del product_ref
         return FileResponse(web_dist / "index.html")
 
-    @app.get("/content/{content_id}", include_in_schema=False)
-    def content_index(content_id: str) -> HTMLResponse:
-        item = shopping_store.get_content(content_id)
-        document = (web_dist / "index.html").read_text(encoding="utf-8")
-        if not item:
-            return HTMLResponse(document, status_code=404)
-        title = html.escape(str(item["title"]), quote=True)
-        description = html.escape(str(item["summary"]), quote=True)
-        document = document.replace("<title>ValuSee - 买之前，先看清价值</title>", f"<title>{title} - ValuSee</title>")
-        document = document.replace('<meta property="og:title" content="ValuSee - 买之前，先看清价值" />', f'<meta property="og:title" content="{title}" />')
-        document = document.replace('<meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />', f'<meta property="og:description" content="{description}" />')
-        return HTMLResponse(document)
 
-    @app.get("/share/{share_token}", include_in_schema=False)
-    def shared_decision_index(share_token: str) -> HTMLResponse:
-        share = shopping_store.get_share(share_token)
-        document = (web_dist / "index.html").read_text(encoding="utf-8")
-        if not share:
-            return HTMLResponse(document, status_code=404)
-        title = html.escape(str(share.get("title") or "ValuSee 购物决策分享"), quote=True)
-        description = html.escape("ValuSee 公开只读购物决策快照，价格与优惠请在下单前回到原平台核验。", quote=True)
-        document = document.replace("<title>ValuSee - 买之前，先看清价值</title>", f"<title>{title} - ValuSee</title>")
-        document = document.replace('<meta property="og:title" content="ValuSee - 买之前，先看清价值" />', f'<meta property="og:title" content="{title}" />')
-        document = document.replace('<meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />', f'<meta property="og:description" content="{description}" />')
-        return HTMLResponse(document)
+
+@app.get("/content/{content_id}", include_in_schema=False)
+def content_index(content_id: str) -> HTMLResponse:
+    item = shopping_store.get_content(content_id)
+    document = _web_document()
+    if not item:
+        return HTMLResponse(document, status_code=404)
+    title = html.escape(str(item["title"]), quote=True)
+    description = html.escape(str(item["summary"]), quote=True)
+    document = document.replace(
+        "<title>ValuSee - 买之前，先看清价值</title>",
+        f"<title>{title} - ValuSee</title>",
+    )
+    document = document.replace(
+        '<meta property="og:title" content="ValuSee - 买之前，先看清价值" />',
+        f'<meta property="og:title" content="{title}" />',
+    )
+    document = document.replace(
+        '<meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />',
+        f'<meta property="og:description" content="{description}" />',
+    )
+    return HTMLResponse(document)
+
+
+@app.get("/share/{share_token}", include_in_schema=False)
+def shared_decision_index(share_token: str) -> HTMLResponse:
+    share = shopping_store.get_share(share_token)
+    document = _web_document()
+    if not share:
+        return HTMLResponse(document, status_code=404)
+    title = html.escape(str(share.get("title") or "ValuSee 购物决策分享"), quote=True)
+    description = html.escape(
+        "ValuSee 公开只读购物决策快照，价格与优惠请在下单前回到原平台核验。",
+        quote=True,
+    )
+    document = document.replace(
+        "<title>ValuSee - 买之前，先看清价值</title>",
+        f"<title>{title} - ValuSee</title>",
+    )
+    document = document.replace(
+        '<meta property="og:title" content="ValuSee - 买之前，先看清价值" />',
+        f'<meta property="og:title" content="{title}" />',
+    )
+    document = document.replace(
+        '<meta property="og:description" content="识别真假同款、算清真实到手价，并持续管理降价与售后。" />',
+        f'<meta property="og:description" content="{description}" />',
+    )
+    return HTMLResponse(document)
