@@ -235,7 +235,7 @@ def request_registration_code(request_body: RegistrationCodeRequest) -> dict[str
         "ValuSee 注册验证码",
         f"你的注册验证码是：{code}\n\n验证码 10 分钟内有效，请勿转发给任何人。",
     )
-    if not delivered:
+    if not delivered and settings.app_env.lower() in {"prod", "production"}:
         auth_store.delete_email_code(request_body.email, "register")
         raise HTTPException(status_code=503, detail="验证码邮件发送失败，请稍后再试")
     response: dict[str, object] = {"accepted": True, "expires_in": 600, "retry_after": 60}

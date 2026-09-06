@@ -81,6 +81,7 @@ def test_registration_requires_code_and_matching_passwords(monkeypatch, tmp_path
 def test_registration_code_is_removed_when_email_delivery_fails(monkeypatch, tmp_path: Path) -> None:
     store = AuthStore(tmp_path / "failed-registration-email.db")
     monkeypatch.setattr("app.api.routes.auth_store", store)
+    monkeypatch.setattr("app.api.routes.settings.app_env", "production")
     monkeypatch.setattr("app.api.routes.send_transactional_email", lambda *_args, **_kwargs: False)
 
     response = TestClient(app).post(
@@ -91,6 +92,21 @@ def test_registration_code_is_removed_when_email_delivery_fails(monkeypatch, tmp
     assert response.status_code == 503
     with store._session() as connection:
         assert connection.execute("SELECT 1 FROM valuesee_email_code").fetchone() is None
+
+
+def test_registration_code_can_use_local_delivery_fallback(monkeypatch, tmp_path: Path) -> None:
+    store = AuthStore(tmp_path / "local-registration-email.db")
+    monkeypatch.setattr("app.api.routes.auth_store", store)
+    monkeypatch.setattr("app.api.routes.settings.app_env", "dev")
+    monkeypatch.setattr("app.api.routes.send_transactional_email", lambda *_args, **_kwargs: False)
+
+    response = TestClient(app).post(
+        "/api/v1/auth/register/code/request",
+        json={"email": "local@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["verification_code"]
 
 
 def test_password_reset_confirmation_mismatch_does_not_consume_link(monkeypatch, tmp_path: Path) -> None:

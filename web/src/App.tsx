@@ -2,6 +2,7 @@ import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Com
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
+import { ShoppingCopilotPage } from "./ShoppingCopilot";
 import { MarkdownContent } from "./MarkdownContent";
 import { apiUrl } from "./runtime";
 
@@ -188,7 +189,7 @@ type UserLLMConfig = {
   last_test_at?: string | null;
   last_test_error?: string | null;
 };
-type View = "discover" | "analyze" | "monitors" | "purchases" | "saved" | "messages" | "account" | "profile" | "history" | "family" | "settings" | "security" | "membership";
+type View = "discover" | "copilot" | "analyze" | "monitors" | "purchases" | "saved" | "messages" | "account" | "profile" | "history" | "family" | "settings" | "security" | "membership";
 type ToastNotice = { id: string; text: string; tone: "success" | "error"; autoDismissMs?: number };
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
@@ -357,7 +358,7 @@ export function App() {
   const skipDraftSave = useRef(true);
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view");
-    const valid: View[] = ["discover", "analyze", "monitors", "purchases", "saved", "messages", "account", "profile", "history", "family", "settings", "security", "membership"];
+    const valid: View[] = ["discover", "copilot", "analyze", "monitors", "purchases", "saved", "messages", "account", "profile", "history", "family", "settings", "security", "membership"];
     return valid.includes(requested as View) ? (requested as View) : "discover";
   });
   const [goal, setGoal] = useState(initialDraft.current?.goal || "想买一副适合 iPhone 的降噪耳机，预算 1800 元以内");
@@ -1278,6 +1279,7 @@ export function App() {
     );
   const nav: Array<[View, string, typeof Search]> = [
     ["discover", "发现", Compass],
+    ["copilot", "导购", Sparkles],
     ["analyze", "智能对比", Search],
     ["monitors", "省钱中心", Bell],
     ["purchases", "订单售后", Receipt],
@@ -1349,6 +1351,20 @@ export function App() {
             setContentId(id);
             window.history.pushState({}, "", `/content/${id}`);
           }}
+        />
+      )}
+      {view === "copilot" && (
+        <ShoppingCopilotPage
+          draftOwner={draftOwner}
+          candidateCount={products.length}
+          signedIn={Boolean(localStorage.getItem("valuesee-token"))}
+          onSearch={searchCommerceProducts}
+          onAddCandidate={(product) => {
+            void addProduct(product);
+            setMessage("已加入候选，继续追问或去对比工作台看结果。");
+          }}
+          onOpenProduct={(product) => void addProduct(product, true)}
+          onOpenAnalyze={() => setView("analyze")}
         />
       )}
       {view === "saved" && <SavedPage items={savedItems} groups={savedGroups} onOpen={(product) => void addProduct(product, true)} onDelete={(id) => void deleteSaved(id)} onCreateGroup={(name) => void createSavedGroup(name)} onBulk={(ids, action, groupId) => void bulkSaved(ids, action, groupId)} />}

@@ -184,7 +184,7 @@ export function ProductDetail({ productRef, fallbackProduct, favorite, onClose, 
 }
 
 export function MobileNav({ view, onChange }: { view: string; onChange: (view: string) => void }) {
-  const items = [['discover', '首页', Search], ['analyze', '对比', Sparkles], ['monitors', '省钱', Bell], ['messages', '消息', MessageSquare], ['account', '我的', UserRound]] as const;
+  const items = [['discover', '首页', Search], ['copilot', '导购', Sparkles], ['analyze', '对比', Sparkles], ['monitors', '省钱', Bell], ['messages', '消息', MessageSquare], ['account', '我的', UserRound]] as const;
   return <nav className="mobile-nav">{items.map(([key, label, Icon]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => onChange(key)}><Icon size={19} /><span>{label}</span></button>)}</nav>;
 }
 
