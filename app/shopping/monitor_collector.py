@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.shopping.public_pages import fetch_public_product, platform_for_url
@@ -18,7 +18,7 @@ def collect_public_monitor_updates(
     now: datetime | None = None,
     max_checks: int | None = None,
 ) -> dict[str, int]:
-    current_time = now or datetime.now(UTC)
+    current_time = now or datetime.now(timezone.utc)
     check_limit = (
         max_checks if max_checks is not None else int(os.getenv("VALUSee_MONITOR_BATCH_SIZE", "5"))
     )
@@ -112,7 +112,7 @@ def _poll_due(last_poll: dict[str, Any] | None, frequency: str, now: datetime) -
     try:
         checked_at = datetime.fromisoformat(str(last_poll["checked_at"]))
         if checked_at.tzinfo is None:
-            checked_at = checked_at.replace(tzinfo=UTC)
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
     except (KeyError, ValueError):
         return True
     return (now - checked_at).total_seconds() >= FREQUENCY_HOURS.get(frequency, 24) * 3600

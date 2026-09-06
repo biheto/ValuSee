@@ -13,6 +13,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+      - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - name: Verify installed package is independent of repository cwd
         working-directory: ${{ runner.temp }}
@@ -32,8 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          registry-url: "https://registry.npmjs.org"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - run: npm config set registry https://registry.npmjs.org
       - run: npm ci
         working-directory: web
       - run: npm run build
@@ -42,6 +45,6 @@ jobs:
         working-directory: web
       - run: npm run test:e2e
         working-directory: web
-      - run: npm audit --audit-level=high
+      - run: npm audit --audit-level=high --registry=https://registry.npmjs.org
         working-directory: web
-      - run: pip install pip-audit && pip-audit
+      - run: python -m pip install pip-audit && python -m pip_audit --skip-editable

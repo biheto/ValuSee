@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const pythonCommand = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'py -3.13' : 'python3');
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -34,7 +36,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `"${process.env.PYTHON_BIN || 'python'}" -m uvicorn app.main:app --host 127.0.0.1 --port 8101`,
+      command: `${pythonCommand} -m uvicorn app.main:app --host 127.0.0.1 --port 8101`,
       cwd: '..',
       url: 'http://127.0.0.1:8101/health',
       reuseExistingServer: !process.env.CI,

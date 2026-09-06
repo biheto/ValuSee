@@ -20,6 +20,8 @@ web/public/ocr/
 web/tsconfig.tsbuildinfo
 web/playwright-report/
 web/test-results/
+playwright-report/
+test-results/
 __pycache__/
 *.pyc
 .vercel/

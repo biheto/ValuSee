@@ -6,7 +6,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Protocol
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -236,7 +236,7 @@ class PinduoduoProvider:
         price = self._money(item.get("min_group_price") or item.get("min_normal_price"))
         coupon = self._money(item.get("coupon_discount")) if bool(item.get("has_coupon")) else 0.0
         source_url = self._product_url(goods_id) if goods_id else "https://mobile.yangkeduo.com"
-        observed_at = datetime.now(UTC).isoformat()
+        observed_at = datetime.now(timezone.utc).isoformat()
         specs = {"商品ID": goods_id}
         if category:
             specs["类目"] = category

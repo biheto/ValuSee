@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -33,7 +33,7 @@ def test_public_monitor_change_requires_confirmation_before_price_history() -> N
             monitor_days=30,
             notify_channel="in_app",
         )
-        now = datetime(2026, 8, 10, 8, tzinfo=UTC)
+        now = datetime(2026, 8, 10, 8, tzinfo=timezone.utc)
         result = collect_public_monitor_updates(
             store,
             fetcher=lambda _url: {
@@ -84,7 +84,7 @@ def test_blocked_monitor_page_creates_extension_recapture_reminder() -> None:
         result = collect_public_monitor_updates(
             store,
             fetcher=lambda _url: {"fetch_status": "blocked", "price": 0, "notes": "captcha"},
-            now=datetime(2026, 8, 10, tzinfo=UTC),
+            now=datetime(2026, 8, 10, tzinfo=timezone.utc),
         )
 
         assert result["recapture_reminders"] == 1
@@ -119,7 +119,7 @@ def test_monitor_batch_is_bounded_and_one_fetch_failure_does_not_stop_cycle() ->
         result = collect_public_monitor_updates(
             store,
             fetcher=fetcher,
-            now=datetime(2026, 8, 10, tzinfo=UTC),
+            now=datetime(2026, 8, 10, tzinfo=timezone.utc),
             max_checks=2,
         )
 
