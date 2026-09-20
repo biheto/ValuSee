@@ -2,20 +2,27 @@ import {
   ArrowUpRight,
   Bot,
   BrainCircuit,
+  Command,
   ChevronRight,
+  Clock3,
   Database,
   ExternalLink,
+  History,
   Laptop,
   Loader2,
   MessageSquare,
   Minus,
+  PanelLeft,
   Plus,
   PlugZap,
+  SearchCode,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  UserRound,
   Wrench,
+  X,
 } from "lucide-react";
 import { CSSProperties, FormEvent, FocusEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
@@ -52,6 +59,9 @@ type CapabilityItem = {
   output: string;
   trust: string;
 };
+
+type CopilotPanel = "mode" | "capabilities" | "sources" | "followups" | "evidence" | "search" | null;
+type CopilotThread = { id: string; title: string; preview: string; updatedAt: string };
 
 const COPILOT_MODES = [
   { key: "guide", label: "导购模式", title: "像顾问一样追问", hint: "预算、用途、人群偏好", icon: Sparkles },
@@ -263,8 +273,8 @@ const SOURCE_KIND_LABELS: Record<string, string> = {
 
 const money = (value?: number) => `¥${Number(value || 0).toFixed(0)}`;
 
-function threadStorageKey(owner: string) {
-  return `valuesee-copilot-thread:${owner || "guest"}`;
+function threadStorageKey(owner: string, threadId?: string) {
+  return `valuesee-copilot-thread:${owner || "guest"}${threadId ? `:${threadId}` : ""}`;
 }
 
 function finalPrice(product: ConsumerProduct) {
@@ -445,6 +455,11 @@ export function ShoppingCopilotPage({
 }) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<CopilotMode>("guide");
+  const [activePanel, setActivePanel] = useState<CopilotPanel>(null);
+  const [panelSearch, setPanelSearch] = useState("");
+  const [threadSearch, setThreadSearch] = useState("");
+  const [threadId, setThreadId] = useState(() => `thread-${Date.now()}`);
+  const [threads, setThreads] = useState<CopilotThread[]>([]);
   const [hoveredCapability, setHoveredCapability] = useState<{ kind: CapabilityKind; id: string; top: number; left: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsedMessages, setCollapsedMessages] = useState<Record<string, boolean>>({});
@@ -476,11 +491,11 @@ export function ShoppingCopilotPage({
 
   useEffect(() => {
     try {
-      localStorage.setItem(threadStorageKey(draftOwner), JSON.stringify(messages.slice(-30)));
+      localStorage.setItem(threadStorageKey(draftOwner, threadId), JSON.stringify(messages.slice(-30)));
     } catch {
       /* localStorage may be unavailable in hardened contexts. */
     }
-  }, [draftOwner, messages]);
+  }, [draftOwner, messages, threadId]);
 
   useEffect(() => {
     const container = listRef.current;
@@ -501,6 +516,71 @@ export function ShoppingCopilotPage({
   const followUps = useMemo(() => buildFollowUpSuggestions(lastQuery, latestResponse), [lastQuery, latestResponse]);
   const activeMode = COPILOT_MODES.find((item) => item.key === mode) || COPILOT_MODES[0];
   const hoveredCapabilityItem = hoveredCapability ? findCapability(hoveredCapability.kind, hoveredCapability.id) : null;
+
+  const currentThreadTitle = useMemo(() => {
+    const firstQuery = messages.find((item) => item.role === "user")?.content?.trim();
+    return firstQuery ? collapsePreview(firstQuery, 28) : "新的购物对话";
+  }, [messages]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`valuesee-copilot-threads:${draftOwner}`);
+      const saved = raw ? JSON.parse(raw) as CopilotThread[] : [];
+      setThreads(Array.isArray(saved) ? saved : []);
+    } catch {
+      setThreads([]);
+    }
+  }, [draftOwner]);
+
+  useEffect(() => {
+    const nextThread: CopilotThread = {
+      id: threadId,
+      title: currentThreadTitle,
+      preview: collapsePreview(messages[messages.length - 1]?.content || "等待你的购物需求", 46),
+      updatedAt: new Date().toISOString(),
+    };
+    setThreads((items) => {
+      const next = [nextThread, ...items.filter((item) => item.id !== threadId)].slice(0, 20);
+      try { localStorage.setItem(`valuesee-copilot-threads:${draftOwner}`, JSON.stringify(next)); } catch { /* storage is optional */ }
+      return next;
+    });
+  }, [currentThreadTitle, draftOwner, messages, threadId]);
+
+  const filteredThreads = threads.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(threadSearch.trim().toLowerCase()));
+  const panelItems = useMemo(() => {
+    const keyword = panelSearch.trim().toLowerCase();
+    const all = [
+      ...RAG_KNOWLEDGE_BASES.map((item) => ({ kind: "rag" as CapabilityKind, item })),
+      ...COPILOT_SKILLS.map((item) => ({ kind: "skill" as CapabilityKind, item })),
+      ...COPILOT_MCPS.map((item) => ({ kind: "mcp" as CapabilityKind, item })),
+    ];
+    return all.filter(({ item }) => !keyword || `${item.name} ${item.detail} ${item.contents.map((entry) => entry.label).join(" ")}`.toLowerCase().includes(keyword));
+  }, [panelSearch]);
+
+  function openPanel(panel: Exclude<CopilotPanel, null>) {
+    setPanelSearch("");
+    setActivePanel(panel);
+  }
+
+  function startNewConversation() {
+    setThreadId(`thread-${Date.now()}`);
+    setMessages([createWelcomeMessage()]);
+    setCollapsedMessages({});
+    setInput("");
+    setActivePanel(null);
+  }
+
+  function openThread(thread: CopilotThread) {
+    setThreadId(thread.id);
+    try {
+      const raw = localStorage.getItem(threadStorageKey(draftOwner, thread.id));
+      const parsed = raw ? JSON.parse(raw) as CopilotMessage[] : null;
+      setMessages(Array.isArray(parsed) && parsed.length ? parsed : [createWelcomeMessage()]);
+    } catch {
+      setMessages([createWelcomeMessage()]);
+    }
+    setActivePanel(null);
+  }
 
   function showCapability(kind: CapabilityKind, id: string, target: HTMLElement) {
     const rect = target.getBoundingClientRect();
@@ -593,70 +673,63 @@ export function ShoppingCopilotPage({
 
   return (
     <section className="copilot-page">
+      <aside className="copilot-thread-rail">
+        <div className="copilot-rail-brand">
+          <img src="/brand/logo-icon.png" alt="" />
+          <div><strong>ValuSee</strong><span>AI 导购</span></div>
+        </div>
+        <button type="button" className="copilot-new-thread" onClick={startNewConversation}>
+          <Plus size={17} />
+          开启新对话
+        </button>
+        <label className="copilot-thread-search">
+          <Search size={15} />
+          <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="搜索对话" />
+          <kbd>⌘ K</kbd>
+        </label>
+        <div className="copilot-thread-filter"><span>对话历史</span><small>{filteredThreads.length}</small></div>
+        <div className="copilot-thread-list">
+          {filteredThreads.map((thread) => (
+            <button type="button" key={thread.id} className={thread.id === threadId ? "active" : ""} onClick={() => openThread(thread)}>
+              <MessageSquare size={15} />
+              <span><strong>{thread.title}</strong><small>{thread.preview}</small></span>
+              <time>{new Date(thread.updatedAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}</time>
+            </button>
+          ))}
+          {!filteredThreads.length && <div className="copilot-thread-empty"><History size={17} /><span>还没有历史对话</span></div>}
+        </div>
+        <div className="copilot-rail-footer">
+          <div className="copilot-user-avatar"><UserRound size={17} /></div>
+          <span><strong>{signedIn ? "已登录账户" : "本地体验账户"}</strong><small>{candidateCount ? `${candidateCount} 个候选商品` : "准备开始购物决策"}</small></span>
+          <button type="button" title="打开搜索与配置" onClick={() => openPanel("search")}><Command size={15} /></button>
+        </div>
+      </aside>
       <header className="copilot-head">
         <div>
           <span className="section-kicker">AI 导购工作台</span>
-          <h1>像专业导购一样追问购物需求</h1>
-          <p>说出预算、用途和顾虑，ValuSee 会搜索可追溯来源，整理候选商品、价格依据、风险线索和可以继续追问的问题。</p>
+          <h1>{currentThreadTitle}</h1>
+          <p>ValuSee AI 导购会围绕预算、用途、SKU 和来源证据持续追问，帮你把购买决定说清楚。</p>
         </div>
-        <div className="copilot-head-card">
-          <article>
-            <strong>{candidateCount}</strong>
-            <span>候选商品</span>
-          </article>
-          <article>
-            <strong>{signedIn ? "已登录" : "待登录"}</strong>
-            <span>搜索身份</span>
-          </article>
-          <article>
-            <strong>{messages.filter((item) => item.role === "user").length}</strong>
-            <span>追问轮次</span>
-          </article>
+        <div className="copilot-top-actions">
+          <button type="button" title="搜索对话和能力" onClick={() => openPanel("search")}><Search size={16} /></button>
+          <button type="button" title="查看 AI 能力" onClick={() => openPanel("capabilities")}><PanelLeft size={16} /></button>
+          <button type="button" className="copilot-top-user" title="用户账户"><UserRound size={16} /></button>
         </div>
       </header>
 
-      <div className="copilot-layout">
+      <div className="copilot-layout copilot-layout-full">
         <section className="copilot-stream panel">
           <div className="copilot-stream-head">
             <div>
-              <span>对话</span>
-              <h2>把购物需求直接丢给 AI</h2>
+              <span>当前对话</span>
+              <h2>和 ValuSee 一起做决定</h2>
             </div>
-            <button type="button" className="soft-button" onClick={onOpenAnalyze} disabled={!candidateCount}>
-              <Sparkles size={16} />
-              去对比工作台
-            </button>
-          </div>
-
-          <div className="copilot-ai-ribbon" aria-label="AI 导购能力">
-            <article>
-              <Bot size={17} />
-              <div>
-                <strong>{activeMode.title}</strong>
-                <span>{activeMode.hint}</span>
-              </div>
-            </article>
-            <article>
-              <Database size={17} />
-              <div>
-                <strong>RAG 可见</strong>
-                <span>{RAG_KNOWLEDGE_BASES.length} 个知识库</span>
-              </div>
-            </article>
-            <article>
-              <Wrench size={17} />
-              <div>
-                <strong>Skills 可调用</strong>
-                <span>{COPILOT_SKILLS.length} 个导购技能</span>
-              </div>
-            </article>
-            <article>
-              <PlugZap size={17} />
-              <div>
-                <strong>MCP 已连接</strong>
-                <span>{COPILOT_MCPS.length} 个工作流</span>
-              </div>
-            </article>
+            <div className="copilot-context-actions">
+              <button type="button" onClick={onOpenAnalyze} disabled={!candidateCount}><ArrowUpRight size={15} />对比工作台 {candidateCount || ""}</button>
+              <button type="button" onClick={() => openPanel("mode")}><SlidersHorizontal size={15} />{activeMode.label}</button>
+              <button type="button" onClick={() => openPanel("capabilities")}><Sparkles size={15} />AI 能力</button>
+              <button type="button" onClick={() => openPanel("sources")}><Database size={15} />来源 {latestResponse?.sources.length || 0}</button>
+            </div>
           </div>
 
           <div className="copilot-list" ref={listRef}>
@@ -670,7 +743,7 @@ export function ShoppingCopilotPage({
                 >
                   <div className="copilot-message-topline">
                     <div className="copilot-message-badge">
-                      {message.role === "user" ? <MessageSquare size={14} /> : <Sparkles size={14} />}
+                      {message.role === "user" ? <span className="copilot-message-avatar user"><UserRound size={14} /></span> : <img className="copilot-message-avatar" src="/brand/xiaozhi.png" alt="ValuSee" />}
                       <span>{message.role === "user" ? "我" : "ValuSee"} · {modeLabel(message.mode)}</span>
                     </div>
                     {canCollapse && (
@@ -774,7 +847,7 @@ export function ShoppingCopilotPage({
             {loading && (
               <article className="copilot-message assistant is-loading">
                 <div className="copilot-message-badge">
-                  <Sparkles size={14} />
+                  <img className="copilot-message-avatar" src="/brand/xiaozhi.png" alt="ValuSee" />
                   <span>ValuSee</span>
                 </div>
                 <div className="copilot-message-body">
@@ -795,29 +868,10 @@ export function ShoppingCopilotPage({
               placeholder="例如：给我找一台适合代码办公的 27 英寸显示器，预算 2500 元"
               rows={3}
             />
-            <div className="copilot-mode-switch" role="radiogroup" aria-label="AI 导购模式">
-              {COPILOT_MODES.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    type="button"
-                    key={item.key}
-                    className={mode === item.key ? "active" : ""}
-                    role="radio"
-                    aria-checked={mode === item.key}
-                    onClick={() => setMode(item.key)}
-                  >
-                    <Icon size={16} />
-                    <span>
-                      <strong>{item.label}</strong>
-                      <small>{item.hint}</small>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
             <div className="copilot-composer-bar">
               <div className="copilot-pills">
+                <button type="button" onClick={() => openPanel("mode")}><SlidersHorizontal size={13} />{activeMode.label}</button>
+                <button type="button" onClick={() => openPanel("capabilities")}><Database size={13} />RAG / Skill / MCP</button>
                 {QUICK_PROMPTS.map((item) => (
                   <button type="button" key={item} onClick={() => runQuickPrompt(item)}>
                     {item}
@@ -831,8 +885,7 @@ export function ShoppingCopilotPage({
             </div>
           </form>
         </section>
-
-        <aside className="copilot-sidebar">
+        <aside className="copilot-state-mirror" aria-hidden="true">
           <section className="copilot-card copilot-source-board">
             <span>来源面板</span>
             <h2>{latestResponse?.sources.length ? "本轮搜索来源" : "等待搜索"}</h2>
@@ -993,7 +1046,7 @@ export function ShoppingCopilotPage({
             </div>
           </section>
 
-          <section className="copilot-card">
+          <section className="copilot-card copilot-sidebar-actions">
             <span>工作流入口</span>
             <h2>{candidateCount ? `${candidateCount} 个候选已可对比` : "还没有候选商品"}</h2>
             <p>{candidateCount ? "可以进入对比工作台继续做规格、风险和到手价核验。" : "先搜索、加入对比，再进入深度分析。"}</p>
@@ -1014,6 +1067,38 @@ export function ShoppingCopilotPage({
           </section>
         </aside>
       </div>
+      {activePanel && (
+        <div className="copilot-modal-backdrop" role="presentation" onMouseDown={() => setActivePanel(null)}>
+          <section className="copilot-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="copilot-modal-head">
+              <div><span>ValuSee AI 工作台</span><h2>{activePanel === "search" ? "搜索对话与能力" : activePanel === "mode" ? "选择导购模式" : activePanel === "capabilities" ? "AI 能力地图" : activePanel === "sources" ? "本轮来源" : activePanel === "followups" ? "继续追问" : "候选证据"}</h2></div>
+              <button type="button" title="关闭" onClick={() => setActivePanel(null)}><X size={18} /></button>
+            </header>
+            <label className="copilot-modal-search"><SearchCode size={17} /><input autoFocus value={panelSearch} onChange={(event) => setPanelSearch(event.target.value)} placeholder={activePanel === "mode" ? "搜索模式" : "搜索名称、能力或关键词"} /><kbd>⌘ K</kbd></label>
+            {activePanel === "search" && (
+              <div className="copilot-search-results">
+                <button type="button" onClick={() => { setActivePanel(null); setInput(panelSearch); }}><MessageSquare size={16} /><span><strong>在当前对话中提问</strong><small>{panelSearch || "输入问题后回车发送"}</small></span><ChevronRight size={15} /></button>
+                {filteredThreads.slice(0, 8).map((thread) => <button type="button" key={thread.id} onClick={() => openThread(thread)}><History size={16} /><span><strong>{thread.title}</strong><small>{thread.preview}</small></span><ChevronRight size={15} /></button>)}
+                {panelItems.slice(0, 6).map(({ kind, item }) => <button type="button" key={`${kind}-${item.id}`} onClick={() => { setActivePanel("capabilities"); setPanelSearch(item.name); }}><Sparkles size={16} /><span><strong>{item.name}</strong><small>{capabilityKindLabel(kind)} · {item.detail}</small></span><ChevronRight size={15} /></button>)}
+              </div>
+            )}
+            {activePanel === "mode" && (
+              <div className="copilot-modal-grid copilot-mode-modal">
+                {COPILOT_MODES.filter((item) => !panelSearch.trim() || `${item.label} ${item.title} ${item.hint}`.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => { const Icon = item.icon; return <button type="button" key={item.key} className={mode === item.key ? "active" : ""} onClick={() => { setMode(item.key); setActivePanel(null); }}><Icon size={18} /><span><strong>{item.label}</strong><small>{item.title} · {item.hint}</small></span>{mode === item.key && <ShieldCheck size={15} />}</button>; })}
+              </div>
+            )}
+            {activePanel === "capabilities" && (
+              <div className="copilot-modal-capabilities">
+                {panelItems.map(({ kind, item }) => <button type="button" key={`${kind}-${item.id}`} className="copilot-modal-capability" onMouseEnter={(event) => showCapabilityFromMouse(kind, item.id, event)} onMouseLeave={() => setHoveredCapability(null)} onFocus={(event) => showCapabilityFromFocus(kind, item.id, event)} onBlur={() => setHoveredCapability(null)}><span className="copilot-capability-icon">{kind === "rag" ? <Database size={16} /> : kind === "skill" ? <Wrench size={16} /> : <PlugZap size={16} />}</span><span><strong>{item.name}</strong><small>{capabilityKindLabel(kind)} · {item.detail}</small><em>{item.contents.slice(0, 3).map((content) => content.label).join(" · ")}</em></span><ChevronRight size={15} /></button>)}
+                {!panelItems.length && <div className="copilot-modal-empty">没有匹配的能力或关键词。</div>}
+              </div>
+            )}
+            {activePanel === "sources" && <div className="copilot-modal-list">{(latestResponse?.sources || []).map((source) => <article key={`${source.provider}-${source.status}`}><strong>{sourceLabel(source.provider)}</strong><span>{source.status === "ok" ? `${source.count || 0} 条结果` : sourceHealthText(source.status)}</span><small>{source.status === "ok" ? "已返回可追溯商品结果" : source.error || "请更换关键词或补充信息"}</small></article>)}{!latestResponse?.sources.length && <div className="copilot-modal-empty">发送一次商品需求后，这里会展示来源状态。</div>}</div>}
+            {activePanel === "followups" && <div className="copilot-modal-list">{followUps.filter((item) => !panelSearch.trim() || `${item.label} ${item.hint}`.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => <button type="button" key={item.label} onClick={() => { setActivePanel(null); runMessageSearch(item.query); }}><span><strong>{item.label}</strong><small>{item.hint}</small></span><ChevronRight size={15} /></button>)}</div>}
+            {activePanel === "evidence" && <div className="copilot-modal-products">{latestResults.map((result) => { const product = result.product; return <article key={`${result.provider}-${product.url}-${product.sku}`}><div className="copilot-mini-thumb">{product.image_url ? <img src={product.image_url} alt="" /> : <Laptop size={18} />}</div><span><strong>{product.title}</strong><small>{sourceLabel(result.provider)} · {money(finalPrice(product))}</small></span><button type="button" onClick={() => onAddCandidate(product)}><Plus size={14} /></button></article>; })}{!latestResults.length && <div className="copilot-modal-empty">当前对话还没有候选商品。</div>}</div>}
+          </section>
+        </div>
+      )}
       {hoveredCapability && hoveredCapabilityItem && (
         <CapabilityPopover
           item={hoveredCapabilityItem}
