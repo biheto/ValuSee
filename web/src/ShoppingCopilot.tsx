@@ -1,8 +1,8 @@
 import {
+  ArrowLeft,
   ArrowUpRight,
   Bot,
   BrainCircuit,
-  Command,
   ChevronRight,
   Clock3,
   Database,
@@ -24,7 +24,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { CSSProperties, FormEvent, FocusEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import type { CommerceSearchResponse, ConsumerProduct } from "./ConsumerHub";
 
@@ -389,9 +389,9 @@ function findCapability(kind: CapabilityKind, id: string) {
   return source.find((item) => item.id === id) || null;
 }
 
-function CapabilityPopover({ item, kind, style }: { item: CapabilityItem; kind: CapabilityKind; style?: CSSProperties }) {
+function CapabilityDetail({ item, kind }: { item: CapabilityItem; kind: CapabilityKind }) {
   return (
-    <div className="copilot-capability-popover" role="tooltip" style={style}>
+    <div className="copilot-capability-detail">
       <div className="copilot-capability-detail-head">
         <span>{capabilityKindLabel(kind)}</span>
         {item.status && <em>{item.status}</em>}
@@ -456,11 +456,12 @@ export function ShoppingCopilotPage({
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<CopilotMode>("guide");
   const [activePanel, setActivePanel] = useState<CopilotPanel>(null);
+  const [selectedCapability, setSelectedCapability] = useState<{ kind: CapabilityKind; id: string } | null>(null);
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [panelSearch, setPanelSearch] = useState("");
   const [threadSearch, setThreadSearch] = useState("");
   const [threadId, setThreadId] = useState(() => `thread-${Date.now()}`);
   const [threads, setThreads] = useState<CopilotThread[]>([]);
-  const [hoveredCapability, setHoveredCapability] = useState<{ kind: CapabilityKind; id: string; top: number; left: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsedMessages, setCollapsedMessages] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<CopilotMessage[]>(() => {
@@ -515,7 +516,7 @@ export function ShoppingCopilotPage({
   const latestResults = latestResponse?.results || [];
   const followUps = useMemo(() => buildFollowUpSuggestions(lastQuery, latestResponse), [lastQuery, latestResponse]);
   const activeMode = COPILOT_MODES.find((item) => item.key === mode) || COPILOT_MODES[0];
-  const hoveredCapabilityItem = hoveredCapability ? findCapability(hoveredCapability.kind, hoveredCapability.id) : null;
+  const selectedCapabilityItem = selectedCapability ? findCapability(selectedCapability.kind, selectedCapability.id) : null;
 
   const currentThreadTitle = useMemo(() => {
     const firstQuery = messages.find((item) => item.role === "user")?.content?.trim();
@@ -559,7 +560,13 @@ export function ShoppingCopilotPage({
 
   function openPanel(panel: Exclude<CopilotPanel, null>) {
     setPanelSearch("");
+    setSelectedCapability(null);
     setActivePanel(panel);
+  }
+
+  function closePanel() {
+    setSelectedCapability(null);
+    setActivePanel(null);
   }
 
   function startNewConversation() {
@@ -567,7 +574,7 @@ export function ShoppingCopilotPage({
     setMessages([createWelcomeMessage()]);
     setCollapsedMessages({});
     setInput("");
-    setActivePanel(null);
+    closePanel();
   }
 
   function openThread(thread: CopilotThread) {
@@ -579,23 +586,7 @@ export function ShoppingCopilotPage({
     } catch {
       setMessages([createWelcomeMessage()]);
     }
-    setActivePanel(null);
-  }
-
-  function showCapability(kind: CapabilityKind, id: string, target: HTMLElement) {
-    const rect = target.getBoundingClientRect();
-    const popoverWidth = 374;
-    const left = Math.max(18, rect.left - popoverWidth - 12);
-    const top = Math.min(window.innerHeight - 280, Math.max(280, rect.top + rect.height / 2));
-    setHoveredCapability({ kind, id, top, left });
-  }
-
-  function showCapabilityFromMouse(kind: CapabilityKind, id: string, event: MouseEvent<HTMLElement>) {
-    showCapability(kind, id, event.currentTarget);
-  }
-
-  function showCapabilityFromFocus(kind: CapabilityKind, id: string, event: FocusEvent<HTMLElement>) {
-    showCapability(kind, id, event.currentTarget);
+    closePanel();
   }
 
   async function submitSearch(query: string) {
@@ -672,7 +663,7 @@ export function ShoppingCopilotPage({
   }
 
   return (
-    <section className="copilot-page">
+    <section className={`copilot-page${railCollapsed ? " is-rail-collapsed" : ""}`}>
       <aside className="copilot-thread-rail">
         <div className="copilot-rail-brand">
           <img src="/brand/logo-icon.png" alt="" />
@@ -701,7 +692,6 @@ export function ShoppingCopilotPage({
         <div className="copilot-rail-footer">
           <div className="copilot-user-avatar"><UserRound size={17} /></div>
           <span><strong>{signedIn ? "已登录账户" : "本地体验账户"}</strong><small>{candidateCount ? `${candidateCount} 个候选商品` : "准备开始购物决策"}</small></span>
-          <button type="button" title="打开搜索与配置" onClick={() => openPanel("search")}><Command size={15} /></button>
         </div>
       </aside>
       <header className="copilot-head">
@@ -711,8 +701,7 @@ export function ShoppingCopilotPage({
           <p>ValuSee AI 导购会围绕预算、用途、SKU 和来源证据持续追问，帮你把购买决定说清楚。</p>
         </div>
         <div className="copilot-top-actions">
-          <button type="button" title="搜索对话和能力" onClick={() => openPanel("search")}><Search size={16} /></button>
-          <button type="button" title="查看 AI 能力" onClick={() => openPanel("capabilities")}><PanelLeft size={16} /></button>
+          <button type="button" title={railCollapsed ? "展开对话栏" : "收起对话栏"} aria-label={railCollapsed ? "展开对话栏" : "收起对话栏"} onClick={() => setRailCollapsed((value) => !value)}><PanelLeft size={16} /></button>
           <button type="button" className="copilot-top-user" title="用户账户"><UserRound size={16} /></button>
         </div>
       </header>
@@ -871,7 +860,6 @@ export function ShoppingCopilotPage({
             <div className="copilot-composer-bar">
               <div className="copilot-pills">
                 <button type="button" onClick={() => openPanel("mode")}><SlidersHorizontal size={13} />{activeMode.label}</button>
-                <button type="button" onClick={() => openPanel("capabilities")}><Database size={13} />RAG / Skill / MCP</button>
                 {QUICK_PROMPTS.map((item) => (
                   <button type="button" key={item} onClick={() => runQuickPrompt(item)}>
                     {item}
@@ -921,11 +909,6 @@ export function ShoppingCopilotPage({
                     <div
                       key={item.id}
                       className="copilot-capability-row"
-                      tabIndex={0}
-                      onMouseEnter={(event) => showCapabilityFromMouse("rag", item.id, event)}
-                      onMouseLeave={() => setHoveredCapability(null)}
-                      onFocus={(event) => showCapabilityFromFocus("rag", item.id, event)}
-                      onBlur={() => setHoveredCapability(null)}
                     >
                       <Database size={15} />
                       <div>
@@ -952,11 +935,6 @@ export function ShoppingCopilotPage({
                     <div
                       key={item.id}
                       className="copilot-capability-row"
-                      tabIndex={0}
-                      onMouseEnter={(event) => showCapabilityFromMouse("skill", item.id, event)}
-                      onMouseLeave={() => setHoveredCapability(null)}
-                      onFocus={(event) => showCapabilityFromFocus("skill", item.id, event)}
-                      onBlur={() => setHoveredCapability(null)}
                     >
                       <Wrench size={15} />
                       <div>
@@ -982,11 +960,6 @@ export function ShoppingCopilotPage({
                     <div
                       key={item.id}
                       className="copilot-capability-row"
-                      tabIndex={0}
-                      onMouseEnter={(event) => showCapabilityFromMouse("mcp", item.id, event)}
-                      onMouseLeave={() => setHoveredCapability(null)}
-                      onFocus={(event) => showCapabilityFromFocus("mcp", item.id, event)}
-                      onBlur={() => setHoveredCapability(null)}
                     >
                       <PlugZap size={15} />
                       <div>
@@ -1068,13 +1041,20 @@ export function ShoppingCopilotPage({
         </aside>
       </div>
       {activePanel && (
-        <div className="copilot-modal-backdrop" role="presentation" onMouseDown={() => setActivePanel(null)}>
+        <div className="copilot-modal-backdrop" role="presentation" onMouseDown={closePanel}>
           <section className="copilot-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <header className="copilot-modal-head">
-              <div><span>ValuSee AI 工作台</span><h2>{activePanel === "search" ? "搜索对话与能力" : activePanel === "mode" ? "选择导购模式" : activePanel === "capabilities" ? "AI 能力地图" : activePanel === "sources" ? "本轮来源" : activePanel === "followups" ? "继续追问" : "候选证据"}</h2></div>
-              <button type="button" title="关闭" onClick={() => setActivePanel(null)}><X size={18} /></button>
+              <div className="copilot-modal-title">
+                {activePanel === "capabilities" && selectedCapabilityItem && (
+                  <button type="button" className="copilot-modal-back" title="返回能力列表" aria-label="返回能力列表" onClick={() => { setSelectedCapability(null); setPanelSearch(""); }}><ArrowLeft size={17} /></button>
+                )}
+                <div><span>ValuSee AI 工作台</span><h2>{selectedCapabilityItem?.name || (activePanel === "search" ? "搜索对话与能力" : activePanel === "mode" ? "选择导购模式" : activePanel === "capabilities" ? "AI 能力地图" : activePanel === "sources" ? "本轮来源" : activePanel === "followups" ? "继续追问" : "候选证据")}</h2></div>
+              </div>
+              <button type="button" title="关闭" onClick={closePanel}><X size={18} /></button>
             </header>
-            <label className="copilot-modal-search"><SearchCode size={17} /><input autoFocus value={panelSearch} onChange={(event) => setPanelSearch(event.target.value)} placeholder={activePanel === "mode" ? "搜索模式" : "搜索名称、能力或关键词"} /><kbd>⌘ K</kbd></label>
+            {!(activePanel === "capabilities" && selectedCapabilityItem) && (
+              <label className="copilot-modal-search"><SearchCode size={17} /><input autoFocus value={panelSearch} onChange={(event) => setPanelSearch(event.target.value)} placeholder={activePanel === "mode" ? "搜索模式" : "搜索名称、能力或关键词"} /><kbd>⌘ K</kbd></label>
+            )}
             {activePanel === "search" && (
               <div className="copilot-search-results">
                 <button type="button" onClick={() => { setActivePanel(null); setInput(panelSearch); }}><MessageSquare size={16} /><span><strong>在当前对话中提问</strong><small>{panelSearch || "输入问题后回车发送"}</small></span><ChevronRight size={15} /></button>
@@ -1087,9 +1067,13 @@ export function ShoppingCopilotPage({
                 {COPILOT_MODES.filter((item) => !panelSearch.trim() || `${item.label} ${item.title} ${item.hint}`.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => { const Icon = item.icon; return <button type="button" key={item.key} className={mode === item.key ? "active" : ""} onClick={() => { setMode(item.key); setActivePanel(null); }}><Icon size={18} /><span><strong>{item.label}</strong><small>{item.title} · {item.hint}</small></span>{mode === item.key && <ShieldCheck size={15} />}</button>; })}
               </div>
             )}
-            {activePanel === "capabilities" && (
+            {activePanel === "capabilities" && selectedCapability && selectedCapabilityItem ? (
+              <div className="copilot-modal-capability-detail">
+                <CapabilityDetail item={selectedCapabilityItem} kind={selectedCapability.kind} />
+              </div>
+            ) : activePanel === "capabilities" && (
               <div className="copilot-modal-capabilities">
-                {panelItems.map(({ kind, item }) => <button type="button" key={`${kind}-${item.id}`} className="copilot-modal-capability" onMouseEnter={(event) => showCapabilityFromMouse(kind, item.id, event)} onMouseLeave={() => setHoveredCapability(null)} onFocus={(event) => showCapabilityFromFocus(kind, item.id, event)} onBlur={() => setHoveredCapability(null)}><span className="copilot-capability-icon">{kind === "rag" ? <Database size={16} /> : kind === "skill" ? <Wrench size={16} /> : <PlugZap size={16} />}</span><span><strong>{item.name}</strong><small>{capabilityKindLabel(kind)} · {item.detail}</small><em>{item.contents.slice(0, 3).map((content) => content.label).join(" · ")}</em></span><ChevronRight size={15} /></button>)}
+                {panelItems.map(({ kind, item }) => <button type="button" key={`${kind}-${item.id}`} className="copilot-modal-capability" onClick={() => { setSelectedCapability({ kind, id: item.id }); setPanelSearch(""); }}><span className="copilot-capability-icon">{kind === "rag" ? <Database size={16} /> : kind === "skill" ? <Wrench size={16} /> : <PlugZap size={16} />}</span><span><strong>{item.name}</strong><small>{capabilityKindLabel(kind)} · {item.detail}</small><em>{item.contents.slice(0, 3).map((content) => content.label).join(" · ")}</em></span><ChevronRight size={15} /></button>)}
                 {!panelItems.length && <div className="copilot-modal-empty">没有匹配的能力或关键词。</div>}
               </div>
             )}
@@ -1098,13 +1082,6 @@ export function ShoppingCopilotPage({
             {activePanel === "evidence" && <div className="copilot-modal-products">{latestResults.map((result) => { const product = result.product; return <article key={`${result.provider}-${product.url}-${product.sku}`}><div className="copilot-mini-thumb">{product.image_url ? <img src={product.image_url} alt="" /> : <Laptop size={18} />}</div><span><strong>{product.title}</strong><small>{sourceLabel(result.provider)} · {money(finalPrice(product))}</small></span><button type="button" onClick={() => onAddCandidate(product)}><Plus size={14} /></button></article>; })}{!latestResults.length && <div className="copilot-modal-empty">当前对话还没有候选商品。</div>}</div>}
           </section>
         </div>
-      )}
-      {hoveredCapability && hoveredCapabilityItem && (
-        <CapabilityPopover
-          item={hoveredCapabilityItem}
-          kind={hoveredCapability.kind}
-          style={{ left: hoveredCapability.left, top: hoveredCapability.top }}
-        />
       )}
     </section>
   );

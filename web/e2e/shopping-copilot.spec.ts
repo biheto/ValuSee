@@ -101,4 +101,31 @@ test.describe('shopping copilot page', () => {
     await expect(page.getByText(/已加入候选/)).toBeVisible();
     await expect(page.getByRole('button', { name: /对比工作台/ })).toBeEnabled();
   });
+
+  test('keeps capability details inside the modal and can collapse the conversation rail', async ({ page }) => {
+    await page.goto('/?view=copilot');
+
+    const rail = page.locator('.copilot-thread-rail');
+    const railToggle = page.locator('.copilot-top-actions button').first();
+    await railToggle.click();
+    await expect.poll(async () => (await rail.boundingBox())?.width || 0).toBe(0);
+    await railToggle.click();
+    await expect.poll(async () => (await rail.boundingBox())?.width || 0).toBeGreaterThan(0);
+
+    await page.locator('.copilot-context-actions button').filter({ hasText: 'AI' }).click();
+    await expect(page.locator('.copilot-modal')).toBeVisible();
+    await expect(page.locator('.copilot-modal-capabilities')).toBeVisible();
+
+    const firstCapability = page.locator('.copilot-modal-capability').first();
+    const firstCapabilityName = await firstCapability.locator('strong').textContent();
+    await firstCapability.click();
+    await expect(page.locator('.copilot-modal-capability-detail')).toBeVisible();
+    await expect(page.locator('.copilot-capability-popover')).toHaveCount(0);
+    await expect(page.locator('.copilot-modal h2')).not.toHaveText('AI 鑳藉姟鍦板浘');
+
+    await page.getByRole('button', { name: '返回能力列表' }).click();
+    await expect(page.locator('.copilot-modal-capabilities')).toBeVisible();
+    await expect(page.locator('.copilot-modal-search')).toBeVisible();
+    await expect(page.locator('.copilot-modal-capability').first().locator('strong')).toHaveText(firstCapabilityName || '');
+  });
 });
