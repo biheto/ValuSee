@@ -2,11 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 
 async function register(page: Page) {
   const email = `copilot-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
+  const captchaResponsePromise = page.waitForResponse((response) => response.url().includes('/api/v1/auth/captcha'));
   await page.goto('/register');
+  const captchaResponse = await captchaResponsePromise;
   await page.getByLabel('昵称').fill('Copilot Tester');
   await page.getByLabel('邮箱', { exact: true }).fill(email);
   await page.getByRole('button', { name: '获取验证码' }).click();
   await expect(page.getByLabel('邮箱验证码')).toHaveValue(/^\d{6}$/);
+  const captcha = await captchaResponse.json();
+  await page.getByLabel('图形验证码输入').fill(captcha.code);
   await page.getByLabel('密码', { exact: true }).fill('E2e-password-2026');
   await page.getByLabel('确认密码').fill('E2e-password-2026');
   await page.getByRole('button', { name: '注册并登录' }).click();

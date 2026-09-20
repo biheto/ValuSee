@@ -270,6 +270,8 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=200)
     confirm_password: str = Field(..., min_length=8, max_length=200)
     verification_code: str = Field(..., pattern=r"^\d{6}$")
+    captcha_id: str = Field(..., min_length=12, max_length=100)
+    captcha_code: str = Field(..., min_length=4, max_length=6, pattern=r"^[A-Za-z0-9]{4,6}$")
     display_name: str = Field(default="", max_length=60)
 
 
@@ -280,6 +282,8 @@ class RegistrationCodeRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    captcha_id: str = Field(..., min_length=12, max_length=100)
+    captcha_code: str = Field(..., min_length=4, max_length=6, pattern=r"^[A-Za-z0-9]{4,6}$")
     mfa_code: str = Field(default="", max_length=32)
 
 

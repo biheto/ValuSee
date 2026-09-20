@@ -156,8 +156,10 @@ def test_admin_api_requires_mfa_after_enrollment(monkeypatch, tmp_path):
     assert client.get("/api/v1/admin/overview", headers=headers).status_code == 401
     assert client.get("/api/v1/admin/overview", headers={"Authorization": f"Bearer {verified_token}"}).status_code == 200
 
-    assert client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password"}).status_code == 401
-    login = client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password", "mfa_code": _totp(setup["secret"])})
+    challenge = client.get("/api/v1/auth/captcha").json()
+    assert client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password", "captcha_id": challenge["captcha_id"], "captcha_code": challenge["code"]}).status_code == 401
+    challenge = client.get("/api/v1/auth/captcha").json()
+    login = client.post("/api/v1/auth/login", json={"email": user["email"], "password": "strong-password", "captcha_id": challenge["captcha_id"], "captcha_code": challenge["code"], "mfa_code": _totp(setup["secret"])})
     assert login.status_code == 200 and login.json()["mfa_verified"] is True
     disabled = client.request(
         "DELETE",

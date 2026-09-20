@@ -1,17 +1,9 @@
-import { ArrowLeft, CheckCircle2, Loader2, LockKeyhole, Mail, RotateCcw, ShieldCheck, UserRound } from 'lucide-react';
-import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, CheckCircle2, Loader2, LockKeyhole, Mail, RefreshCw, ShieldCheck, UserRound } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import { apiUrl } from './runtime';
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
-
-const CAPTCHA_IMAGES = [
-  '/brand/store-hero.png',
-  '/brand/showcase-1.png',
-  '/brand/showcase-2.png',
-  '/brand/showcase-3.png',
-  '/brand/features.png',
-];
 
 async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(path), init);
@@ -45,7 +37,10 @@ export function AuthPage() {
   const [notice, setNotice] = useState('');
   const [noticeError, setNoticeError] = useState(false);
   const [captchaVersion, setCaptchaVersion] = useState(0);
-  const [captchaSolved, setCaptchaSolved] = useState(false);
+  const [captchaId, setCaptchaId] = useState('');
+  const [captchaImage, setCaptchaImage] = useState('');
+  const [captchaCode, setCaptchaCode] = useState('');
+  const captchaRequestKey = useRef('');
   const title = mode === 'login' ? '登录 ValuSee' : mode === 'register' ? '创建 ValuSee 账户' : mode === 'forgot' ? '找回密码' : '重置密码';
   const subtitle = mode === 'login' ? '进入你的购物决策、降价提醒和售后记录。' : mode === 'register' ? '验证邮箱后同步收藏、报告和监控数据。' : mode === 'forgot' ? '我们会向注册邮箱发送一次性重置链接。' : '请输入两次新密码完成更新。';
 
@@ -63,10 +58,28 @@ export function AuthPage() {
     setConfirmPassword('');
     setVerificationCode('');
     setMfaCode('');
-    setCaptchaSolved(false);
+    setCaptchaCode('');
+    setCaptchaId('');
     if (next !== 'reset') setResetToken('');
     window.history.replaceState({}, '', next === 'register' ? '/register' : next === 'forgot' ? '/login?mode=forgot' : '/login');
   }
+
+  useEffect(() => {
+    if (mode !== 'login' && mode !== 'register') return;
+    const requestKey = `${mode}:${captchaVersion}`;
+    if (captchaRequestKey.current === requestKey) return;
+    captchaRequestKey.current = requestKey;
+    setCaptchaCode('');
+    setCaptchaId('');
+    setCaptchaImage('');
+    void authRequest<{ captcha_id: string; image: string }>('/api/v1/auth/captcha').then((result) => {
+      if (captchaRequestKey.current !== requestKey) return;
+      setCaptchaId(result.captcha_id);
+      setCaptchaImage(result.image);
+    }).catch(() => {
+      if (captchaRequestKey.current === requestKey) setNotice('图形验证码加载失败，请点击刷新重试。');
+    });
+  }, [mode, captchaVersion]);
 
   async function requestCode() {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
@@ -100,7 +113,7 @@ export function AuthPage() {
     setNotice('');
     setNoticeError(false);
     try {
-      if (mode === 'login' && !captchaSolved) throw new Error('请先完成拼图验证码。');
+      if ((mode === 'login' || mode === 'register') && (!captchaId || !/^[A-Za-z0-9]{4,6}$/.test(captchaCode))) throw new Error('请输入图形验证码。');
       if ((mode === 'register' || mode === 'reset') && password !== confirmPassword) throw new Error('两次输入的密码不一致。');
       if (mode === 'register' && !/^\d{6}$/.test(verificationCode)) throw new Error('请输入邮箱中的 6 位验证码。');
       if (mode === 'forgot') {
@@ -132,6 +145,8 @@ export function AuthPage() {
           password,
           confirm_password: confirmPassword,
           verification_code: verificationCode,
+          captcha_id: captchaId,
+          captcha_code: captchaCode,
           display_name: displayName,
           mfa_code: mfaCode,
         }),
@@ -142,8 +157,8 @@ export function AuthPage() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '账户操作失败');
       setNoticeError(true);
-      if (mode === 'login') {
-        setCaptchaSolved(false);
+      if (mode === 'login' || mode === 'register') {
+        setCaptchaCode('');
         setCaptchaVersion((value) => value + 1);
       }
     } finally {
@@ -185,9 +200,9 @@ export function AuthPage() {
           {mode !== 'forgot' && <AuthField icon={<LockKeyhole size={16} />} label={mode === 'reset' ? '新密码' : '密码'} type="password" required minLength={8} value={password} onChange={setPassword} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />}
           {(mode === 'register' || mode === 'reset') && <AuthField icon={<LockKeyhole size={16} />} label="确认密码" type="password" required minLength={8} value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />}
           {mode === 'login' && <AuthField icon={<ShieldCheck size={16} />} label="动态验证码或恢复码" value={mfaCode} onChange={setMfaCode} autoComplete="one-time-code" optional />}
-          {mode === 'login' && <PuzzleCaptcha key={captchaVersion} solved={captchaSolved} onSolved={() => setCaptchaSolved(true)} onReset={() => { setCaptchaSolved(false); setCaptchaVersion((value) => value + 1); }} />}
+          {(mode === 'login' || mode === 'register') && <CharacterCaptcha image={captchaImage} value={captchaCode} onChange={setCaptchaCode} onReset={() => setCaptchaVersion((value) => value + 1)} />}
           {notice && <div className={`auth-notice${noticeError ? ' error' : ''}`}>{notice}</div>}
-          <button className="auth-submit" disabled={busy || (mode === 'login' && !captchaSolved)}>
+          <button className="auth-submit" disabled={busy || ((mode === 'login' || mode === 'register') && (!captchaId || !/^[A-Za-z0-9]{4,6}$/.test(captchaCode)))}>
             {busy ? <Loader2 className="spin" size={17} /> : mode === 'login' ? <ShieldCheck size={17} /> : <CheckCircle2 size={17} />}
             {busy ? '处理中' : mode === 'login' ? '登录' : mode === 'register' ? '注册并登录' : mode === 'forgot' ? '发送重置邮件' : '更新密码'}
           </button>
@@ -210,59 +225,15 @@ function AuthField({ label, icon, value, onChange, optional, ...props }: { label
   );
 }
 
-function PuzzleCaptcha({ solved, onSolved, onReset }: { solved: boolean; onSolved: () => void; onReset: () => void }) {
-  const image = useMemo(() => CAPTCHA_IMAGES[Math.floor(Math.random() * CAPTCHA_IMAGES.length)], []);
-  const target = useMemo(() => 142 + Math.round(Math.random() * 92), []);
-  const pieceY = useMemo(() => 34 + Math.round(Math.random() * 38), []);
-  const [value, setValue] = useState(0);
-  const [boardWidth, setBoardWidth] = useState(360);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-  const pieceSize = 48;
-  const max = Math.max(180, boardWidth - pieceSize - 16);
-  const blockX = Math.min(max, Math.max(0, value));
-  const targetX = Math.min(max - 8, target);
-  const pieceStyle = {
-    left: blockX + 8,
-    top: pieceY,
-    width: pieceSize,
-    height: pieceSize,
-    backgroundImage: `url(${image})`,
-    backgroundSize: `${boardWidth}px 142px`,
-    backgroundPosition: `-${targetX}px -${pieceY}px`,
-  };
-  const notchStyle = { left: targetX + 8, top: pieceY, width: pieceSize, height: pieceSize };
-
-  useEffect(() => {
-    const board = boardRef.current;
-    if (!board) return;
-    const update = () => setBoardWidth(Math.max(300, Math.round(board.getBoundingClientRect().width)));
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(board);
-    return () => observer.disconnect();
-  }, []);
-
-  function updateFromPointer(event: PointerEvent<HTMLElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const next = Math.max(0, Math.min(max, event.clientX - rect.left - pieceSize / 2));
-    setValue(next);
-    if (Math.abs(next - targetX) <= 7) onSolved();
-  }
+function CharacterCaptcha({ image, value, onChange, onReset }: { image: string; value: string; onChange: (value: string) => void; onReset: () => void }) {
   return (
-    <div className={`puzzle-captcha${solved ? ' solved' : ''}`}>
-      <div className="puzzle-board" ref={boardRef} style={{ backgroundImage: `url(${image})` }} onPointerDown={(event) => { dragging.current = true; event.currentTarget.setPointerCapture(event.pointerId); updateFromPointer(event); }} onPointerMove={(event) => dragging.current && updateFromPointer(event)} onPointerUp={(event) => { dragging.current = false; event.currentTarget.releasePointerCapture(event.pointerId); if (!solved && Math.abs(blockX - targetX) > 7) setValue(0); }}>
-        <div className="puzzle-shade" />
-        <div className="puzzle-notch" style={notchStyle} />
-        <div className="puzzle-piece" style={pieceStyle}>
-          <i />
-        </div>
+    <div className="character-captcha">
+      <div className="character-captcha-head"><span>图形验证码</span><small>请输入图片中的 4-6 位数字或字母</small></div>
+      <div className="character-captcha-row">
+        {image ? <img src={image} alt="图形验证码" /> : <div className="character-captcha-loading">正在生成...</div>}
+        <button type="button" title="刷新验证码" aria-label="刷新验证码" onClick={onReset}><RefreshCw size={15} /></button>
       </div>
-      <div className="puzzle-slider">
-        <input aria-label="拖动拼图验证码" type="range" min={0} max={max} value={blockX} onChange={(event) => { const next = Number(event.target.value); setValue(next); if (Math.abs(next - targetX) <= 7) onSolved(); }} />
-        <button type="button" title="刷新拼图" onClick={onReset}><RotateCcw size={14} /></button>
-      </div>
-      <small>{solved ? '验证通过' : '拖动拼图块，使其与缺口重合'}</small>
+      <input aria-label="图形验证码输入" value={value} maxLength={6} autoComplete="off" spellCheck={false} onChange={(event) => onChange(event.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6))} placeholder="输入验证码" />
     </div>
   );
 }

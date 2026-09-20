@@ -48,6 +48,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .puzzle-captcha small { color:#75837d; font-size:11px; }
 .puzzle-captcha.solved { border-color:#a8dcc8; background:#effaf4; }
 .puzzle-captcha.solved .puzzle-piece { box-shadow:0 0 0 3px rgba(45,154,114,.28),0 8px 16px rgba(18,45,37,.24); transform:scale(1.02); }
+.character-captcha { display:grid; gap:8px; padding:11px; border:1px solid #dfe7e2; border-radius:8px; background:#f7faf8; }
+.character-captcha-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.character-captcha-head span { color:#53645d; font-size:12px; font-weight:900; }
+.character-captcha-head small { color:#84918b; font-size:10px; }
+.character-captcha-row { display:grid; grid-template-columns:minmax(0,1fr) 32px; gap:7px; align-items:center; }
+.character-captcha-row img,.character-captcha-loading { display:block; width:100%; height:96px; border:1px solid #cfddd5; border-radius:8px; background:#e8f1ec; object-fit:cover; }
+.character-captcha-loading { display:grid; place-items:center; color:#7c8d85; font-size:11px; }
+.character-captcha-row button { display:grid; width:32px; height:32px; place-items:center; border-radius:7px; color:#52655d; background:#e9f0ec; }
+.character-captcha > input { width:100%; min-height:40px; padding:0 11px; border:1px solid #dfe7e2; border-radius:8px; outline:0; color:#243331; background:#fff; font-size:14px; letter-spacing:.16em; text-transform:none; }
+.character-captcha > input:focus { border-color:#287c6b; box-shadow:0 0 0 3px rgba(40,124,107,.12); }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } }
 .valuesee-app { width: 100%; min-height:100vh; margin: 0; padding: 30px 32px 64px 268px; }
 .app-header { position:fixed; z-index:30; inset:0 auto 0 0; display:flex; width:236px; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:18px; min-height:100vh; padding:24px 16px; border-right:1px solid #e7ece8; background:rgba(255,255,255,.94); box-shadow:10px 0 30px rgba(51,68,60,.06); overflow-y:auto; }

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import json
+import base64
 import hashlib
+import json
 import os
+import secrets
 import time
 import zipfile
 from io import BytesIO
@@ -224,6 +226,45 @@ def _raw_bearer(authorization: str | None) -> str | None:
     return authorization[7:].strip() if authorization and authorization.startswith("Bearer ") else None
 
 
+def _captcha_image(code: str) -> str:
+    colors = ("#1f7765", "#d85d68", "#365c8d", "#a36b2c", "#4a6572")
+    lines = []
+    dots = []
+    for index in range(8):
+        x1 = secrets.randbelow(290)
+        y1 = secrets.randbelow(86) + 5
+        x2 = secrets.randbelow(290)
+        y2 = secrets.randbelow(86) + 5
+        lines.append(f'<path d="M{x1} {y1} Q{secrets.randbelow(300)} {secrets.randbelow(96)} {x2} {y2}" stroke="{colors[index % len(colors)]}" stroke-width="{1 + secrets.randbelow(2)}" opacity=".38"/>')
+    for _ in range(34):
+        dots.append(f'<circle cx="{secrets.randbelow(300)}" cy="{secrets.randbelow(96)}" r="{1 + secrets.randbelow(2)}" fill="{colors[secrets.randbelow(len(colors))]}" opacity=".42"/>')
+    chars = []
+    step = 44
+    for index, char in enumerate(code):
+        x = 28 + index * step
+        y = 60 + secrets.randbelow(13) - 6
+        rotate = secrets.randbelow(31) - 15
+        skew = secrets.randbelow(13) - 6
+        color = colors[index % len(colors)]
+        chars.append(f'<text x="{x}" y="{y}" fill="{color}" transform="rotate({rotate} {x} {y}) skewX({skew})" font-family="Arial,sans-serif" font-size="38" font-weight="900" text-anchor="middle">{char}</text>')
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="300" height="96" viewBox="0 0 300 96">
+      <defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="2" dy="3" stdDeviation="1.5" flood-color="#1c3029" flood-opacity=".3"/></filter></defs>
+      <rect width="300" height="96" rx="10" fill="#f3f8f5"/><rect x="8" y="8" width="284" height="80" rx="8" fill="#e8f1ec" stroke="#cbdcd3"/>
+      {''.join(dots)}{''.join(lines)}<g filter="url(#shadow)">{''.join(chars)}</g>
+    </svg>'''
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+@router.get("/auth/captcha", tags=["Account"])
+def issue_captcha() -> dict[str, object]:
+    captcha_id, code = auth_store.issue_captcha()
+    response: dict[str, object] = {"captcha_id": captcha_id, "image": _captcha_image(code), "expires_in": 300}
+    if settings.app_env.lower() not in {"prod", "production"}:
+        response["code"] = code
+    return response
+
+
 @router.post("/auth/register/code/request", tags=["Account"])
 def request_registration_code(request_body: RegistrationCodeRequest) -> dict[str, object]:
     if auth_store.get_user_by_email(request_body.email):
@@ -250,6 +291,8 @@ def request_registration_code(request_body: RegistrationCodeRequest) -> dict[str
 def register_account(request_body: RegisterRequest, request: Request) -> dict[str, object]:
     if request_body.password != request_body.confirm_password:
         raise HTTPException(status_code=422, detail="两次输入的密码不一致")
+    if not auth_store.consume_captcha(request_body.captcha_id, request_body.captcha_code):
+        raise HTTPException(status_code=422, detail="图形验证码无效、已过期或尝试次数过多")
     if not auth_store.consume_email_code(
         request_body.email,
         "register",
@@ -275,6 +318,8 @@ def register_account(request_body: RegisterRequest, request: Request) -> dict[st
 
 @router.post("/auth/login", tags=["Account"])
 def login_account(request_body: LoginRequest, request: Request) -> dict[str, object]:
+    if not auth_store.consume_captcha(request_body.captcha_id, request_body.captcha_code):
+        raise HTTPException(status_code=422, detail="图形验证码无效、已过期或尝试次数过多")
     user = auth_store.authenticate(request_body.email, request_body.password)
     if not user:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")

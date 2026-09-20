@@ -219,7 +219,8 @@ def test_extension_capture_accepts_a_fresh_login_session(monkeypatch: pytest.Mon
     monkeypatch.setattr(routes, "shopping_store", captures)
     client = TestClient(app)
 
-    login = client.post("/api/v1/auth/login", json={"email": "extension@example.com", "password": "strong-password"})
+    challenge = client.get("/api/v1/auth/captcha").json()
+    login = client.post("/api/v1/auth/login", json={"email": "extension@example.com", "password": "strong-password", "captcha_id": challenge["captcha_id"], "captcha_code": challenge["code"]})
     assert login.status_code == 200
     token = login.json()["access_token"]
     assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200

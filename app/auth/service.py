@@ -78,6 +78,10 @@ class AuthStore:
                 expires_at TEXT NOT NULL,attempts INTEGER NOT NULL,created_at TEXT NOT NULL,
                 last_sent_at TEXT NOT NULL,PRIMARY KEY(email,purpose)
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_captcha_challenge(
+                captcha_id TEXT PRIMARY KEY,code_hash TEXT NOT NULL,expires_at TEXT NOT NULL,
+                attempts INTEGER NOT NULL,created_at TEXT NOT NULL
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS valuesee_session(
                 session_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,
                 device_name TEXT NOT NULL,ip_address TEXT,status TEXT NOT NULL,created_at TEXT NOT NULL,
@@ -244,6 +248,37 @@ class AuthStore:
                 "DELETE FROM valuesee_email_code WHERE email=? AND purpose=?",
                 (normalized, purpose),
             )
+        return True
+
+    def issue_captcha(self, *, ttl_seconds: int = 300) -> tuple[str, str]:
+        captcha_id = f"cap_{uuid4().hex}"
+        code = "".join(secrets.choice("23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz") for _ in range(secrets.choice((4, 5, 6))))
+        now = datetime.now(timezone.utc)
+        expires_at = (now + timedelta(seconds=max(60, min(ttl_seconds, 600)))).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        with self._session() as conn:
+            conn.execute("DELETE FROM valuesee_captcha_challenge WHERE expires_at < ?", (now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),))
+            conn.execute(
+                "INSERT INTO valuesee_captcha_challenge(captcha_id,code_hash,expires_at,attempts,created_at) VALUES(?,?,?,?,?)",
+                (captcha_id, _captcha_code_hash(captcha_id, code), expires_at, 0, now.replace(microsecond=0).isoformat().replace("+00:00", "Z")),
+            )
+        return captcha_id, code
+
+    def consume_captcha(self, captcha_id: str, code: str) -> bool:
+        supplied_id = captcha_id.strip()
+        supplied_code = code.strip()
+        now = datetime.now(timezone.utc)
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT code_hash,expires_at,attempts FROM valuesee_captcha_challenge WHERE captcha_id=?",
+                (supplied_id,),
+            ).fetchone()
+            if not row or int(row["attempts"]) >= 5 or _parse_utc(row["expires_at"]) < now:
+                return False
+            expected = _captcha_code_hash(supplied_id, supplied_code)
+            if not hmac.compare_digest(str(row["code_hash"]), expected):
+                conn.execute("UPDATE valuesee_captcha_challenge SET attempts=attempts+1 WHERE captcha_id=?", (supplied_id,))
+                return False
+            conn.execute("DELETE FROM valuesee_captcha_challenge WHERE captcha_id=?", (supplied_id,))
         return True
 
     def delete_email_code(self, email: str, purpose: str) -> None:
@@ -903,6 +938,11 @@ def _recovery_hash(code: str) -> str:
 
 def _email_code_hash(email: str, purpose: str, code: str) -> str:
     value = f"email-code:{email.strip().lower()}:{purpose}:{code.strip()}".encode()
+    return hmac.new(_jwt_secret(), value, hashlib.sha256).hexdigest()
+
+
+def _captcha_code_hash(captcha_id: str, code: str) -> str:
+    value = f"captcha:{captcha_id.strip()}:{code.strip()}".encode()
     return hmac.new(_jwt_secret(), value, hashlib.sha256).hexdigest()
 
 

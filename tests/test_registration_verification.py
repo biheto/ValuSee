@@ -6,6 +6,13 @@ from app.auth.service import AuthStore
 from app.main import app
 
 
+def captcha(client: TestClient) -> dict[str, str]:
+    response = client.get("/api/v1/auth/captcha")
+    assert response.status_code == 200
+    payload = response.json()
+    return {"captcha_id": payload["captcha_id"], "captcha_code": payload["code"]}
+
+
 def test_email_code_is_hashed_single_use_and_rate_limited(tmp_path: Path) -> None:
     store = AuthStore(tmp_path / "registration-code.db")
     code = store.issue_email_code("Buyer@Example.com", "register")
@@ -43,6 +50,7 @@ def test_registration_requires_code_and_matching_passwords(monkeypatch, tmp_path
     )
     assert issued.status_code == 200
     code = issued.json()["verification_code"]
+    challenge = captcha(client)
     mismatch = client.post(
         "/api/v1/auth/register",
         json={
@@ -51,6 +59,7 @@ def test_registration_requires_code_and_matching_passwords(monkeypatch, tmp_path
             "confirm_password": "different-password",
             "verification_code": code,
             "display_name": "Verified",
+            **challenge,
         },
     )
     assert mismatch.status_code == 422
@@ -63,6 +72,7 @@ def test_registration_requires_code_and_matching_passwords(monkeypatch, tmp_path
             "confirm_password": "strong-password",
             "verification_code": code,
             "display_name": "Verified",
+            **challenge,
         },
     )
     assert registered.status_code == 200
@@ -74,6 +84,7 @@ def test_registration_requires_code_and_matching_passwords(monkeypatch, tmp_path
             "password": "strong-password",
             "confirm_password": "strong-password",
             "verification_code": code,
+            **captcha(client),
         },
     ).status_code == 422
 
