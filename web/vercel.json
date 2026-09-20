@@ -7,6 +7,8 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://valuesee-api.vercel.app/api/:path*" },
     { "source": "/admin/:path*", "destination": "/index.html" },
+    { "source": "/login/:path*", "destination": "/index.html" },
+    { "source": "/register/:path*", "destination": "/index.html" },
     { "source": "/product/:path*", "destination": "/index.html" },
     { "source": "/content/:path*", "destination": "/index.html" },
     { "source": "/share/:path*", "destination": "/index.html" }
