@@ -2,17 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 
 async function register(page: Page) {
   const email = `copilot-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
-  await page.goto('/');
-  await page.getByRole('button', { name: '本地账户' }).click();
-  await page.getByRole('button', { name: '没有账户？立即注册' }).click();
+  await page.goto('/register');
   await page.getByLabel('昵称').fill('Copilot Tester');
   await page.getByLabel('邮箱', { exact: true }).fill(email);
   await page.getByRole('button', { name: '获取验证码' }).click();
   await expect(page.getByLabel('邮箱验证码')).toHaveValue(/^\d{6}$/);
   await page.getByLabel('密码', { exact: true }).fill('E2e-password-2026');
   await page.getByLabel('确认密码').fill('E2e-password-2026');
-  await page.getByRole('button', { name: '注册', exact: true }).click();
-  await expect(page.getByText('邮箱验证完成，账户创建成功。')).toBeVisible();
+  await page.getByRole('button', { name: '注册并登录' }).click();
+  await expect(page.getByRole('button', { name: 'Copilot Tester' })).toBeVisible();
 }
 
 test.describe('shopping copilot page', () => {

@@ -1,17 +1,23 @@
 import {
   ArrowUpRight,
+  Bot,
+  BrainCircuit,
   ChevronRight,
+  Database,
   ExternalLink,
   Laptop,
   Loader2,
   MessageSquare,
   Minus,
   Plus,
+  PlugZap,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
+  Wrench,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, FocusEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import type { CommerceSearchResponse, ConsumerProduct } from "./ConsumerHub";
 
@@ -21,6 +27,7 @@ type CopilotMessage = {
   createdAt: string;
   content: string;
   query?: string;
+  mode?: CopilotMode;
   response?: CommerceSearchResponse | null;
   loading?: boolean;
   error?: boolean;
@@ -31,6 +38,201 @@ type FollowUpSuggestion = {
   query: string;
   hint: string;
 };
+
+type CopilotMode = "guide" | "research" | "compare" | "deal";
+type CapabilityKind = "rag" | "skill" | "mcp";
+type CapabilityItem = {
+  id: string;
+  name: string;
+  detail: string;
+  status?: string;
+  contents: Array<{ label: string; description: string }>;
+  definitions: Array<{ term: string; meaning: string }>;
+  input: string;
+  output: string;
+  trust: string;
+};
+
+const COPILOT_MODES = [
+  { key: "guide", label: "导购模式", title: "像顾问一样追问", hint: "预算、用途、人群偏好", icon: Sparkles },
+  { key: "research", label: "研究模式", title: "先查资料再回答", hint: "RAG 知识库优先", icon: BrainCircuit },
+  { key: "compare", label: "对比模式", title: "按参数和风险拆解", hint: "SKU、价格、售后", icon: SlidersHorizontal },
+  { key: "deal", label: "省钱模式", title: "寻找优惠和替代", hint: "券、补贴、历史价", icon: Search },
+] as const;
+
+const RAG_KNOWLEDGE_BASES: CapabilityItem[] = [
+  {
+    id: "product-sku",
+    name: "商品与 SKU 知识库",
+    detail: "型号、版本、规格差异",
+    status: "已接入",
+    contents: [
+      { label: "型号归一", description: "把标题里的别名、后缀和套装信息整理成可比型号。" },
+      { label: "SKU 差异", description: "识别容量、颜色、地区版、套装和保修版本差异。" },
+      { label: "规格抽取", description: "沉淀屏幕、芯片、接口、尺寸等关键参数。" },
+    ],
+    definitions: [
+      { term: "product_ref", meaning: "同一商品在 ValuSee 内部的聚合标识。" },
+      { term: "sku_signature", meaning: "用于判断同款的品牌、型号、规格组合。" },
+      { term: "variant_delta", meaning: "候选之间仍需用户确认的版本差异。" },
+    ],
+    input: "商品标题、型号、平台 SKU、用户粘贴的链接或截图文本",
+    output: "同款/非同款判断、版本差异、关键规格字段",
+    trust: "优先使用结构化商品字段；不确定时会提示用户回到源平台核验 SKU。",
+  },
+  {
+    id: "price-promo",
+    name: "价格与优惠证据库",
+    detail: "到手价、券、补贴、运费",
+    status: "检索中",
+    contents: [
+      { label: "价格拆解", description: "区分页面价、券后价、支付优惠、补贴和运费。" },
+      { label: "叠加判断", description: "标记哪些优惠可能不可叠加。" },
+      { label: "时效提示", description: "展示价格采集时间和需要重新确认的部分。" },
+    ],
+    definitions: [
+      { term: "final_price", meaning: "按当前证据计算出的参考到手价。" },
+      { term: "discount_stack", meaning: "参与计算的优惠项列表和来源。" },
+      { term: "price_confidence", meaning: "价格是否需要回到源平台二次确认。" },
+    ],
+    input: "平台价、优惠券、会员折扣、补贴、运费与礼品价值",
+    output: "到手价拆解、优惠来源、是否需要二次确认",
+    trust: "价格会随时间变动，展示为导购参考，最终价格以源平台结算页为准。",
+  },
+  {
+    id: "after-sales-risk",
+    name: "售后与风险规则库",
+    detail: "退换、保修、平台风险",
+    status: "已接入",
+    contents: [
+      { label: "售后边界", description: "识别退换、价保、保修和发票条件。" },
+      { label: "平台风险", description: "提示店铺资质、非官方渠道和履约不确定性。" },
+      { label: "用户偏好", description: "结合风险偏好调整提醒优先级。" },
+    ],
+    definitions: [
+      { term: "risk_tag", meaning: "影响购买决策的风险标签。" },
+      { term: "after_sales_scope", meaning: "售后服务覆盖范围和限制。" },
+      { term: "evidence_source", meaning: "风险判断来自平台信息、规则库还是用户补充。" },
+    ],
+    input: "店铺类型、平台、商品类目、售后关键词和用户关注点",
+    output: "保修/退换提醒、风险标签、建议追问项",
+    trust: "风险规则来自本地策略与用户确认信息，不替代平台官方售后条款。",
+  },
+];
+
+const COPILOT_SKILLS: CapabilityItem[] = [
+  {
+    id: "same-product",
+    name: "同款识别",
+    detail: "合并标题相似但 SKU 不同的商品",
+    contents: [
+      { label: "标题清洗", description: "移除营销词、赠品词和无关活动词。" },
+      { label: "规格对齐", description: "对齐品牌、型号、容量、颜色和套装字段。" },
+      { label: "差异保留", description: "对疑似不同版不强行合并，保留给用户确认。" },
+    ],
+    definitions: [
+      { term: "same_product_score", meaning: "同款判断的相似度分值。" },
+      { term: "mismatch_reason", meaning: "无法合并时的主要差异原因。" },
+      { term: "manual_check", meaning: "需要用户或源平台确认的字段。" },
+    ],
+    input: "候选商品标题、品牌、型号、规格、来源链接",
+    output: "同款候选、疑似不同版、需要人工确认的差异点",
+    trust: "只在证据足够时合并；容量、颜色、套装和地区版差异会保留提醒。",
+  },
+  {
+    id: "final-price",
+    name: "到手价计算",
+    detail: "拆分券、补贴、会员折扣与运费",
+    contents: [
+      { label: "优惠合并", description: "按同一口径合并券、满减、补贴和支付优惠。" },
+      { label: "成本补全", description: "把运费、赠品价值、会员门槛纳入说明。" },
+      { label: "异常提示", description: "发现价格缺项或优惠冲突时提示核验。" },
+    ],
+    definitions: [
+      { term: "base_price", meaning: "商品页面展示的原始价格。" },
+      { term: "deduction", meaning: "可解释的优惠抵扣金额。" },
+      { term: "payable_price", meaning: "用户可能实际支付的参考金额。" },
+    ],
+    input: "原价、券、满减、平台补贴、支付优惠、运费、赠品价值",
+    output: "统一口径的到手价与优惠明细",
+    trust: "会把不确定优惠标出来，避免把不可叠加优惠直接相加。",
+  },
+  {
+    id: "followup",
+    name: "追问生成",
+    detail: "发现缺失预算、用途和规格条件",
+    contents: [
+      { label: "缺口识别", description: "发现预算、用途、品牌偏好和设备条件缺失。" },
+      { label: "下一问排序", description: "优先提出能改变购买结论的问题。" },
+      { label: "上下文继承", description: "沿用上一轮需求和候选结果继续追问。" },
+    ],
+    definitions: [
+      { term: "missing_signal", meaning: "当前决策缺失的关键信息。" },
+      { term: "question_priority", meaning: "追问的重要程度和展示顺序。" },
+      { term: "decision_impact", meaning: "回答后可能影响的筛选或排序结果。" },
+    ],
+    input: "用户当前问题、已选商品、缺失字段、历史追问",
+    output: "下一步追问、筛选建议、需要补充的证据",
+    trust: "追问只围绕购买决策缺口生成，避免无关聊天稀释判断。",
+  },
+];
+
+const COPILOT_MCPS: CapabilityItem[] = [
+  {
+    id: "commerce-search",
+    name: "Commerce Search",
+    detail: "聚合授权商品来源",
+    contents: [
+      { label: "平台查询", description: "按关键词和模式请求可用商品来源。" },
+      { label: "来源状态", description: "返回每个平台可用、无结果或错误原因。" },
+      { label: "结果归一", description: "把不同平台字段整理为统一商品卡片。" },
+    ],
+    definitions: [
+      { term: "provider", meaning: "商品来源平台或服务名称。" },
+      { term: "source_url", meaning: "可跳回源平台核验的商品地址。" },
+      { term: "fetch_status", meaning: "本次来源调用的状态。" },
+    ],
+    input: "用户搜索词、平台筛选条件、当前导购模式",
+    output: "候选商品、来源状态、授权来源链接",
+    trust: "只展示可追溯来源；不可用来源会在来源面板中标明。",
+  },
+  {
+    id: "browser-capture",
+    name: "Browser Capture",
+    detail: "读取用户确认的页面采集",
+    contents: [
+      { label: "用户触发", description: "只处理用户主动上传或确认采集的数据。" },
+      { label: "页面解析", description: "抽取标题、价格、图片、规格和来源链接。" },
+      { label: "证据回填", description: "把采集结果同步到候选商品和对比工作台。" },
+    ],
+    definitions: [
+      { term: "capture_id", meaning: "一次页面采集的记录编号。" },
+      { term: "extracted_field", meaning: "从页面中识别出的结构化字段。" },
+      { term: "user_confirmed", meaning: "是否已经由用户确认进入决策流程。" },
+    ],
+    input: "用户主动确认的页面、截图或扩展采集数据",
+    output: "结构化商品字段、价格证据、源页面引用",
+    trust: "不会静默读取页面；需要用户明确触发采集或上传。",
+  },
+  {
+    id: "decision-workspace",
+    name: "Decision Workspace",
+    detail: "同步候选到智能对比工作台",
+    contents: [
+      { label: "候选同步", description: "把导购页选中的商品加入对比工作台。" },
+      { label: "报告衔接", description: "把需求、证据和候选带入分析报告。" },
+      { label: "草稿保留", description: "保留用户编辑后的购买决策草稿。" },
+    ],
+    definitions: [
+      { term: "candidate", meaning: "用户明确加入对比的商品对象。" },
+      { term: "decision_draft", meaning: "可继续编辑的需求和候选快照。" },
+      { term: "analysis_entry", meaning: "从导购页跳转到智能对比的入口状态。" },
+    ],
+    input: "导购页选中的候选商品与用户需求",
+    output: "对比候选、分析报告入口、可继续编辑的决策草稿",
+    trust: "同步的是当前会话已确认候选，用户仍可在工作台删除或修正。",
+  },
+];
 
 const QUICK_PROMPTS = [
   "只看官方店",
@@ -85,6 +287,10 @@ function sourceLabel(provider: string) {
 
 function kindLabel(kind: string) {
   return SOURCE_KIND_LABELS[kind] || kind || "公开来源";
+}
+
+function modeLabel(mode?: CopilotMode) {
+  return COPILOT_MODES.find((item) => item.key === mode)?.label || "AI 模式";
 }
 
 function createWelcomeMessage(): CopilotMessage {
@@ -162,6 +368,64 @@ function sourceHealthText(status: string) {
   return "需确认";
 }
 
+function capabilityKindLabel(kind: CapabilityKind) {
+  if (kind === "rag") return "RAG 知识库";
+  if (kind === "skill") return "Skill";
+  return "MCP";
+}
+
+function findCapability(kind: CapabilityKind, id: string) {
+  const source = kind === "rag" ? RAG_KNOWLEDGE_BASES : kind === "skill" ? COPILOT_SKILLS : COPILOT_MCPS;
+  return source.find((item) => item.id === id) || null;
+}
+
+function CapabilityPopover({ item, kind, style }: { item: CapabilityItem; kind: CapabilityKind; style?: CSSProperties }) {
+  return (
+    <div className="copilot-capability-popover" role="tooltip" style={style}>
+      <div className="copilot-capability-detail-head">
+        <span>{capabilityKindLabel(kind)}</span>
+        {item.status && <em>{item.status}</em>}
+      </div>
+      <h3>{item.name}</h3>
+      <p>{item.detail}</p>
+      <div className="copilot-capability-content-map">
+        <strong>能力具体内容</strong>
+        {item.contents.map((content) => (
+          <article key={content.label}>
+            <b>{content.label}</b>
+            <small>{content.description}</small>
+          </article>
+        ))}
+      </div>
+      <div className="copilot-capability-definition-map">
+        <strong>详细信息定义</strong>
+        <dl>
+          {item.definitions.map((definition) => (
+            <div key={definition.term}>
+              <dt>{definition.term}</dt>
+              <dd>{definition.meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <dl>
+        <div>
+          <dt>输入</dt>
+          <dd>{item.input}</dd>
+        </div>
+        <div>
+          <dt>输出</dt>
+          <dd>{item.output}</dd>
+        </div>
+        <div>
+          <dt>可信边界</dt>
+          <dd>{item.trust}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 export function ShoppingCopilotPage({
   draftOwner,
   candidateCount,
@@ -180,6 +444,8 @@ export function ShoppingCopilotPage({
   onOpenAnalyze: () => void;
 }) {
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<CopilotMode>("guide");
+  const [hoveredCapability, setHoveredCapability] = useState<{ kind: CapabilityKind; id: string; top: number; left: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsedMessages, setCollapsedMessages] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<CopilotMessage[]>(() => {
@@ -233,6 +499,24 @@ export function ShoppingCopilotPage({
   );
   const latestResults = latestResponse?.results || [];
   const followUps = useMemo(() => buildFollowUpSuggestions(lastQuery, latestResponse), [lastQuery, latestResponse]);
+  const activeMode = COPILOT_MODES.find((item) => item.key === mode) || COPILOT_MODES[0];
+  const hoveredCapabilityItem = hoveredCapability ? findCapability(hoveredCapability.kind, hoveredCapability.id) : null;
+
+  function showCapability(kind: CapabilityKind, id: string, target: HTMLElement) {
+    const rect = target.getBoundingClientRect();
+    const popoverWidth = 374;
+    const left = Math.max(18, rect.left - popoverWidth - 12);
+    const top = Math.min(window.innerHeight - 280, Math.max(280, rect.top + rect.height / 2));
+    setHoveredCapability({ kind, id, top, left });
+  }
+
+  function showCapabilityFromMouse(kind: CapabilityKind, id: string, event: MouseEvent<HTMLElement>) {
+    showCapability(kind, id, event.currentTarget);
+  }
+
+  function showCapabilityFromFocus(kind: CapabilityKind, id: string, event: FocusEvent<HTMLElement>) {
+    showCapability(kind, id, event.currentTarget);
+  }
 
   async function submitSearch(query: string) {
     const keyword = query.trim();
@@ -245,6 +529,7 @@ export function ShoppingCopilotPage({
       createdAt: new Date().toISOString(),
       content: keyword,
       query: keyword,
+      mode,
     };
     const placeholderId = `assistant-${Date.now()}`;
     setMessages((items) => [
@@ -255,6 +540,7 @@ export function ShoppingCopilotPage({
         role: "assistant",
         createdAt: new Date().toISOString(),
         content: "正在搜索可追溯来源商品，并整理候选、价格和下一步追问...",
+        mode,
         loading: true,
       },
     ]);
@@ -342,6 +628,37 @@ export function ShoppingCopilotPage({
             </button>
           </div>
 
+          <div className="copilot-ai-ribbon" aria-label="AI 导购能力">
+            <article>
+              <Bot size={17} />
+              <div>
+                <strong>{activeMode.title}</strong>
+                <span>{activeMode.hint}</span>
+              </div>
+            </article>
+            <article>
+              <Database size={17} />
+              <div>
+                <strong>RAG 可见</strong>
+                <span>{RAG_KNOWLEDGE_BASES.length} 个知识库</span>
+              </div>
+            </article>
+            <article>
+              <Wrench size={17} />
+              <div>
+                <strong>Skills 可调用</strong>
+                <span>{COPILOT_SKILLS.length} 个导购技能</span>
+              </div>
+            </article>
+            <article>
+              <PlugZap size={17} />
+              <div>
+                <strong>MCP 已连接</strong>
+                <span>{COPILOT_MCPS.length} 个工作流</span>
+              </div>
+            </article>
+          </div>
+
           <div className="copilot-list" ref={listRef}>
             {messages.map((message) => {
               const canCollapse = message.role === "assistant" && !message.loading;
@@ -354,7 +671,7 @@ export function ShoppingCopilotPage({
                   <div className="copilot-message-topline">
                     <div className="copilot-message-badge">
                       {message.role === "user" ? <MessageSquare size={14} /> : <Sparkles size={14} />}
-                      <span>{message.role === "user" ? "我" : "ValuSee"}</span>
+                      <span>{message.role === "user" ? "我" : "ValuSee"} · {modeLabel(message.mode)}</span>
                     </div>
                     {canCollapse && (
                       <button
@@ -478,6 +795,27 @@ export function ShoppingCopilotPage({
               placeholder="例如：给我找一台适合代码办公的 27 英寸显示器，预算 2500 元"
               rows={3}
             />
+            <div className="copilot-mode-switch" role="radiogroup" aria-label="AI 导购模式">
+              {COPILOT_MODES.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    type="button"
+                    key={item.key}
+                    className={mode === item.key ? "active" : ""}
+                    role="radio"
+                    aria-checked={mode === item.key}
+                    onClick={() => setMode(item.key)}
+                  >
+                    <Icon size={16} />
+                    <span>
+                      <strong>{item.label}</strong>
+                      <small>{item.hint}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             <div className="copilot-composer-bar">
               <div className="copilot-pills">
                 {QUICK_PROMPTS.map((item) => (
@@ -512,6 +850,103 @@ export function ShoppingCopilotPage({
                   <p>搜索后会在这里展示每个平台的可用状态和证据来源。</p>
                 </div>
               )}
+            </div>
+          </section>
+
+          <section className="copilot-card copilot-ai-board">
+            <span>AI 能力地图</span>
+            <h2>透明能力图谱</h2>
+            <div className="copilot-capability-sections">
+              <div className="copilot-capability-group">
+                <div className="copilot-capability-group-title">
+                  <Database size={14} />
+                  <strong>RAG</strong>
+                  <small>{RAG_KNOWLEDGE_BASES.length}</small>
+                </div>
+                <div className="copilot-capability-list">
+                  {RAG_KNOWLEDGE_BASES.map((item) => (
+                    <div
+                      key={item.id}
+                      className="copilot-capability-row"
+                      tabIndex={0}
+                      onMouseEnter={(event) => showCapabilityFromMouse("rag", item.id, event)}
+                      onMouseLeave={() => setHoveredCapability(null)}
+                      onFocus={(event) => showCapabilityFromFocus("rag", item.id, event)}
+                      onBlur={() => setHoveredCapability(null)}
+                    >
+                      <Database size={15} />
+                      <div>
+                        <strong>{item.name}</strong>
+                        <small>{item.detail}</small>
+                        <div className="copilot-capability-chips">
+                          {item.contents.slice(0, 3).map((content) => <i key={content.label}>{content.label}</i>)}
+                        </div>
+                      </div>
+                      <em>{item.status}</em>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="copilot-capability-group">
+                <div className="copilot-capability-group-title">
+                  <Wrench size={14} />
+                  <strong>Skills</strong>
+                  <small>{COPILOT_SKILLS.length}</small>
+                </div>
+                <div className="copilot-capability-list">
+                  {COPILOT_SKILLS.map((item) => (
+                    <div
+                      key={item.id}
+                      className="copilot-capability-row"
+                      tabIndex={0}
+                      onMouseEnter={(event) => showCapabilityFromMouse("skill", item.id, event)}
+                      onMouseLeave={() => setHoveredCapability(null)}
+                      onFocus={(event) => showCapabilityFromFocus("skill", item.id, event)}
+                      onBlur={() => setHoveredCapability(null)}
+                    >
+                      <Wrench size={15} />
+                      <div>
+                        <strong>{item.name}</strong>
+                        <small>{item.detail}</small>
+                        <div className="copilot-capability-chips">
+                          {item.contents.slice(0, 3).map((content) => <i key={content.label}>{content.label}</i>)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="copilot-capability-group">
+                <div className="copilot-capability-group-title">
+                  <PlugZap size={14} />
+                  <strong>MCP</strong>
+                  <small>{COPILOT_MCPS.length}</small>
+                </div>
+                <div className="copilot-capability-list">
+                  {COPILOT_MCPS.map((item) => (
+                    <div
+                      key={item.id}
+                      className="copilot-capability-row"
+                      tabIndex={0}
+                      onMouseEnter={(event) => showCapabilityFromMouse("mcp", item.id, event)}
+                      onMouseLeave={() => setHoveredCapability(null)}
+                      onFocus={(event) => showCapabilityFromFocus("mcp", item.id, event)}
+                      onBlur={() => setHoveredCapability(null)}
+                    >
+                      <PlugZap size={15} />
+                      <div>
+                        <strong>{item.name}</strong>
+                        <small>{item.detail}</small>
+                        <div className="copilot-capability-chips">
+                          {item.contents.slice(0, 3).map((content) => <i key={content.label}>{content.label}</i>)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </section>
 
@@ -579,6 +1014,13 @@ export function ShoppingCopilotPage({
           </section>
         </aside>
       </div>
+      {hoveredCapability && hoveredCapabilityItem && (
+        <CapabilityPopover
+          item={hoveredCapabilityItem}
+          kind={hoveredCapability.kind}
+          style={{ left: hoveredCapability.left, top: hoveredCapability.top }}
+        />
+      )}
     </section>
   );
 }

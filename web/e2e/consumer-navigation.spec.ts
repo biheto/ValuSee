@@ -2,26 +2,16 @@ import { expect, test, type Page } from '@playwright/test';
 
 async function register(page: Page) {
   const email = `e2e-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
-  await page.goto('/');
-  const accountButton = page.getByRole('button', { name: '本地账户' });
-  if (await accountButton.isVisible()) {
-    await accountButton.click();
-  } else {
-    await page.locator('.mobile-nav').getByRole('button', { name: '我的', exact: true }).click();
-    await page.getByRole('button', { name: '登录 / 注册' }).click();
-  }
-  await page.getByRole('button', { name: '没有账户？立即注册' }).click();
+  await page.goto('/register');
   await page.getByLabel('昵称').fill('端到端测试用户');
   await page.getByLabel('邮箱', { exact: true }).fill(email);
   await page.getByRole('button', { name: '获取验证码' }).click();
   await expect(page.getByLabel('邮箱验证码')).toHaveValue(/^\d{6}$/);
   await page.getByLabel('密码', { exact: true }).fill('E2e-password-2026');
   await page.getByLabel('确认密码').fill('E2e-password-2026');
-  await page.getByRole('button', { name: '注册', exact: true }).click();
-  await expect(page.getByText('邮箱验证完成，账户创建成功。')).toBeVisible();
-  if (!(await page.getByRole('button', { name: '端到端测试用户' }).isVisible())) {
-    await expect(page.getByRole('heading', { name: '端到端测试用户' })).toBeVisible();
-  }
+  await page.getByRole('button', { name: '注册并登录' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('valuesee-token'))).not.toBeNull();
   return email;
 }
 
@@ -32,6 +22,7 @@ test('password reset email opens a validated double-entry reset flow', async ({ 
   await page.getByRole('button', { name: '端到端测试用户' }).click();
   await page.getByRole('button', { name: '退出登录' }).click();
   await page.getByRole('button', { name: '本地账户' }).click();
+  await expect(page).toHaveURL(/\/login/);
   await page.getByRole('button', { name: '忘记密码' }).click();
   await page.getByLabel('邮箱', { exact: true }).fill(email);
   const responsePromise = page.waitForResponse((response) => response.url().includes('/auth/password/reset/request'));
@@ -40,17 +31,14 @@ test('password reset email opens a validated double-entry reset flow', async ({ 
   expect(response.ok()).toBeTruthy();
   const { reset_token: resetToken } = await response.json();
   expect(resetToken).toBeTruthy();
-  await expect(page.getByText(/重置邮件将很快送达/)).toBeVisible();
+  await expect(page.getByText(/重置邮件将发送到邮箱/)).toBeVisible();
 
-  await page.goto(`/?reset_token=${encodeURIComponent(resetToken)}`);
-  await expect(page.getByRole('heading', { name: '设置新密码' })).toBeVisible();
-  await page.locator('.account-backdrop').click({ position: { x: 5, y: 5 } });
-  await page.getByRole('button', { name: '本地账户' }).click();
-  await expect(page.getByRole('heading', { name: '设置新密码' })).toBeVisible();
-  await page.getByLabel('密码', { exact: true }).fill('New-password-2026');
+  await page.goto(`/login?reset_token=${encodeURIComponent(resetToken)}`);
+  await expect(page.getByRole('heading', { name: '重置密码' })).toBeVisible();
+  await page.getByLabel('新密码', { exact: true }).fill('New-password-2026');
   await page.getByLabel('确认密码').fill('not-the-same');
+  await page.getByRole('button', { name: '更新密码' }).click();
   await expect(page.getByText('两次输入的密码不一致')).toBeVisible();
-  await expect(page.getByRole('button', { name: '更新密码' })).toBeDisabled();
   await page.getByLabel('确认密码').fill('New-password-2026');
   await page.getByRole('button', { name: '更新密码' }).click();
   await expect(page.getByText('密码已更新，请使用新密码登录。')).toBeVisible();
@@ -158,6 +146,7 @@ test('product acquisition exposes working link, extension, and screenshot paths'
   } else {
     await page.getByRole('button', { name: '智能对比', exact: true }).click();
   }
+  await page.getByRole('tab', { name: '商品录入' }).click();
   await expect(page.getByRole('heading', { name: '把你正在纠结的商品交给 ValuSee' })).toBeVisible();
 
   await page.getByRole('button', { name: /粘贴商品链接/ }).click();
@@ -199,8 +188,10 @@ test('shopping candidates survive refresh and report markdown renders as documen
   }, { draftProduct: product });
 
   await page.goto('/?view=analyze');
+  await page.getByRole('tab', { name: '分析报告' }).click();
   await expect(page.locator('.title-input')).toHaveValue('刷新后仍保留的显示器');
   await page.reload();
+  await page.getByRole('tab', { name: '分析报告' }).click();
   await expect(page.locator('.title-input')).toHaveValue('刷新后仍保留的显示器');
   await page.getByText('查看完整决策报告').click();
   await expect(page.locator('.report-markdown').getByRole('heading', { name: '购买建议' })).toBeVisible();
@@ -210,7 +201,7 @@ test('shopping candidates survive refresh and report markdown renders as documen
 test('an unreadable commerce page shows recovery actions instead of an empty candidate', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'covered once on desktop');
   let requestCount = 0;
-  await page.route('**/api/v1/shopping/parse-url', async (route) => {
+  await page.route('**/api/v1/shopping/product-link-aggregate', async (route) => {
     requestCount += 1;
     await new Promise((resolve) => setTimeout(resolve, 150));
     await route.fulfill({
@@ -228,6 +219,7 @@ test('an unreadable commerce page shows recovery actions instead of an empty can
     });
   });
   await page.goto('/?view=analyze');
+  await page.getByRole('tab', { name: '商品录入' }).click();
   const input = page.getByPlaceholder('粘贴淘宝、京东、拼多多商品链接');
   await input.fill('https://item.taobao.com/item.htm?id=778899');
   await page.getByRole('button', { name: '读取链接' }).click({ clickCount: 2 });

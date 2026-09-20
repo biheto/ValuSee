@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { AdminConsole } from './AdminConsole';
+import { AuthPage } from './AuthPage';
 import './styles.css';
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { failed: boolean }> {
@@ -13,7 +14,9 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, { failed
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AppErrorBoundary>{window.location.pathname.startsWith('/admin') ? <AdminConsole /> : <App />}</AppErrorBoundary>
+    <AppErrorBoundary>
+      {window.location.pathname.startsWith('/admin') ? <AdminConsole /> : window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/register') ? <AuthPage /> : <App />}
+    </AppErrorBoundary>
   </React.StrictMode>,
 );
 

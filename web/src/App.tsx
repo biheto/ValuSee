@@ -1,4 +1,4 @@
-import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
@@ -14,6 +14,25 @@ type ParsedLink = {
   fallback_actions: string[];
 };
 type LinkRecovery = ParsedLink & { submittedUrl: string };
+type ProductLinkSource = {
+  provider: string;
+  kind: string;
+  status: string;
+  product_ref: string;
+  product: Product;
+  source_url: string;
+  message: string;
+};
+type ProductLinkAggregate = {
+  product_ref: string;
+  detail_url: string;
+  product: Product;
+  sources: ProductLinkSource[];
+  source_statuses: Array<{ provider: string; status: string; count?: number; error?: string; message?: string }>;
+  message: string;
+  fetch_status: string;
+  fallback_actions: string[];
+};
 type ShoppingDraft = {
   version: 1;
   goal: string;
@@ -190,6 +209,7 @@ type UserLLMConfig = {
   last_test_error?: string | null;
 };
 type View = "discover" | "copilot" | "analyze" | "monitors" | "purchases" | "saved" | "messages" | "account" | "profile" | "history" | "family" | "settings" | "security" | "membership";
+type AnalyzeTab = "overview" | "products" | "compare" | "report" | "capture";
 type ToastNotice = { id: string; text: string; tone: "success" | "error"; autoDismissMs?: number };
 
 /* Demo candidates are intentionally disabled: consumer UI must never imply that example.com prices are real. */
@@ -361,6 +381,7 @@ export function App() {
     const valid: View[] = ["discover", "copilot", "analyze", "monitors", "purchases", "saved", "messages", "account", "profile", "history", "family", "settings", "security", "membership"];
     return valid.includes(requested as View) ? (requested as View) : "discover";
   });
+  const [analyzeTab, setAnalyzeTab] = useState<AnalyzeTab>("overview");
   const [goal, setGoal] = useState(initialDraft.current?.goal || "想买一副适合 iPhone 的降噪耳机，预算 1800 元以内");
   const [budget, setBudget] = useState(initialDraft.current?.budget ?? 1800);
   const [products, setProducts] = useState<Product[]>(initialDraft.current?.products || []);
@@ -405,6 +426,7 @@ export function App() {
   const linkRequestInFlight = useRef(false);
   const [linkLoading, setLinkLoading] = useState(false);
   const [linkRecovery, setLinkRecovery] = useState<LinkRecovery | null>(null);
+  const [linkAggregate, setLinkAggregate] = useState<ProductLinkAggregate | null>(null);
   const [loading, setLoading] = useState(false);
   const [toastNotices, setToastNotices] = useState<ToastNotice[]>([]);
   const message = "";
@@ -656,18 +678,20 @@ export function App() {
     linkRequestInFlight.current = true;
     setLinkLoading(true);
     try {
-      const data = await request<ParsedLink>("/api/v1/shopping/parse-url", {
+      const data = await request<ProductLinkAggregate>("/api/v1/shopping/product-link-aggregate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(submitted),
       });
       if (data.fetch_status !== "parsed" || !hasRecognizedProduct(data.product)) {
-        setLinkRecovery({ ...data, submittedUrl: submitted.url });
+        setLinkRecovery({ product: data.product, message: data.message, fetch_status: data.fetch_status, fallback_actions: data.fallback_actions, submittedUrl: submitted.url });
+        setLinkAggregate(null);
         setMessage("");
         return;
       }
       const duplicate = products.some((item) => isSameCandidate(item, data.product));
       setProducts((items) => items.some((item) => isSameCandidate(item, data.product)) ? items : [...items, data.product]);
+      setLinkAggregate(data);
       setLinkRecovery(null);
       setUrl("");
       setMessage(duplicate ? "该商品已经在候选清单中，没有重复添加。" : data.message);
@@ -682,6 +706,7 @@ export function App() {
     if (!linkRecovery) return;
     setProducts((items) => items.some((item) => isSameCandidate(item, linkRecovery.product)) ? items : [...items, linkRecovery.product]);
     setLinkRecovery(null);
+    setLinkAggregate(null);
     setUrl("");
     setMessage("已加入手动补充区，请填写商品标题、规格与当前价格。");
     window.setTimeout(() => document.getElementById("products")?.scrollIntoView({ behavior: "smooth" }), 0);
@@ -1218,6 +1243,11 @@ export function App() {
     setVerificationCode("");
   }
   function openAccount() {
+    if (!localStorage.getItem("valuesee-token")) {
+      const current = `${window.location.pathname}${window.location.search}` || "/";
+      window.location.href = `/login?redirect=${encodeURIComponent(current)}`;
+      return;
+    }
     const urlResetToken = new URLSearchParams(window.location.search).get("reset_token");
     setAccountMode(urlResetToken ? "reset" : "login");
     if (urlResetToken) setResetToken(urlResetToken);
@@ -1249,6 +1279,7 @@ export function App() {
   const best = useMemo(() => (result?.result.best_index == null ? null : result.result.comparison_rows[result.result.best_index]), [result]);
   function focusDraftFollowUp(item: FollowUpQuestion) {
     if (item.field === "goal") {
+      setAnalyzeTab("overview");
       document.querySelector<HTMLTextAreaElement>(".decision-box textarea")?.focus();
       return;
     }
@@ -1257,9 +1288,11 @@ export function App() {
       return;
     }
     if (item.scope === "products" || item.suggested_tool === "parse_url") {
+      setAnalyzeTab("products");
       document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus();
       return;
     }
+    setAnalyzeTab("products");
     document.getElementById("products")?.scrollIntoView({ behavior: "smooth" });
   }
   if (window.location.pathname.startsWith("/share/")) return <SharedDecisionPage share={publicShare} />;
@@ -1380,7 +1413,28 @@ export function App() {
       )}
       {view === "analyze" && (
         <>
-          <section className="hero">
+          <section className="analyze-page-head">
+            <div>
+              <span>智能对比工作台</span>
+              <h1>把购买决策拆成清晰步骤</h1>
+              <p>按页面切换需求、商品录入、对比表、分析报告和采集确认，不再把所有工具堆在一条长页面里。</p>
+            </div>
+            <div className="analyze-page-tabs" role="tablist" aria-label="智能对比功能页">
+              {([
+                ["overview", "需求概览", Sparkles],
+                ["products", "商品录入", Link2],
+                ["compare", "对比表", ListFilter],
+                ["report", "分析报告", FileText],
+                ["capture", `采集确认${captures.length ? ` ${captures.length}` : ""}`, Camera],
+              ] as const).map(([key, label, Icon]) => (
+                <button key={key} className={analyzeTab === key ? "active" : ""} role="tab" aria-selected={analyzeTab === key} onClick={() => setAnalyzeTab(key)}>
+                  <Icon size={16} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className={`hero analyze-pane ${analyzeTab === "overview" ? "active" : "hidden"}`}>
             <div className="hero-copy">
               <div className="eyebrow">
                 <Sparkles size={16} />
@@ -1409,14 +1463,14 @@ export function App() {
               </div>
             </div>
           </section>
-          <section className="quick-strip">
+          <section className={`quick-strip analyze-pane ${analyzeTab === "overview" ? "active" : "hidden"}`}>
             <button onClick={() => setGoal("帮我选一台适合代码办公的 27 英寸显示器，预算 2500 元")}>
               <Search size={20} />
               <strong>帮我选</strong>
               <span>输入需求，得到适配候选</span>
               <ChevronRight size={17} />
             </button>
-            <button onClick={() => document.getElementById("products")?.scrollIntoView({ behavior: "smooth" })}>
+            <button onClick={() => setAnalyzeTab("products")}>
               <Link2 size={20} />
               <strong>帮我比</strong>
               <span>添加链接，识别是否同款</span>
@@ -1429,12 +1483,14 @@ export function App() {
               <ChevronRight size={17} />
             </button>
           </section>
-          <CapturePathPanel
-            onFocusLink={() => document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus()}
-            onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()}
-          />
-          <ProactiveFollowUpPanel questions={draftFollowUps} onSelect={focusDraftFollowUp} onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()} />
-          {products.length > 0 && (
+          {analyzeTab === "products" && (
+            <CapturePathPanel
+              onFocusLink={() => document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus()}
+              onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()}
+            />
+          )}
+          {analyzeTab === "products" && <ProactiveFollowUpPanel questions={draftFollowUps} onSelect={focusDraftFollowUp} onUploadScreenshot={() => document.querySelector<HTMLInputElement>(".upload-button input[type=file]")?.click()} />}
+          {analyzeTab === "compare" && products.length > 0 && (
             <div className="comparison-savebar">
               <div>
                 <strong>{products.length} 个候选商品</strong>
@@ -1446,8 +1502,16 @@ export function App() {
               </button>
             </div>
           )}
-          {products.length > 0 && <ComparisonWorkbench products={products} onChange={setProducts} onShare={() => void shareSnapshot("comparison", goal.slice(0, 60) || "购物对比", { products })} />}
-          {result && (
+          {analyzeTab === "compare" && products.length > 0 && <ComparisonWorkbench products={products} onChange={setProducts} onShare={() => void shareSnapshot("comparison", goal.slice(0, 60) || "购物对比", { products })} />}
+          {analyzeTab === "compare" && products.length === 0 && (
+            <section className="panel empty-result">
+              <TagIcon />
+              <h3>还没有候选商品</h3>
+              <p>先进入“商品录入”添加链接、截图或手动候选，再查看规格和价格差异。</p>
+              <button className="soft-button" onClick={() => setAnalyzeTab("products")}>去录入商品</button>
+            </section>
+          )}
+          {analyzeTab === "report" && result && (
             <>
               <OrchestrationPanel orchestration={result.result.orchestration} onAction={(action) => void runOrchestrationAction(action)} onFocusLink={() => document.querySelector<HTMLInputElement>(".url-form input:not([type=file])")?.focus()} />
               <DecisionEvidence events={result.events} />
@@ -1462,7 +1526,7 @@ export function App() {
               </div>
             </>
           )}
-          {captures.length > 0 && (
+          {analyzeTab === "capture" && captures.length > 0 && (
             <section className="capture-inbox">
               <div>
                 <strong>浏览器采集收件箱</strong>
@@ -1486,7 +1550,14 @@ export function App() {
               </div>
             </section>
           )}
-          <section className="workspace-grid" id="products">
+          {analyzeTab === "capture" && captures.length === 0 && (
+            <section className="panel empty-result">
+              <TagIcon />
+              <h3>暂无待确认采集</h3>
+              <p>浏览器扩展采集到商品后会出现在这里；也可以回到“商品录入”上传截图或粘贴链接。</p>
+            </section>
+          )}
+          <section className={`workspace-grid analyze-workspace analyze-pane ${analyzeTab === "products" || analyzeTab === "report" ? "active" : "hidden"} workspace-${analyzeTab}`} id="products">
             <div className="panel">
               <div className="section-heading">
                 <div>
@@ -1500,7 +1571,7 @@ export function App() {
               </div>
               <form className="url-form" onSubmit={addUrl}>
                 <Link2 size={18} />
-                <input placeholder="粘贴淘宝、京东、拼多多商品链接" value={url} onChange={(e) => { setUrl(e.target.value); setLinkRecovery(null); }} />
+                <input placeholder="粘贴淘宝、京东、拼多多商品链接" value={url} onChange={(e) => { setUrl(e.target.value); setLinkRecovery(null); setLinkAggregate(null); }} />
                 <button disabled={linkLoading}>{linkLoading ? <><Loader2 className="spin" size={15} />读取中</> : "读取链接"}</button>
                 <label className="upload-button">
                   <Upload size={16} />
@@ -1522,6 +1593,19 @@ export function App() {
                     </div>
                   </div>
                 </div>
+              )}
+              {linkAggregate && (
+                <ProductLinkAggregateCard
+                  aggregate={linkAggregate}
+                  onOpen={(source) => {
+                    const target = source || linkAggregate.sources[0];
+                    const productRef = target?.product_ref || linkAggregate.product_ref;
+                    const product = target?.product || linkAggregate.product;
+                    setDetailProduct(product);
+                    setDetailRef(productRef);
+                    window.history.pushState({}, "", `/product/${productRef}`);
+                  }}
+                />
               )}
               <div className="product-list">
                 {products.map((product, index) => (
@@ -3746,6 +3830,76 @@ function Empty({ text }: { text: string }) {
       <span>{text}</span>
     </div>
   );
+}
+function ProductLinkAggregateCard({ aggregate, onOpen }: { aggregate: ProductLinkAggregate; onOpen: (source?: ProductLinkSource) => void }) {
+  const sources = aggregate.sources.filter((source) => source.product?.title).slice(0, 8);
+  const primary = aggregate.product;
+  const sourceCount = sources.length;
+  const bestPrice = sources
+    .map((source) => {
+      const product = source.product;
+      return Math.max(0, product.price - product.coupon - product.platform_discount - product.member_discount - product.subsidy - product.pay_discount + product.shipping - product.gift_value);
+    })
+    .filter((value) => value > 0)
+    .sort((left, right) => left - right)[0];
+  return (
+    <article className="link-aggregate-card">
+      <button className="link-aggregate-main" type="button" onClick={() => onOpen()}>
+        <div className="link-aggregate-visual">
+          {primary.image_url ? <img src={primary.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <ShoppingBagIcon />}
+        </div>
+        <div>
+          <span>来源汇总 · {sourceCount} 个商品来源</span>
+          <h3>{primary.title}</h3>
+          <p>{primary.brand || primary.model ? `${primary.brand} ${primary.model}`.trim() : aggregate.message}</p>
+        </div>
+        <strong>{bestPrice ? money(bestPrice) : primary.price ? money(primary.price) : "价格待确认"}</strong>
+        <ChevronRight size={18} />
+      </button>
+      <div className="link-aggregate-sources">
+        {sources.map((source) => {
+          const product = source.product;
+          const finalPrice = Math.max(0, product.price - product.coupon - product.platform_discount - product.member_discount - product.subsidy - product.pay_discount + product.shipping - product.gift_value);
+          return (
+            <article
+              role="button"
+              tabIndex={0}
+              key={`${source.provider}-${source.product_ref || source.source_url}`}
+              onClick={() => onOpen(source)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpen(source);
+                }
+              }}
+            >
+              <span>
+                <b>{product.platform || source.provider}</b>
+                <small>{product.store_name || source.kind || "来源待确认"}</small>
+              </span>
+              <strong>{finalPrice ? money(finalPrice) : "待确认"}</strong>
+              {source.source_url && (
+                <a href={source.source_url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                  <ExternalLink size={13} />
+                  源地址
+                </a>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <div className="link-aggregate-status">
+        {aggregate.source_statuses.map((source) => (
+          <span className={source.status === "ok" || source.status === "parsed" ? "source-ok" : "source-error"} key={`${source.provider}-${source.status}`}>
+            {source.provider} {source.status === "ok" || source.status === "parsed" ? `${source.count || 0}` : "不可用"}
+          </span>
+        ))}
+      </div>
+    </article>
+  );
+}
+function ShoppingBagIcon() {
+  return <ShoppingBag size={30} />;
 }
 function TagIcon() {
   return (

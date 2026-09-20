@@ -87,6 +87,8 @@ from app.schemas.shopping import (
     ShoppingExtensionConfirmRequest,
     ShoppingImageResponse,
     ShoppingProductInput,
+    ShoppingProductLinkAggregateResponse,
+    ShoppingProductLinkSource,
     ShoppingParseUrlRequest,
     ShoppingSearchRequest,
     ShoppingParseUrlResponse,
@@ -568,9 +570,7 @@ def delete_account(authorization: str | None = Header(default=None)) -> dict[str
     return {"deleted": True, "user_id": user_id}
 
 
-@router.post("/shopping/parse-url", response_model=ShoppingParseUrlResponse, tags=["Shopping Decision"])
-def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> ShoppingParseUrlResponse:
-    _request_user(authorization)
+def _parse_shopping_link(request: ShoppingParseUrlRequest) -> ShoppingParseUrlResponse:
     parsed = urlparse(request.url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=422, detail="请输入有效的商品链接")
@@ -615,6 +615,118 @@ def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | No
         fetch_status=fetch_status,
         cached=cached,
         fallback_actions=[] if complete else ["browser_extension", "screenshot_ocr", "manual_confirmation"],
+    )
+
+
+def _product_dict(product: ShoppingProductInput) -> dict[str, object]:
+    return product.model_dump(mode="json")
+
+
+def _product_identity(product: dict[str, object]) -> str:
+    url = str(product.get("url") or "").strip().lower()
+    if url:
+        return f"url:{url}"
+    sku = str(product.get("sku") or "").strip().lower()
+    platform = str(product.get("platform") or "").strip().lower()
+    if sku and platform:
+        return f"sku:{platform}:{sku}"
+    values = [
+        str(product.get(key) or "").strip().lower()
+        for key in ("brand", "model", "title")
+        if str(product.get(key) or "").strip()
+    ]
+    return "text:" + "|".join(values)
+
+
+def _provider_search_query(product: dict[str, object], fallback_title: str) -> str:
+    brand = str(product.get("brand") or "").strip()
+    model = str(product.get("model") or "").strip()
+    sku = str(product.get("sku") or "").strip()
+    title = str(product.get("title") or fallback_title).strip()
+    parts = [item for item in (brand, model or sku) if item]
+    return (" ".join(parts).strip() or title)[:160]
+
+
+@router.post("/shopping/parse-url", response_model=ShoppingParseUrlResponse, tags=["Shopping Decision"])
+def parse_shopping_url(request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> ShoppingParseUrlResponse:
+    _request_user(authorization)
+    return _parse_shopping_link(request)
+
+
+@router.post("/shopping/product-link-aggregate", response_model=ShoppingProductLinkAggregateResponse, tags=["Shopping Product"])
+def aggregate_shopping_product_link(request: ShoppingParseUrlRequest, authorization: str | None = Header(default=None)) -> ShoppingProductLinkAggregateResponse:
+    user_id = _request_user(authorization)
+    parsed_link = _parse_shopping_link(request)
+    primary = _product_dict(parsed_link.product)
+    primary["_source"] = parsed_link.source
+    primary_ref = shopping_store.upsert_product_record(user_id, primary)
+    sources = [
+        ShoppingProductLinkSource(
+            provider=parsed_link.source or "submitted_link",
+            kind="submitted_link",
+            status=parsed_link.fetch_status,
+            product_ref=primary_ref,
+            product=ShoppingProductInput(**primary),
+            source_url=str(primary.get("url") or request.url),
+            message=parsed_link.message,
+        )
+    ]
+    source_statuses: list[dict[str, object]] = [
+        {"provider": parsed_link.source or "submitted_link", "status": parsed_link.fetch_status, "count": 1}
+    ]
+    seen = {_product_identity(primary)}
+    query = _provider_search_query(primary, request.title)
+    for provider in configured_providers().values():
+        try:
+            provider_results = provider.search(query, "", 12)
+        except Exception as exc:
+            source_statuses.append(
+                {
+                    "provider": provider.name,
+                    "status": "error",
+                    "error": type(exc).__name__,
+                    "message": str(exc)[:220],
+                }
+            )
+            continue
+        count = 0
+        for item in provider_results:
+            raw_product = item.get("product") if isinstance(item, dict) else None
+            if not isinstance(raw_product, dict):
+                continue
+            try:
+                candidate = _product_dict(ShoppingProductInput(**raw_product))
+            except Exception:
+                continue
+            identity = _product_identity(candidate)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            candidate["_source"] = str(item.get("provider") or provider.name)
+            product_ref = shopping_store.upsert_product_record(user_id, candidate)
+            sources.append(
+                ShoppingProductLinkSource(
+                    provider=str(item.get("provider") or provider.name),
+                    kind=str(item.get("kind") or provider.kind),
+                    status="ok",
+                    product_ref=product_ref,
+                    product=ShoppingProductInput(**candidate),
+                    source_url=str(candidate.get("url") or ""),
+                    message="authorized_provider_match",
+                )
+            )
+            count += 1
+        source_statuses.append({"provider": provider.name, "status": "ok", "count": count})
+    message = parsed_link.message if len(sources) == 1 else "已汇总用户提交链接和已配置授权商品来源，请在下单前回到原平台核验 SKU、地区价和优惠。"
+    return ShoppingProductLinkAggregateResponse(
+        product_ref=primary_ref,
+        detail_url=f"/product/{primary_ref}",
+        product=ShoppingProductInput(**primary),
+        sources=sources,
+        source_statuses=source_statuses,
+        message=message,
+        fetch_status=parsed_link.fetch_status,
+        fallback_actions=parsed_link.fallback_actions,
     )
 
 

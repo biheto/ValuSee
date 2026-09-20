@@ -151,6 +151,14 @@ if web_dist.exists():
     def admin_index() -> FileResponse:
         return FileResponse(web_dist / "index.html")
 
+    @app.get("/login", include_in_schema=False)
+    def login_index() -> FileResponse:
+        return FileResponse(web_dist / "index.html")
+
+    @app.get("/register", include_in_schema=False)
+    def register_index() -> FileResponse:
+        return FileResponse(web_dist / "index.html")
+
     @app.get("/product/{product_ref}", include_in_schema=False)
     def product_index(product_ref: str) -> FileResponse:
         del product_ref

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Self
 from urllib.parse import parse_qs
 
@@ -10,6 +12,7 @@ from app.api import routes
 from app.schemas.shopping import ShoppingParseUrlRequest
 from app.shopping import providers
 from app.shopping.providers import PinduoduoProvider, ProviderError
+from app.shopping.store import ShoppingStore
 
 
 class FakeResponse:
@@ -312,6 +315,70 @@ def test_pdd_product_link_uses_official_provider_before_public_page(monkeypatch:
     assert response.source == "pinduoduo_official_ddk_api"
     assert response.product.title == "官方接口商品"
     assert response.product.price == 199
+
+
+def test_product_link_aggregate_persists_provider_offers(monkeypatch: pytest.MonkeyPatch) -> None:
+    class SearchProvider:
+        name = "shopb"
+        kind = "official_or_affiliate"
+
+        def search(self, query: str, category: str = "", limit: int = 12) -> list[dict[str, object]]:
+            assert "Dell" in query and "U2723QE" in query
+            assert category == ""
+            assert limit == 12
+            return [
+                {
+                    "provider": "shopb",
+                    "kind": self.kind,
+                    "product": {
+                        "title": "Dell U2723QE monitor ShopB",
+                        "platform": "ShopB",
+                        "url": "https://shopb.example/item/88",
+                        "brand": "Dell",
+                        "model": "U2723QE",
+                        "sku": "U2723QE",
+                        "price": 1459,
+                        "store_name": "ShopB official",
+                    },
+                }
+            ]
+
+        def lookup(self, product_url: str) -> dict[str, object]:
+            raise AssertionError(product_url)
+
+        def health_check(self) -> dict[str, object]:
+            return {"status": "healthy"}
+
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "aggregate.db")
+        monkeypatch.setattr(routes, "shopping_store", store)
+        monkeypatch.setattr(routes, "_request_user", lambda _authorization: "user-1")
+        monkeypatch.setattr(routes, "configured_providers", lambda: {"shopb": SearchProvider()})
+        monkeypatch.setattr(
+            routes,
+            "fetch_public_product",
+            lambda _url: {
+                "fetch_status": "parsed",
+                "title": "Dell U2723QE monitor",
+                "platform": "JD",
+                "url": "https://item.jd.com/100012345.html",
+                "brand": "Dell",
+                "model": "U2723QE",
+                "sku": "U2723QE",
+                "price": 1499,
+            },
+        )
+
+        response = routes.aggregate_shopping_product_link(
+            ShoppingParseUrlRequest(url="https://item.jd.com/100012345.html"),
+            authorization="Bearer token",
+        )
+
+        assert response.product_ref.startswith("prd_")
+        assert [source.provider for source in response.sources] == ["item.jd.com", "shopb"]
+        assert response.sources[1].source_url == "https://shopb.example/item/88"
+        detail = store.product_detail("user-1", response.product_ref)
+        assert detail and [offer["url"] for offer in detail["offers"]] == ["https://shopb.example/item/88"]
 
 
 def test_admin_provider_health_exposes_sanitized_platform_error(monkeypatch: pytest.MonkeyPatch) -> None:

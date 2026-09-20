@@ -57,6 +57,27 @@ class ShoppingParseUrlResponse(BaseModel):
     fallback_actions: list[str] = Field(default_factory=list)
 
 
+class ShoppingProductLinkSource(BaseModel):
+    provider: str
+    kind: str = ""
+    status: str = "ok"
+    product_ref: str = ""
+    product: ShoppingProductInput
+    source_url: str = ""
+    message: str = ""
+
+
+class ShoppingProductLinkAggregateResponse(BaseModel):
+    product_ref: str
+    detail_url: str
+    product: ShoppingProductInput
+    sources: list[ShoppingProductLinkSource] = Field(default_factory=list)
+    source_statuses: list[dict[str, Any]] = Field(default_factory=list)
+    message: str
+    fetch_status: str = "not_attempted"
+    fallback_actions: list[str] = Field(default_factory=list)
+
+
 class ShoppingImageResponse(BaseModel):
     asset_id: str
     file_name: str
