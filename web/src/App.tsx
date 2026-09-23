@@ -1,5 +1,5 @@
-import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, PanelLeft, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
+import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
 import { ShoppingCopilotPage } from "./ShoppingCopilot";
@@ -484,6 +484,55 @@ export function App() {
   const [registrationCodeCooldown, setRegistrationCodeCooldown] = useState(0);
   const [accountName, setAccountName] = useState(localStorage.getItem("valuesee-account-name") || "本地账户");
   const [navigationVariant, setNavigationVariant] = useState("control");
+  const [navigationWidth, setNavigationWidth] = useState(() => {
+    const stored = localStorage.getItem("valuesee-navigation-width");
+    const saved = stored === null ? Number.NaN : Number(stored);
+    return Number.isFinite(saved) ? Math.min(340, Math.max(188, saved)) : 236;
+  });
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => localStorage.getItem("valuesee-navigation-collapsed") === "true");
+  const navigationDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const navigationDidDrag = useRef(false);
+
+  useEffect(() => {
+    localStorage.setItem("valuesee-navigation-width", String(navigationWidth));
+    localStorage.setItem("valuesee-navigation-collapsed", String(navigationCollapsed));
+  }, [navigationCollapsed, navigationWidth]);
+
+  useEffect(() => {
+    function handleNavigationPointerMove(event: globalThis.PointerEvent) {
+      if (!navigationDrag.current) return;
+      const delta = event.clientX - navigationDrag.current.startX;
+      if (Math.abs(delta) > 2) navigationDidDrag.current = true;
+      setNavigationWidth(Math.min(340, Math.max(188, navigationDrag.current.startWidth + delta)));
+      setNavigationCollapsed(false);
+    }
+    function handleNavigationPointerUp() {
+      navigationDrag.current = null;
+      document.body.classList.remove("is-navigation-resizing");
+    }
+    window.addEventListener("pointermove", handleNavigationPointerMove);
+    window.addEventListener("pointerup", handleNavigationPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handleNavigationPointerMove);
+      window.removeEventListener("pointerup", handleNavigationPointerUp);
+    };
+  }, []);
+
+  function beginNavigationResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (window.innerWidth <= 980) return;
+    event.preventDefault();
+    navigationDrag.current = { startX: event.clientX, startWidth: navigationWidth };
+    navigationDidDrag.current = false;
+    document.body.classList.add("is-navigation-resizing");
+  }
+
+  function toggleNavigation() {
+    if (navigationDidDrag.current) {
+      navigationDidDrag.current = false;
+      return;
+    }
+    setNavigationCollapsed((value) => !value);
+  }
 
   const refreshRecords = async () => {
     try {
@@ -1321,11 +1370,11 @@ export function App() {
     ["account", "我的", UserRound],
   ];
   return (
-    <main className={`valuesee-app experiment-${navigationVariant}`} id="main-content">
+    <main className={`valuesee-app experiment-${navigationVariant}${navigationCollapsed ? " is-navigation-collapsed" : ""}`} style={{ "--app-nav-width": `${navigationCollapsed ? 0 : navigationWidth}px` } as CSSProperties} id="main-content">
       <a className="skip-link" href="#primary-view">
         跳到主要内容
       </a>
-      <header className="app-header">
+      <header className={`app-header${navigationCollapsed ? " is-navigation-collapsed" : ""}`}>
         <div className="brand-lockup">
           <BrandMark />
           <div>
@@ -1345,6 +1394,11 @@ export function App() {
           {accountName}
         </button>
       </header>
+      <div className="app-nav-edge-control" onPointerDown={beginNavigationResize}>
+        <button type="button" aria-label={navigationCollapsed ? "展开功能导航" : "隐藏功能导航"} title={navigationCollapsed ? "展开功能导航" : "隐藏功能导航"} onClick={toggleNavigation}>
+          <PanelLeft size={15} />
+        </button>
+      </div>
       {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} confirmPassword={confirmPassword} verificationCode={verificationCode} displayName={displayName} busy={accountBusy} notice={accountNotice} noticeError={accountNoticeError} codeCooldown={registrationCodeCooldown} onEmail={setEmail} onPassword={setPassword} onConfirmPassword={setConfirmPassword} onVerificationCode={setVerificationCode} onDisplayName={setDisplayName} onMode={changeAccountMode} onRequestCode={requestRegistrationCode} onSubmit={submitAccount} onClose={closeAccount} onLogout={logout} />}
       <ToastStack notices={toastNotices} onDismiss={(id) => setToastNotices((items) => items.filter((item) => item.id !== id))} />
       {message && (

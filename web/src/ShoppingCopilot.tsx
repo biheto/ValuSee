@@ -715,7 +715,7 @@ export function ShoppingCopilotPage({
             </div>
             <div className="copilot-context-actions">
               <button type="button" onClick={onOpenAnalyze} disabled={!candidateCount}><ArrowUpRight size={15} />对比工作台 {candidateCount || ""}</button>
-              <button type="button" onClick={() => openPanel("mode")}><SlidersHorizontal size={15} />{activeMode.label}</button>
+              <button type="button" className="copilot-mode-trigger is-active" aria-pressed="true" onClick={() => openPanel("mode")}><SlidersHorizontal size={15} />{activeMode.label}<span className="copilot-mode-status">当前</span></button>
               <button type="button" onClick={() => openPanel("capabilities")}><Sparkles size={15} />AI 能力</button>
               <button type="button" onClick={() => openPanel("sources")}><Database size={15} />来源 {latestResponse?.sources.length || 0}</button>
             </div>
@@ -859,7 +859,7 @@ export function ShoppingCopilotPage({
             />
             <div className="copilot-composer-bar">
               <div className="copilot-pills">
-                <button type="button" onClick={() => openPanel("mode")}><SlidersHorizontal size={13} />{activeMode.label}</button>
+                <button type="button" className="copilot-mode-pill is-active" aria-pressed="true" onClick={() => openPanel("mode")}><SlidersHorizontal size={13} />{activeMode.label}<span className="copilot-mode-status">当前</span></button>
                 {QUICK_PROMPTS.map((item) => (
                   <button type="button" key={item} onClick={() => runQuickPrompt(item)}>
                     {item}
@@ -1064,7 +1064,7 @@ export function ShoppingCopilotPage({
             )}
             {activePanel === "mode" && (
               <div className="copilot-modal-grid copilot-mode-modal">
-                {COPILOT_MODES.filter((item) => !panelSearch.trim() || `${item.label} ${item.title} ${item.hint}`.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => { const Icon = item.icon; return <button type="button" key={item.key} className={mode === item.key ? "active" : ""} onClick={() => { setMode(item.key); setActivePanel(null); }}><Icon size={18} /><span><strong>{item.label}</strong><small>{item.title} · {item.hint}</small></span>{mode === item.key && <ShieldCheck size={15} />}</button>; })}
+                {COPILOT_MODES.filter((item) => !panelSearch.trim() || `${item.label} ${item.title} ${item.hint}`.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => { const Icon = item.icon; const isActive = mode === item.key; return <button type="button" key={item.key} className={isActive ? "active" : ""} aria-pressed={isActive} onClick={() => { setMode(item.key); setActivePanel(null); }}><Icon size={18} /><span className="copilot-mode-copy"><strong>{item.label}</strong><small>{item.title} · {item.hint}</small></span>{isActive && <span className="copilot-mode-selected"><ShieldCheck size={14} />当前模式</span>}</button>; })}
               </div>
             )}
             {activePanel === "capabilities" && selectedCapability && selectedCapabilityItem ? (

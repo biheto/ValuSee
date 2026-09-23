@@ -105,6 +105,33 @@ test.describe('shopping copilot page', () => {
   test('keeps capability details inside the modal and can collapse the conversation rail', async ({ page }) => {
     await page.goto('/?view=copilot');
 
+    const navigation = page.locator('.app-header');
+    const navigationToggle = page.getByRole('button', { name: '隐藏功能导航' });
+    const initialNavigationWidth = (await navigation.boundingBox())?.width || 0;
+    await navigationToggle.click();
+    await expect(page.getByRole('button', { name: '展开功能导航' })).toBeVisible();
+    await expect.poll(async () => (await navigation.boundingBox())?.width || 0).toBe(0);
+    await page.getByRole('button', { name: '展开功能导航' }).click();
+    await expect.poll(async () => (await navigation.boundingBox())?.width || 0).toBeGreaterThan(0);
+
+    const edgeControl = page.locator('.app-nav-edge-control');
+    const edgeBox = await edgeControl.boundingBox();
+    expect(edgeBox).not.toBeNull();
+    if (edgeBox) {
+      const startX = edgeBox.x + edgeBox.width / 2;
+      await edgeControl.dispatchEvent('pointerdown', { clientX: startX, pointerId: 1 });
+      await page.evaluate((clientX) => window.dispatchEvent(new PointerEvent('pointermove', { clientX, pointerId: 1 })), startX + 38);
+      await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 })));
+      await expect.poll(async () => (await navigation.boundingBox())?.width || 0).toBeGreaterThan(initialNavigationWidth + 20);
+    }
+
+    const modeTrigger = page.locator('.copilot-context-actions .copilot-mode-trigger');
+    await expect(modeTrigger).toContainText('当前');
+    await modeTrigger.click();
+    await expect(page.locator('.copilot-mode-selected')).toContainText('当前模式');
+    await page.locator('.copilot-mode-modal button').filter({ hasText: '研究模式' }).click();
+    await expect(modeTrigger).toContainText('研究模式');
+
     const rail = page.locator('.copilot-thread-rail');
     const railToggle = page.locator('.copilot-top-actions button').first();
     await railToggle.click();
