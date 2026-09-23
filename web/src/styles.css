@@ -63,9 +63,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .app-header { position:fixed; z-index:30; inset:0 auto 0 0; display:flex; width:236px; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:18px; min-height:100vh; padding:24px 16px; border-right:1px solid #e7ece8; background:rgba(255,255,255,.94); box-shadow:10px 0 30px rgba(51,68,60,.06); overflow-y:auto; }
 .app-header { width:var(--app-nav-width); transition:width .2s ease,opacity .2s ease,padding .2s ease; }
 .app-header.is-navigation-collapsed { width:0; padding-inline:0; border-right-width:0; opacity:0; overflow:hidden; pointer-events:none; }
-.app-nav-edge-control { position:fixed; z-index:32; top:50%; left:clamp(0px,calc(var(--app-nav-width) - 11px),calc(100vw - 22px)); display:grid; width:22px; height:44px; place-items:center; transform:translateY(-50%); cursor:col-resize; transition:left .2s ease; }
-.app-nav-edge-control::before { position:absolute; top:0; bottom:0; left:10px; width:2px; border-radius:2px; content:""; background:#dfe9e3; opacity:.9; }
-.app-nav-edge-control button { position:relative; z-index:1; display:grid; width:22px; height:30px; place-items:center; border:1px solid #d5e3da; border-radius:7px; color:#397f70; background:#fff; box-shadow:0 5px 14px rgba(48,76,63,.12); cursor:pointer; }
+.app-nav-edge-control { position:fixed; z-index:32; top:50%; left:clamp(0px,calc(var(--app-nav-width) - 14px),calc(100vw - 28px)); display:grid; width:28px; height:72px; place-items:center; transform:translateY(-50%); cursor:col-resize; transition:left .2s ease; }
+.app-nav-edge-control::before { position:absolute; top:0; bottom:0; left:13px; width:2px; border-radius:2px; content:""; background:#dfe9e3; opacity:.55; transition:opacity .16s ease,background .16s ease; }
+.app-nav-edge-control button { position:relative; z-index:1; display:grid; width:24px; height:32px; place-items:center; border:1px solid #d5e3da; border-radius:7px; color:#397f70; background:#fff; box-shadow:0 5px 14px rgba(48,76,63,.12); opacity:0; transform:translateX(-4px) scale(.92); transition:opacity .16s ease,transform .16s ease,color .16s ease,background .16s ease; cursor:pointer; }
+.app-nav-edge-control:hover::before,.app-nav-edge-control:focus-within::before { background:#8fc9b8; opacity:1; }
+.app-nav-edge-control:hover button,.app-nav-edge-control:focus-within button,body.is-navigation-resizing .app-nav-edge-control button { opacity:1; transform:translateX(0) scale(1); }
 .app-nav-edge-control button:hover,.app-nav-edge-control button:focus-visible { color:#fff; background:#398f7c; outline:2px solid rgba(57,143,124,.2); outline-offset:2px; }
 body.is-navigation-resizing,.is-navigation-resizing * { cursor:col-resize !important; user-select:none !important; }
 .brand-lockup { display: flex; align-items: center; gap: 10px; min-width: 0; }

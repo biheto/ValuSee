@@ -1,4 +1,4 @@
-import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, PanelLeft, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
@@ -1396,7 +1396,7 @@ export function App() {
       </header>
       <div className="app-nav-edge-control" onPointerDown={beginNavigationResize}>
         <button type="button" aria-label={navigationCollapsed ? "展开功能导航" : "隐藏功能导航"} title={navigationCollapsed ? "展开功能导航" : "隐藏功能导航"} onClick={toggleNavigation}>
-          <PanelLeft size={15} />
+          {navigationCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
       {accountOpen && <AccountDialog mode={accountMode} email={email} password={password} confirmPassword={confirmPassword} verificationCode={verificationCode} displayName={displayName} busy={accountBusy} notice={accountNotice} noticeError={accountNoticeError} codeCooldown={registrationCodeCooldown} onEmail={setEmail} onPassword={setPassword} onConfirmPassword={setConfirmPassword} onVerificationCode={setVerificationCode} onDisplayName={setDisplayName} onMode={changeAccountMode} onRequestCode={requestRegistrationCode} onSubmit={submitAccount} onClose={closeAccount} onLogout={logout} />}
