@@ -9,7 +9,6 @@ import {
   ExternalLink,
   History,
   Laptop,
-  Loader2,
   MessageSquare,
   Minus,
   PanelLeft,
@@ -20,13 +19,14 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Square,
   UserRound,
   Wrench,
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
-import type { CommerceSearchResponse, ConsumerProduct } from "./ConsumerHub";
+import type { CopilotChatResponse, ConsumerProduct } from "./ConsumerHub";
 
 type CopilotMessage = {
   id: string;
@@ -35,9 +35,10 @@ type CopilotMessage = {
   content: string;
   query?: string;
   mode?: CopilotMode;
-  response?: CommerceSearchResponse | null;
+  response?: CopilotChatResponse | null;
   loading?: boolean;
   error?: boolean;
+  stopped?: boolean;
 };
 
 type FollowUpSuggestion = {
@@ -62,6 +63,7 @@ type CapabilityItem = {
 
 type CopilotPanel = "mode" | "capabilities" | "sources" | "followups" | "evidence" | "search" | null;
 type CopilotThread = { id: string; title: string; preview: string; updatedAt: string };
+type CopilotRequest = { id: number; controller: AbortController; placeholderId: string };
 
 const COPILOT_MODES = [
   { key: "guide", label: "导购模式", title: "像顾问一样追问", hint: "预算、用途、人群偏好", icon: Sparkles },
@@ -189,6 +191,25 @@ const COPILOT_SKILLS: CapabilityItem[] = [
 
 const COPILOT_MCPS: CapabilityItem[] = [
   {
+    id: "web-search",
+    name: "实时网页检索",
+    detail: "检索公开网页并返回可点击引用",
+    status: "按配置启用",
+    contents: [
+      { label: "多搜索源", description: "支持 Tavily、博查和 Serper，由服务端按配置选择。" },
+      { label: "结构化引用", description: "保留标题、网址、摘要、发布时间和抓取时间。" },
+      { label: "引用约束", description: "回答只能引用实际搜索结果，越界编号和模型自造链接会被过滤。" },
+    ],
+    definitions: [
+      { term: "citation_id", meaning: "后端为本轮真实来源分配的引用编号。" },
+      { term: "fetched_at", meaning: "ValuSee 获取该搜索结果的时间。" },
+      { term: "source_status", meaning: "搜索服务本轮可用、无结果、未配置或失败状态。" },
+    ],
+    input: "用户问题、最近对话上下文、当前导购模式",
+    output: "网页标题、摘要、参考网址和来源状态",
+    trust: "网页内容属于外部证据；模型不能创建来源，关键事实仍需回到原网页核验。",
+  },
+  {
     id: "commerce-search",
     name: "Commerce Search",
     detail: "聚合授权商品来源",
@@ -260,6 +281,13 @@ const PROVIDER_LABELS: Record<string, string> = {
   pdd: "拼多多",
   douyin: "抖音",
   vip: "唯品会",
+  tavily: "Tavily 网页搜索",
+  bocha: "博查网页搜索",
+  serper: "Serper 网页搜索",
+  web: "网页搜索",
+  commerce: "电商来源",
+  "shopping-knowledge": "购物知识库",
+  "personal-llm": "个人模型",
 };
 
 const SOURCE_KIND_LABELS: Record<string, string> = {
@@ -313,50 +341,12 @@ function createWelcomeMessage(): CopilotMessage {
   };
 }
 
-function buildSummary(query: string, response: CommerceSearchResponse) {
-  const okSources = response.sources.filter((item) => item.status === "ok");
-  const sourceText = response.sources.length
-    ? response.sources
-        .map((item) =>
-          `${sourceLabel(item.provider)} · ${item.status === "ok" ? `${item.count || 0} 条` : item.error || "暂不可用"}`,
-        )
-        .join(" / ")
-    : "暂无可追溯来源";
-  return `### 我先帮你搜了一轮
-
-- 关键词：${query}
-- 找到候选：${response.results.length} 个
-- 来源状态：${sourceText}
-- 可用来源：${okSources.length} 个
-
-${response.message}
-
-接下来可以继续追问：
-- 官方店优先
-- 更便宜替代
-- 预算再降 20%
-- 设备兼容`;
-}
-
-function buildSearchFallback(query: string) {
-  return `### 暂时没有找到可展示的授权结果
-
-- 关键词：${query}
-- 说明：当前没有可用的授权平台商品来源，或本次查询条件不足以返回结果。
-
-你可以继续追问：
-- 换一个更具体的型号
-- 官方店优先
-- 改成截图录入
-- 用浏览器扩展采集当前页面`;
-}
-
 function collapsePreview(content: string, limit = 118) {
   const trimmed = content.replace(/\s+/g, " ").trim();
   return trimmed.length > limit ? `${trimmed.slice(0, limit)}...` : trimmed;
 }
 
-function buildFollowUpSuggestions(baseQuery: string, response?: CommerceSearchResponse | null): FollowUpSuggestion[] {
+function buildFollowUpSuggestions(baseQuery: string, response?: CopilotChatResponse | null): FollowUpSuggestion[] {
   const topic = baseQuery.trim() || "这件商品";
   const suggestions: FollowUpSuggestion[] = [
     { label: "只看官方店", query: `${topic} 只看官方店`, hint: "优先核验店铺资质和售后" },
@@ -375,7 +365,16 @@ function buildFollowUpSuggestions(baseQuery: string, response?: CommerceSearchRe
 function sourceHealthText(status: string) {
   if (status === "ok") return "可用";
   if (status === "empty") return "无结果";
+  if (status === "not_configured") return "未配置";
+  if (status === "fallback") return "已降级";
   return "需确认";
+}
+
+function sourceTypeLabel(sourceType?: string) {
+  if (sourceType === "web") return "网页";
+  if (sourceType === "rag") return "知识库";
+  if (sourceType === "model") return "模型";
+  return "商品";
 }
 
 function capabilityKindLabel(kind: CapabilityKind) {
@@ -440,7 +439,7 @@ export function ShoppingCopilotPage({
   draftOwner,
   candidateCount,
   signedIn,
-  onSearch,
+  onChat,
   onAddCandidate,
   onOpenProduct,
   onOpenAnalyze,
@@ -448,7 +447,12 @@ export function ShoppingCopilotPage({
   draftOwner: string;
   candidateCount: number;
   signedIn: boolean;
-  onSearch: (query: string) => Promise<CommerceSearchResponse>;
+  onChat: (
+    message: string,
+    mode: CopilotMode,
+    history: Array<{ role: "user" | "assistant"; content: string }>,
+    signal?: AbortSignal,
+  ) => Promise<CopilotChatResponse>;
   onAddCandidate: (product: ConsumerProduct) => void;
   onOpenProduct: (product: ConsumerProduct) => void;
   onOpenAnalyze: () => void;
@@ -462,7 +466,7 @@ export function ShoppingCopilotPage({
   const [threadSearch, setThreadSearch] = useState("");
   const [threadId, setThreadId] = useState(() => `thread-${Date.now()}`);
   const [threads, setThreads] = useState<CopilotThread[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingThreads, setLoadingThreads] = useState<Record<string, boolean>>({});
   const [collapsedMessages, setCollapsedMessages] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<CopilotMessage[]>(() => {
     try {
@@ -475,6 +479,15 @@ export function ShoppingCopilotPage({
     }
   });
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const activeThreadIdRef = useRef(threadId);
+  const requestSequenceRef = useRef(0);
+  const requestsRef = useRef<Map<string, CopilotRequest>>(new Map());
+  const loading = Boolean(loadingThreads[threadId]);
+
+  useEffect(() => {
+    activeThreadIdRef.current = threadId;
+  }, [threadId]);
 
   useEffect(() => {
     try {
@@ -569,15 +582,97 @@ export function ShoppingCopilotPage({
     setActivePanel(null);
   }
 
+  function readThreadMessages(targetThreadId: string) {
+    try {
+      const raw = localStorage.getItem(threadStorageKey(draftOwner, targetThreadId));
+      const parsed = raw ? JSON.parse(raw) as CopilotMessage[] : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function persistThreadMessages(targetThreadId: string, nextMessages: CopilotMessage[]) {
+    try {
+      localStorage.setItem(threadStorageKey(draftOwner, targetThreadId), JSON.stringify(nextMessages.slice(-30)));
+    } catch {
+      /* localStorage may be unavailable in hardened contexts. */
+    }
+  }
+
+  function updateThreadSummary(targetThreadId: string, nextMessages: CopilotMessage[]) {
+    const firstQuery = nextMessages.find((item) => item.role === "user")?.content?.trim();
+    const nextThread: CopilotThread = {
+      id: targetThreadId,
+      title: firstQuery ? collapsePreview(firstQuery, 28) : "新的购物对话",
+      preview: collapsePreview(nextMessages[nextMessages.length - 1]?.content || "等待你的购物需求", 46),
+      updatedAt: new Date().toISOString(),
+    };
+    setThreads((items) => {
+      const next = [nextThread, ...items.filter((item) => item.id !== targetThreadId)].slice(0, 20);
+      try { localStorage.setItem(`valuesee-copilot-threads:${draftOwner}`, JSON.stringify(next)); } catch { /* storage is optional */ }
+      return next;
+    });
+  }
+
+  function updateThreadMessages(
+    targetThreadId: string,
+    updater: (items: CopilotMessage[]) => CopilotMessage[],
+  ) {
+    if (activeThreadIdRef.current === targetThreadId) {
+      setMessages((items) => updater(items));
+      return;
+    }
+
+    const next = updater(readThreadMessages(targetThreadId));
+    persistThreadMessages(targetThreadId, next);
+    updateThreadSummary(targetThreadId, next);
+  }
+
+  function finishThreadRequest(targetThreadId: string, requestId: number) {
+    if (requestsRef.current.get(targetThreadId)?.id !== requestId) return false;
+    requestsRef.current.delete(targetThreadId);
+    setLoadingThreads((items) => {
+      const next = { ...items };
+      delete next[targetThreadId];
+      return next;
+    });
+    return true;
+  }
+
+  function stopActiveRequest() {
+    const targetThreadId = activeThreadIdRef.current;
+    const activeRequest = requestsRef.current.get(targetThreadId);
+    if (!activeRequest) return;
+
+    activeRequest.controller.abort();
+    if (!finishThreadRequest(targetThreadId, activeRequest.id)) return;
+    updateThreadMessages(targetThreadId, (items) => items.map((message) =>
+      message.id === activeRequest.placeholderId
+        ? {
+            ...message,
+            loading: false,
+            stopped: true,
+            content: "已停止生成。你可以修改问题，或重新发送上一条指令。",
+          }
+        : message,
+    ));
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   function startNewConversation() {
-    setThreadId(`thread-${Date.now()}`);
+    const nextThreadId = `thread-${Date.now()}`;
+    activeThreadIdRef.current = nextThreadId;
+    setThreadId(nextThreadId);
     setMessages([createWelcomeMessage()]);
     setCollapsedMessages({});
     setInput("");
     closePanel();
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   function openThread(thread: CopilotThread) {
+    activeThreadIdRef.current = thread.id;
     setThreadId(thread.id);
     try {
       const raw = localStorage.getItem(threadStorageKey(draftOwner, thread.id));
@@ -591,9 +686,10 @@ export function ShoppingCopilotPage({
 
   async function submitSearch(query: string) {
     const keyword = query.trim();
-    if (!keyword || loading) return;
-    setLoading(true);
-    setInput("");
+    const requestThreadId = activeThreadIdRef.current;
+    if (!keyword || requestsRef.current.has(requestThreadId)) return;
+    const requestId = ++requestSequenceRef.current;
+    const controller = new AbortController();
     const userMessage: CopilotMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -603,8 +699,8 @@ export function ShoppingCopilotPage({
       mode,
     };
     const placeholderId = `assistant-${Date.now()}`;
-    setMessages((items) => [
-      ...items,
+    const nextMessages: CopilotMessage[] = [
+      ...messages,
       userMessage,
       {
         id: placeholderId,
@@ -614,24 +710,36 @@ export function ShoppingCopilotPage({
         mode,
         loading: true,
       },
-    ]);
+    ];
+    requestsRef.current.set(requestThreadId, { id: requestId, controller, placeholderId });
+    setLoadingThreads((items) => ({ ...items, [requestThreadId]: true }));
+    setInput("");
+    setMessages(nextMessages);
+    persistThreadMessages(requestThreadId, nextMessages);
+    updateThreadSummary(requestThreadId, nextMessages);
     try {
-      const response = await onSearch(keyword);
-      setMessages((items) =>
+      const history = messages
+        .filter((item) => !item.loading && item.id !== placeholderId)
+        .slice(-12)
+        .map((item) => ({ role: item.role, content: item.content.slice(0, 3500) }));
+      const response = await onChat(keyword, mode, history, controller.signal);
+      if (requestsRef.current.get(requestThreadId)?.id !== requestId) return;
+      updateThreadMessages(requestThreadId, (items) =>
         items.map((item) =>
           item.id === placeholderId
             ? {
                 ...item,
                 loading: false,
                 response,
-                content: response.results.length ? buildSummary(keyword, response) : buildSearchFallback(keyword),
+                content: response.answer,
               }
             : item,
         ),
       );
     } catch (error) {
+      if (requestsRef.current.get(requestThreadId)?.id !== requestId) return;
       const content = error instanceof Error ? error.message : "搜索失败，请稍后再试";
-      setMessages((items) =>
+      updateThreadMessages(requestThreadId, (items) =>
         items.map((item) =>
           item.id === placeholderId
             ? {
@@ -644,7 +752,7 @@ export function ShoppingCopilotPage({
         ),
       );
     } finally {
-      setLoading(false);
+      finishThreadRequest(requestThreadId, requestId);
     }
   }
 
@@ -728,7 +836,7 @@ export function ShoppingCopilotPage({
               return (
                 <article
                   key={message.id}
-                  className={`copilot-message ${message.role}${message.error ? " is-error" : ""}${message.loading ? " is-loading" : ""}${collapsed ? " is-collapsed" : ""}`}
+                  className={`copilot-message ${message.role}${message.error ? " is-error" : ""}${message.stopped ? " is-stopped" : ""}${message.loading ? " is-loading" : ""}${collapsed ? " is-collapsed" : ""}`}
                 >
                   <div className="copilot-message-topline">
                     <div className="copilot-message-badge">
@@ -761,12 +869,26 @@ export function ShoppingCopilotPage({
                           {message.response.sources.map((source) => (
                             <span
                               key={`${message.id}-${source.provider}-${source.status}`}
-                              className={`copilot-source ${source.status === "ok" ? "ok" : "error"}`}
+                              className={`copilot-source ${source.status === "ok" ? "ok" : source.status === "error" ? "error" : "muted"}`}
                             >
-                              {sourceLabel(source.provider)} · {source.status === "ok" ? `${source.count || 0} 条` : source.error || "暂不可用"}
+                              {sourceTypeLabel(source.source_type)} · {sourceLabel(source.provider)} · {source.status === "ok" ? `${source.count || 0} 条` : sourceHealthText(source.status)}
                             </span>
                           ))}
                         </div>
+                        {message.response.citations.length > 0 && (
+                          <div className="copilot-citations" aria-label="参考来源">
+                            <div><ExternalLink size={14} /><strong>参考来源</strong><span>{message.response.citations.length}</span></div>
+                            <div className="copilot-citation-links">
+                              {message.response.citations.map((citation) => (
+                                <a key={`${message.id}-citation-${citation.id}`} href={citation.url} target="_blank" rel="noreferrer" title={citation.snippet || citation.title}>
+                                  <b>[{citation.id}]</b>
+                                  <span><strong>{citation.title}</strong><small>{sourceTypeLabel(citation.source_type)} · {citation.domain}</small></span>
+                                  <ArrowUpRight size={13} />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {message.response.results.length ? (
                           <div className="copilot-results">
                             {message.response.results.map((result) => {
@@ -832,26 +954,11 @@ export function ShoppingCopilotPage({
                 </article>
               );
             })}
-
-            {loading && (
-              <article className="copilot-message assistant is-loading">
-                <div className="copilot-message-badge">
-                  <img className="copilot-message-avatar" src="/brand/xiaozhi.png" alt="ValuSee" />
-                  <span>ValuSee</span>
-                </div>
-                <div className="copilot-message-body">
-                  <p>正在搜索可追溯来源商品...</p>
-                  <div className="copilot-loading">
-                    <Loader2 size={16} className="spin" />
-                    <span>整理消息来源、价格和候选列表</span>
-                  </div>
-                </div>
-              </article>
-            )}
           </div>
 
           <form className="copilot-composer" onSubmit={handleSubmit}>
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="例如：给我找一台适合代码办公的 27 英寸显示器，预算 2500 元"
@@ -866,10 +973,17 @@ export function ShoppingCopilotPage({
                   </button>
                 ))}
               </div>
-              <button type="submit" disabled={loading || !input.trim()}>
-                {loading ? <Loader2 className="spin" size={16} /> : <Search size={16} />}
-                发送
-              </button>
+              {loading ? (
+                <button type="button" className="copilot-stop-button" onClick={() => stopActiveRequest()} title="停止生成">
+                  <Square size={14} fill="currentColor" />
+                  停止
+                </button>
+              ) : (
+                <button type="submit" disabled={!input.trim()}>
+                  <Search size={16} />
+                  发送
+                </button>
+              )}
             </div>
           </form>
         </section>
@@ -1077,7 +1191,7 @@ export function ShoppingCopilotPage({
                 {!panelItems.length && <div className="copilot-modal-empty">没有匹配的能力或关键词。</div>}
               </div>
             )}
-            {activePanel === "sources" && <div className="copilot-modal-list">{(latestResponse?.sources || []).map((source) => <article key={`${source.provider}-${source.status}`}><strong>{sourceLabel(source.provider)}</strong><span>{source.status === "ok" ? `${source.count || 0} 条结果` : sourceHealthText(source.status)}</span><small>{source.status === "ok" ? "已返回可追溯商品结果" : source.error || "请更换关键词或补充信息"}</small></article>)}{!latestResponse?.sources.length && <div className="copilot-modal-empty">发送一次商品需求后，这里会展示来源状态。</div>}</div>}
+            {activePanel === "sources" && <div className="copilot-modal-list copilot-source-modal">{(latestResponse?.sources || []).filter((source) => !panelSearch.trim() || `${source.provider} ${source.source_type || ""}`.toLowerCase().includes(panelSearch.toLowerCase())).map((source) => <article key={`${source.source_type}-${source.provider}-${source.status}`}><strong>{sourceTypeLabel(source.source_type)} · {sourceLabel(source.provider)}</strong><span>{source.status === "ok" ? `${source.count || 0} 条结果` : sourceHealthText(source.status)}</span><small>{source.status === "ok" ? "已返回可追溯证据" : source.message || source.error || "请检查配置或更换关键词"}</small></article>)}{(latestResponse?.citations || []).filter((citation) => !panelSearch.trim() || `${citation.title} ${citation.domain}`.toLowerCase().includes(panelSearch.toLowerCase())).map((citation) => <a className="copilot-modal-citation" key={`citation-${citation.id}`} href={citation.url} target="_blank" rel="noreferrer"><b>[{citation.id}]</b><span><strong>{citation.title}</strong><small>{sourceTypeLabel(citation.source_type)} · {citation.domain}{citation.published_at ? ` · ${citation.published_at}` : ""}</small></span><ExternalLink size={15} /></a>)}{!latestResponse?.sources.length && <div className="copilot-modal-empty">发送一次商品需求后，这里会展示商品、网页和知识库来源。</div>}</div>}
             {activePanel === "followups" && <div className="copilot-modal-list">{followUps.filter((item) => !panelSearch.trim() || `${item.label} ${item.hint}`.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => <button type="button" key={item.label} onClick={() => { setActivePanel(null); runMessageSearch(item.query); }}><span><strong>{item.label}</strong><small>{item.hint}</small></span><ChevronRight size={15} /></button>)}</div>}
             {activePanel === "evidence" && <div className="copilot-modal-products">{latestResults.map((result) => { const product = result.product; return <article key={`${result.provider}-${product.url}-${product.sku}`}><div className="copilot-mini-thumb">{product.image_url ? <img src={product.image_url} alt="" /> : <Laptop size={18} />}</div><span><strong>{product.title}</strong><small>{sourceLabel(result.provider)} · {money(finalPrice(product))}</small></span><button type="button" onClick={() => onAddCandidate(product)}><Plus size={14} /></button></article>; })}{!latestResults.length && <div className="copilot-modal-empty">当前对话还没有候选商品。</div>}</div>}
           </section>

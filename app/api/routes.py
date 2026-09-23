@@ -39,6 +39,7 @@ from app.shopping.vision import inspect_product_image
 from app.shopping.reviews import analyze_reviews
 from app.shopping.notifications import send_transactional_email
 from app.shopping.providers import ProviderError, commerce_provider_statuses, configured_providers
+from app.shopping.copilot import run_copilot_chat, search_commerce_evidence
 from app.shopping.public_pages import fetch_public_product
 from app.shopping.catalog import commerce_catalog
 from app.graphs.collaboration_runner import run_collaboration_task
@@ -83,6 +84,8 @@ from app.schemas.shopping import (
     FamilyInviteRequest,
     FamilyMemberRoleRequest,
     ReviewAnalysisRequest,
+    ShoppingCopilotChatRequest,
+    ShoppingCopilotChatResponse,
     ShoppingDecisionRequest,
     ShoppingExtensionCaptureRequest,
     ShoppingExtensionCaptureResponse,
@@ -1315,24 +1318,32 @@ def search_commerce_products(request: ShoppingSearchRequest, authorization: str 
     _request_user(authorization)
     providers = configured_providers()
     selected = [providers[request.provider]] if request.provider in providers else list(providers.values())
-    if not selected:
-        return {"query": request.query, "results": [], "sources": [], "message": "尚未配置已授权的商品搜索来源，请使用商品链接、截图或浏览器扩展采集。"}
-    results: list[dict[str, object]] = []
-    source_status: list[dict[str, object]] = []
-    for provider in selected:
-        try:
-            provider_results = provider.search(request.query, request.category, request.limit)
-            results.extend(provider_results)
-            source_status.append({"provider": provider.name, "status": "ok", "count": len(provider_results)})
-        except Exception as exc:
-            source_status.append({"provider": provider.name, "status": "error", "error": type(exc).__name__, "message": str(exc)[:220]})
-    if results:
-        message = "结果来自已授权平台接口，价格和优惠可能变化，下单前请回到原平台核验。"
-    elif any(item["status"] == "error" for item in source_status):
-        message = "授权平台接口当前调用失败，请检查应用权限、密钥和推广位配置。"
-    else:
-        message = "授权平台没有返回匹配商品，商品可能不在推广库或关键词需要调整。"
-    return {"query": request.query, "results": results[:request.limit], "sources": source_status, "message": message}
+    results, source_status, message = search_commerce_evidence(
+        request.query,
+        request.category,
+        request.limit,
+        {provider.name: provider for provider in selected},
+    )
+    return {"query": request.query, "results": results, "sources": source_status, "message": message}
+
+
+@router.post("/shopping/copilot/chat", response_model=ShoppingCopilotChatResponse, tags=["Shopping Copilot"])
+def chat_with_shopping_copilot(
+    request: ShoppingCopilotChatRequest,
+    authorization: str | None = Header(default=None),
+) -> ShoppingCopilotChatResponse:
+    user_id = _request_user(authorization)
+    result = run_copilot_chat(
+        message=request.message,
+        mode=request.mode,
+        history=[item.model_dump() for item in request.history],
+        product_limit=request.product_limit,
+        web_limit=request.web_limit,
+        user_id=user_id,
+        commerce_providers=configured_providers(),
+        user_llm_config=shopping_store.get_llm_config(user_id, include_secret=True),
+    )
+    return ShoppingCopilotChatResponse(**result)
 
 
 @router.get("/business-scenarios", tags=["Business Scenarios"])

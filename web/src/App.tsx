@@ -1,7 +1,7 @@
 import { ArrowLeft, Bell, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Compass, Crown, Clock3, FileText, Download, GripVertical, ImageDown, ListFilter, Printer, ExternalLink, MessageSquareWarning, Pause, Paperclip, Play, Save, Settings, History, Heart, Link2, LifeBuoy, LogOut, Loader2, Plus, Receipt, Search, Share2, MessageSquare, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload, Users, UserRound } from "lucide-react";
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
-import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
+import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, CopilotChatResponse, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
 import { ShoppingCopilotPage } from "./ShoppingCopilot";
 import { MarkdownContent } from "./MarkdownContent";
 import { apiUrl } from "./runtime";
@@ -862,6 +862,23 @@ export function App() {
       body: JSON.stringify({ query, provider: "", category: "", limit: 12 }),
     });
   }
+  async function chatWithShoppingCopilot(
+    message: string,
+    mode: string,
+    history: Array<{ role: "user" | "assistant"; content: string }>,
+    signal?: AbortSignal,
+  ) {
+    if (!localStorage.getItem("valuesee-token")) {
+      openAccount();
+      throw new Error("请先登录，再使用 AI 导购联网搜索。");
+    }
+    return request<CopilotChatResponse>("/api/v1/shopping/copilot/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, mode, history, product_limit: 8, web_limit: 6 }),
+      signal,
+    });
+  }
   async function toggleFavorite(product: Product) {
     const key = product.url || `${product.brand}:${product.model}:${product.sku}`;
     const existing = savedItems.find((item) => item.item_type === "favorite" && item.reference_key === key);
@@ -1445,7 +1462,7 @@ export function App() {
           draftOwner={draftOwner}
           candidateCount={products.length}
           signedIn={Boolean(localStorage.getItem("valuesee-token"))}
-          onSearch={searchCommerceProducts}
+          onChat={chatWithShoppingCopilot}
           onAddCandidate={(product) => {
             void addProduct(product);
             setMessage("已加入候选，继续追问或去对比工作台看结果。");

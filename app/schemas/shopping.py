@@ -48,6 +48,45 @@ class ShoppingSearchRequest(BaseModel):
     limit: int = Field(default=12, ge=1, le=50)
 
 
+class ShoppingCopilotMessage(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+class ShoppingCopilotChatRequest(BaseModel):
+    message: str = Field(..., min_length=2, max_length=2000)
+    mode: str = Field(default="guide", pattern="^(guide|research|compare|deal)$")
+    history: list[ShoppingCopilotMessage] = Field(default_factory=list, max_length=20)
+    product_limit: int = Field(default=8, ge=1, le=20)
+    web_limit: int = Field(default=6, ge=1, le=10)
+
+
+class ShoppingCopilotCitation(BaseModel):
+    id: int
+    source_type: str
+    provider: str
+    title: str
+    url: str
+    domain: str = ""
+    snippet: str = ""
+    published_at: str = ""
+    fetched_at: str = ""
+    score: float = 0.0
+
+
+class ShoppingCopilotChatResponse(BaseModel):
+    query: str
+    search_query: str
+    answer: str
+    answer_source: str
+    model: str | None = None
+    results: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[ShoppingCopilotCitation] = Field(default_factory=list)
+    rag_results: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    message: str = ""
+
+
 class ShoppingParseUrlResponse(BaseModel):
     product: ShoppingProductInput
     source: str

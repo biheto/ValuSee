@@ -25,8 +25,20 @@ export type CommerceSearchResult = { provider: string; kind: string; product: Co
 export type CommerceSearchResponse = {
   query: string;
   results: CommerceSearchResult[];
-  sources: Array<{ provider: string; status: string; count?: number; error?: string }>;
+  sources: Array<{ source_type?: string; provider: string; status: string; count?: number; error?: string; message?: string }>;
   message: string;
+};
+export type CopilotCitation = {
+  id: number; source_type: 'web' | 'commerce' | string; provider: string; title: string; url: string;
+  domain: string; snippet: string; published_at?: string; fetched_at?: string; score?: number;
+};
+export type CopilotChatResponse = CommerceSearchResponse & {
+  search_query: string;
+  answer: string;
+  answer_source: string;
+  model?: string | null;
+  citations: CopilotCitation[];
+  rag_results: Array<{ chunk_id?: string; path?: string; content?: string; score?: number }>;
 };
 
 const money = (value?: number) => `¥${Number(value || 0).toFixed(0)}`;
