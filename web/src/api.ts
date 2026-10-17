@@ -38,6 +38,7 @@ import {
   WorkflowValidation,
 } from './types';
 import { API_BASE } from './runtime';
+import { formatApiError } from './apiError';
 
 
 async function consumeEventStream(response: Response, onEvent: (event: AgentEvent | Record<string, unknown>) => void) {
@@ -83,7 +84,7 @@ export async function runBusinessScenarioStream(
 
 async function apiError(response: Response, fallback: string): Promise<Error> {
   const data = await response.json().catch(() => ({}));
-  return new Error(String(data.detail ?? `${fallback}: ${response.status}`));
+  return new Error(formatApiError(data.detail, `${fallback}: ${response.status}`));
 }
 
 export async function runTaskStream(
@@ -278,7 +279,7 @@ export async function reviewTask(taskId: string, action: 'approve' | 'reject' | 
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(String(data.detail ?? `Review action failed: ${response.status}`));
+    throw new Error(formatApiError(data.detail, `Review action failed: ${response.status}`));
   }
   if (!response.ok) throw new Error('审核动作提交失败');
   return response.json();

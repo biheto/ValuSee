@@ -4,6 +4,7 @@ import { BrandMark, BrandWordmark, ValueMascot } from "./BrandArt";
 import { AccountHome, CommerceSearchResponse, ConsumerNotification, ConsumerProduct, ContentDetailPage, CopilotChatResponse, Dashboard, DiscoverPage, FloatingNotifications, MessagesPage, MobileNav, ProductDetail, SavedGroup, SavedItem, SavedPage, SharedDecisionPage } from "./ConsumerHub";
 import { ShoppingCopilotPage } from "./ShoppingCopilot";
 import { MarkdownContent } from "./MarkdownContent";
+import { formatApiError } from "./apiError";
 import { apiUrl } from "./runtime";
 
 type Product = ConsumerProduct;
@@ -306,7 +307,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(path), { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(String(body.detail ?? `请求失败（${response.status}）`));
+    throw new Error(formatApiError(body.detail, `请求失败（${response.status}）`));
   }
   return response.json();
 }

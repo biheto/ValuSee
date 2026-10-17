@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Check, Eye, Pause, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { formatApiError } from './apiError';
 import { apiUrl } from './runtime';
 
 type Item = Record<string, unknown>;
@@ -10,7 +11,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(apiUrl(path), { ...init, headers });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(body.detail ?? `请求失败：${response.status}`));
+  if (!response.ok) throw new Error(formatApiError(body.detail, `请求失败：${response.status}`));
   return body as T;
 }
 

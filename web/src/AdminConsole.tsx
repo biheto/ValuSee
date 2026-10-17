@@ -1,6 +1,8 @@
 import { Activity, BarChart3, Bot, Database, ExternalLink, Eye, RefreshCw, Server, ShieldCheck, ShoppingBag, Timer, Workflow } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { AdminGovernance } from './AdminGovernance';
+import { CharacterCaptcha } from './AuthPage';
+import { formatApiError } from './apiError';
 import { apiUrl } from './runtime';
 
 type Overview = {
@@ -20,7 +22,7 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(apiUrl(path), { ...init, headers });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(body.detail ?? `请求失败：${response.status}`));
+  if (!response.ok) throw new Error(formatApiError(body.detail, `请求失败：${response.status}`));
   return body as T;
 }
 
@@ -31,8 +33,30 @@ export function AdminConsole() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
+  const [captchaId, setCaptchaId] = useState('');
+  const [captchaImage, setCaptchaImage] = useState('');
+  const [captchaCode, setCaptchaCode] = useState('');
+  const [captchaVersion, setCaptchaVersion] = useState(0);
+  const captchaRequestKey = useRef('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (data) return;
+    const requestKey = String(captchaVersion);
+    if (captchaRequestKey.current === requestKey) return;
+    captchaRequestKey.current = requestKey;
+    setCaptchaId('');
+    setCaptchaImage('');
+    setCaptchaCode('');
+    void adminRequest<{ captcha_id: string; image: string }>('/api/v1/auth/captcha').then((result) => {
+      if (captchaRequestKey.current !== requestKey) return;
+      setCaptchaId(result.captcha_id);
+      setCaptchaImage(result.image);
+    }).catch((err) => {
+      if (captchaRequestKey.current === requestKey) setError(err instanceof Error ? err.message : '图形验证码加载失败');
+    });
+  }, [data, captchaVersion]);
 
   async function load() {
     setLoading(true); setError('');
@@ -45,13 +69,17 @@ export function AdminConsole() {
   async function login(event: FormEvent) {
     event.preventDefault(); setLoggingIn(true); setError('');
     try {
-      const result = await adminRequest<{ access_token: string }>('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, mfa_code: mfaCode }) });
+      if (!captchaId || !/^[A-Za-z0-9]{4,6}$/.test(captchaCode)) throw new Error('请输入图形验证码');
+      const result = await adminRequest<{ access_token: string }>('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, captcha_id: captchaId, captcha_code: captchaCode, mfa_code: mfaCode }) });
       localStorage.setItem('valuesee-token', result.access_token); await load();
-    } catch (err) { setError(err instanceof Error ? err.message : '登录失败'); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '登录失败');
+      setCaptchaVersion((value) => value + 1);
+    }
     finally { setLoggingIn(false); }
   }
 
-  if (!data) return <main className="admin-app"><div className="admin-login"><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>管理端登录</h1><p>查看商品来源、Agent 任务、模型调用和运行状态。</p><form onSubmit={login}><input type="email" required placeholder="管理员邮箱" value={email} onChange={(event) => setEmail(event.target.value)} /><input type="password" required placeholder="密码" value={password} onChange={(event) => setPassword(event.target.value)} /><input inputMode="numeric" autoComplete="one-time-code" placeholder="动态验证码或恢复码（启用后必填）" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} /><button className="admin-primary" disabled={loggingIn}>{loggingIn ? '登录中…' : '进入管理端'}</button></form>{error && <div className="admin-error">{error}</div>}<a className="admin-back" href="/">返回用户端</a></div></main>;
+  if (!data) return <main className="admin-app"><div className="admin-login"><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>管理端登录</h1><p>查看商品来源、Agent 任务、模型调用和运行状态。</p><form onSubmit={login}><input aria-label="管理员邮箱" type="email" required placeholder="管理员邮箱" value={email} onChange={(event) => setEmail(event.target.value)} /><input aria-label="密码" type="password" required placeholder="密码" value={password} onChange={(event) => setPassword(event.target.value)} /><input aria-label="动态验证码或恢复码" inputMode="numeric" autoComplete="one-time-code" placeholder="动态验证码或恢复码（启用后必填）" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} /><CharacterCaptcha image={captchaImage} value={captchaCode} onChange={setCaptchaCode} onReset={() => setCaptchaVersion((value) => value + 1)} /><button className="admin-primary" disabled={loggingIn || !captchaId || !/^[A-Za-z0-9]{4,6}$/.test(captchaCode)}>{loggingIn ? '登录中…' : '进入管理端'}</button></form>{error && <div className="admin-error">{error}</div>}<a className="admin-back" href="/">返回用户端</a></div></main>;
 
   const tabs = [['overview', '总览', BarChart3], ['governance', '业务治理', ShieldCheck], ['tasks', 'Agent 任务', Workflow], ['traces', 'LLM Trace', Activity], ['sources', '商品来源', ShoppingBag], ['security', '账户安全', ShieldCheck]] as const;
   return <main className="admin-app"><header className="admin-header"><div><div className="admin-logo"><ShieldCheck size={19} /> ValuSee Admin</div><h1>运营与 Agent 控制台</h1><p>商品来源、决策任务、模型调用和系统健康状态集中管理。</p></div><div className="admin-header-actions"><button className="admin-icon-button" title="刷新数据" onClick={() => void load()}><RefreshCw size={17} className={loading ? 'spin' : ''} /></button><a href="/" className="admin-back">用户端</a></div></header><nav className="admin-tabs">{tabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={16} />{label}</button>)}</nav>{error && <div className="admin-error">{error}</div>}{tab === 'overview' && <OverviewTab data={data} />}{tab === 'governance' && <AdminGovernance />}{tab === 'tasks' && <TaskTab tasks={data.tasks} />}{tab === 'traces' && <TraceTab traces={data.traces} usage={data.llm_usage} />}{tab === 'sources' && <SourceTab providers={data.commerce_providers} mcp={data.mcp} />}{tab === 'security' && <AdminSecurity />}</main>;

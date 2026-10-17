@@ -1,6 +1,7 @@
 import { ArrowLeft, CheckCircle2, Loader2, LockKeyhole, Mail, RefreshCw, ShieldCheck, UserRound } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import type React from 'react';
+import { formatApiError } from './apiError';
 import { apiUrl } from './runtime';
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
@@ -9,7 +10,7 @@ async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(path), init);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(String(body.detail ?? `请求失败：${response.status}`));
+    throw new Error(formatApiError(body.detail, `请求失败：${response.status}`));
   }
   return response.json();
 }
@@ -225,7 +226,7 @@ function AuthField({ label, icon, value, onChange, optional, ...props }: { label
   );
 }
 
-function CharacterCaptcha({ image, value, onChange, onReset }: { image: string; value: string; onChange: (value: string) => void; onReset: () => void }) {
+export function CharacterCaptcha({ image, value, onChange, onReset }: { image: string; value: string; onChange: (value: string) => void; onReset: () => void }) {
   return (
     <div className="character-captcha">
       <div className="character-captcha-head"><span>图形验证码</span><small>请输入图片中的 4-6 位数字或字母</small></div>
