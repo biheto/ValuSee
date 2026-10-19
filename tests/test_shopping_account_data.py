@@ -34,6 +34,31 @@ def test_profile_comparison_report_and_feedback_are_isolated():
         assert store.list_comparisons("u1")[0]["name"] == "Office setup"
 
 
+def test_agent_activity_is_persisted_without_full_conversation_payload():
+    with TemporaryDirectory() as tmp:
+        store = ShoppingStore(Path(tmp) / "shopping.db")
+        record = store.record_agent_activity({
+            "user_id": "u1",
+            "agent": "shopping_copilot",
+            "mode": "research",
+            "query_preview": "x" * 300,
+            "status": "completed",
+            "answer_source": "llm",
+            "model": "test-model",
+            "trace_id": "trace-1",
+            "latency_ms": 123,
+            "sources": [{"source_type": "web", "status": "ok"}],
+        })
+
+        activities = store.list_agent_activities()
+        assert activities[0]["activity_id"] == record["activity_id"]
+        assert activities[0]["user_id"] == "u1"
+        assert activities[0]["query_preview"] == "x" * 240
+        assert activities[0]["trace_id"] == "trace-1"
+        assert activities[0]["sources"] == [{"source_type": "web", "status": "ok"}]
+        assert "answer" not in activities[0]
+
+
 def test_comparison_update_delete_and_notification_preferences():
     with TemporaryDirectory() as tmp:
         store = ShoppingStore(Path(tmp) / "shopping.db")

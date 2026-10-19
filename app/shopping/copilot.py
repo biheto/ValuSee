@@ -126,6 +126,7 @@ def run_copilot_chat(
         "answer": answer,
         "answer_source": str(answer_result.get("answer_source") or "evidence_summary"),
         "model": answer_result.get("model"),
+        "trace_id": answer_result.get("trace_id"),
         "results": commerce_results,
         "citations": citations,
         "rag_results": rag_results,

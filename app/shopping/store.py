@@ -217,6 +217,13 @@ class ShoppingStore:
                 report_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,task_id TEXT NOT NULL,goal TEXT NOT NULL,
                 products_json TEXT NOT NULL,result_json TEXT NOT NULL,created_at TEXT NOT NULL
             )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shopping_agent_activity(
+                activity_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,agent TEXT NOT NULL,mode TEXT NOT NULL,
+                query_preview TEXT NOT NULL,status TEXT NOT NULL,answer_source TEXT NOT NULL,model TEXT,
+                trace_id TEXT,latency_ms INTEGER NOT NULL,sources_json TEXT NOT NULL,error TEXT,
+                created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_activity_created ON shopping_agent_activity(created_at)")
             conn.execute("""CREATE TABLE IF NOT EXISTS shopping_feedback(
                 feedback_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,feedback_type TEXT NOT NULL,target_type TEXT NOT NULL,
                 target_id TEXT,content TEXT NOT NULL,evidence_json TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
@@ -1634,6 +1641,43 @@ class ShoppingStore:
         with self._session() as conn:
             rows = conn.execute("SELECT * FROM shopping_decision_report WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (user_id, max(1, min(limit, 500)))).fetchall()
         return [_decode_json_columns(row, {"products_json": "products", "result_json": "result"}) for row in rows]
+
+    def record_agent_activity(self, record: dict[str, Any]) -> dict[str, Any]:
+        activity = {
+            "activity_id": str(record.get("activity_id") or f"agent_{uuid4().hex}"),
+            "user_id": str(record.get("user_id") or ""),
+            "agent": str(record.get("agent") or "unknown"),
+            "mode": str(record.get("mode") or ""),
+            "query_preview": str(record.get("query_preview") or "")[:240],
+            "status": str(record.get("status") or "completed"),
+            "answer_source": str(record.get("answer_source") or ""),
+            "model": record.get("model"),
+            "trace_id": record.get("trace_id"),
+            "latency_ms": max(0, int(record.get("latency_ms") or 0)),
+            "sources": record.get("sources") if isinstance(record.get("sources"), list) else [],
+            "error": str(record.get("error") or "")[:240] or None,
+            "created_at": str(record.get("created_at") or utc_now_iso()),
+        }
+        with self._session() as conn:
+            conn.execute(
+                """INSERT INTO shopping_agent_activity(
+                    activity_id,user_id,agent,mode,query_preview,status,answer_source,model,
+                    trace_id,latency_ms,sources_json,error,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (activity["activity_id"], activity["user_id"], activity["agent"], activity["mode"],
+                 activity["query_preview"], activity["status"], activity["answer_source"], activity["model"],
+                 activity["trace_id"], activity["latency_ms"], json.dumps(activity["sources"], ensure_ascii=False),
+                 activity["error"], activity["created_at"]),
+            )
+        return activity
+
+    def list_agent_activities(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM shopping_agent_activity ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        return [_decode_json_columns(row, {"sources_json": "sources"}) for row in rows]
 
     def create_feedback(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()

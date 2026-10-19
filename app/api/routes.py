@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import secrets
 import time
@@ -155,6 +156,7 @@ from app.schemas.studio import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["ValuSee"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/internal/monitor/run", tags=["Operations"], include_in_schema=False)
@@ -1000,6 +1002,7 @@ def admin_overview(authorization: str | None = Header(default=None)) -> dict[str
     _require_admin(authorization)
     tasks = task_store.list_tasks()
     monitors = shopping_store.list_monitors()
+    agent_activities = shopping_store.list_agent_activities(limit=50)
     traces = task_store.list_llm_traces(limit=20)
     benchmarks = task_store.list_benchmark_runs(limit=10)
     usage = llm_provider.usage_dashboard(limit=500)
@@ -1007,6 +1010,7 @@ def admin_overview(authorization: str | None = Header(default=None)) -> dict[str
         "product": "ValuSee / 见值",
         "health": {"tasks": len(tasks), "running_tasks": sum(1 for item in tasks if item.get("status") in {"running", "queued"}), "monitors": len(monitors), "active_monitors": sum(1 for item in monitors if item.get("status") in {"watching", "target_reached"}), "traces": len(traces), "benchmarks": len(benchmarks)},
         "tasks": tasks[:20],
+        "agent_activities": agent_activities,
         "monitors": monitors[:20],
         "traces": traces,
         "benchmarks": benchmarks,
@@ -1333,16 +1337,47 @@ def chat_with_shopping_copilot(
     authorization: str | None = Header(default=None),
 ) -> ShoppingCopilotChatResponse:
     user_id = _request_user(authorization)
-    result = run_copilot_chat(
-        message=request.message,
-        mode=request.mode,
-        history=[item.model_dump() for item in request.history],
-        product_limit=request.product_limit,
-        web_limit=request.web_limit,
-        user_id=user_id,
-        commerce_providers=configured_providers(),
-        user_llm_config=shopping_store.get_llm_config(user_id, include_secret=True),
-    )
+    started = time.perf_counter()
+    try:
+        result = run_copilot_chat(
+            message=request.message,
+            mode=request.mode,
+            history=[item.model_dump() for item in request.history],
+            product_limit=request.product_limit,
+            web_limit=request.web_limit,
+            user_id=user_id,
+            commerce_providers=configured_providers(),
+            user_llm_config=shopping_store.get_llm_config(user_id, include_secret=True),
+        )
+    except Exception as exc:
+        try:
+            shopping_store.record_agent_activity({
+                "user_id": user_id,
+                "agent": "shopping_copilot",
+                "mode": request.mode,
+                "query_preview": request.message,
+                "status": "failed",
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "error": type(exc).__name__,
+            })
+        except Exception:
+            logger.exception("Failed to persist shopping copilot failure activity")
+        raise
+    try:
+        shopping_store.record_agent_activity({
+            "user_id": user_id,
+            "agent": "shopping_copilot",
+            "mode": request.mode,
+            "query_preview": request.message,
+            "status": "completed",
+            "answer_source": result.get("answer_source"),
+            "model": result.get("model"),
+            "trace_id": result.get("trace_id"),
+            "latency_ms": int((time.perf_counter() - started) * 1000),
+            "sources": result.get("sources"),
+        })
+    except Exception:
+        logger.exception("Failed to persist shopping copilot activity")
     return ShoppingCopilotChatResponse(**result)
 
 

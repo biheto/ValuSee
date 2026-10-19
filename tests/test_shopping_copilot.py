@@ -5,6 +5,8 @@ from typing import Self
 
 import pytest
 
+from app.api import routes
+from app.schemas.shopping import ShoppingCopilotChatRequest
 from app.shopping import copilot, web_search
 
 
@@ -160,3 +162,36 @@ def test_copilot_removes_model_created_urls_and_invalid_citations(monkeypatch: p
     assert "fake.example.com" not in result["answer"]
     assert result["answer_source"] == "llm"
     assert any(item["source_type"] == "commerce" and item["status"] == "not_configured" for item in result["sources"])
+
+
+def test_copilot_chat_persists_admin_activity(monkeypatch: pytest.MonkeyPatch) -> None:
+    saved: list[dict[str, object]] = []
+    monkeypatch.setattr(routes, "_request_user", lambda _authorization: "user-7")
+    monkeypatch.setattr(routes.shopping_store, "get_llm_config", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(routes, "configured_providers", dict)
+    monkeypatch.setattr(
+        routes.shopping_store,
+        "record_agent_activity",
+        lambda record: saved.append(record),
+    )
+    monkeypatch.setattr(routes, "run_copilot_chat", lambda **_kwargs: {
+        "query": "find monitor",
+        "search_query": "find monitor",
+        "answer": "Evidence summary",
+        "answer_source": "evidence_summary",
+        "model": None,
+        "trace_id": None,
+        "sources": [{"source_type": "web", "status": "empty"}],
+    })
+
+    response = routes.chat_with_shopping_copilot(
+        ShoppingCopilotChatRequest(message="find monitor", mode="research"),
+        authorization="Bearer token",
+    )
+
+    assert response.answer_source == "evidence_summary"
+    assert len(saved) == 1
+    assert saved[0]["user_id"] == "user-7"
+    assert saved[0]["agent"] == "shopping_copilot"
+    assert saved[0]["mode"] == "research"
+    assert saved[0]["status"] == "completed"
