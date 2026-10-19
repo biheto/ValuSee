@@ -31,13 +31,14 @@ async function captureFixture(page: import('@playwright/test').Page, url: string
   await page.route(url, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
   await page.goto(url);
   await page.addScriptTag({ path: collectorPath });
-  return page.evaluate(() => {
+  return page.evaluate(() => new Promise<Capture>((resolve, reject) => {
     const target = window as typeof window & { __valueseeListener?: (...args: unknown[]) => void };
-    let captured: Capture | undefined;
-    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V6' }, {}, (response: Capture) => { captured = response; });
-    if (!captured) throw new Error('collector did not respond');
-    return captured;
-  });
+    const timeout = window.setTimeout(() => reject(new Error('collector did not respond')), 7000);
+    target.__valueseeListener?.({ type: 'VALUSee_COLLECT_PRODUCT_V7' }, {}, (response: Capture) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  }));
 }
 
 test('collects the visible JD product and selected SKU', async ({ page }) => {
@@ -68,6 +69,21 @@ test('prefers JD product identity and price state over navigation noise', async 
 
   expect(result.product).toMatchObject({ platform: '京东', title: '华为 MateBook GT 14 游戏本 32GB 1TB', price: 7499, sku: '100077788', selected_variant: '32GB / 1TB' });
   expect(result.diagnostics.missing).toEqual([]);
+});
+
+test('ignores unrelated embedded JD title and uses the selected product option when title nodes are absent', async ({ page }) => {
+  const result = await captureFixture(page, 'https://item.jd.com/100391313856.html', `
+    <html><head><title>京东(JD.COM)-正品低价、品质保障</title></head><body>
+      <nav>商品详情 规格参数 售后保障 用户评价</nav>
+      <button class="sku-item selected" title="【小鸟梅洗衣房】分区洗爆款方案 / 纯白新品4KG+12KG组合">【小鸟梅洗衣房】分区洗爆款方案 / 纯白新品4KG+12KG组合</button>
+      <script>window.pageConfig={"itemTitle":"最小单位计算器","product":{"skuid":100391313856}};</script>
+    </body></html>`);
+
+  expect(result.product).toMatchObject({
+    platform: '京东',
+    title: '【小鸟梅洗衣房】分区洗爆款方案 / 纯白新品4KG+12KG组合',
+    sku: '100391313856',
+  });
 });
 
 test('collects Taobao rendered price and embedded SKU', async ({ page }) => {

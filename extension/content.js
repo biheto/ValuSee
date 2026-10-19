@@ -1,6 +1,6 @@
 (() => {
-  if (window.__VALUSeeCollectorV6) return;
-  window.__VALUSeeCollectorV6 = true;
+  if (window.__VALUSeeCollectorV7) return;
+  window.__VALUSeeCollectorV7 = true;
 
   const clean = (value) => String(value || '').trim().replace(/\s+/g, ' ');
   const firstText = (selectors) => {
@@ -11,7 +11,7 @@
     }
     return '';
   };
-  const bestTitle = (structuredTitle, embeddedTitle, selectors) => {
+  const bestTitle = (structuredTitle, embeddedTitle, selectors, includePageText = true, includeDocumentTitle = true) => {
     const candidates = [];
     const add = (raw, score, node = null) => {
       const value = clean(raw).replace(/\s*[-_|·]\s*(?:淘宝网?|天猫|京东|拼多多)\s*$/i, '');
@@ -31,8 +31,8 @@
         if (nodeIndex < 40) add(node.getAttribute('content') || node.textContent, Math.max(2, 14 - index * 0.5), node);
       });
     });
-    (document.body?.innerText || '').split(/\r?\n/).slice(0, 180).forEach((line) => add(line, 9));
-    add(document.title, 1);
+    if (includePageText) (document.body?.innerText || '').split(/\r?\n/).slice(0, 180).forEach((line) => add(line, 9));
+    if (includeDocumentTitle) add(document.title, 1);
     return candidates.sort((left, right) => right.score - left.score)[0]?.value || '';
   };
   const number = (value) => {
@@ -118,7 +118,7 @@
     };
     if (platform() === '京东') return {
       ...common,
-      title: ['.sku-name', '#name h1', '[class*="sku-name" i]', '[class*="product-title" i]', ...common.title],
+      title: ['.sku-name', '#name h1', '[class*="sku-name" i]', '[class*="product-title" i]', '[itemprop="name"]'],
       price: ['.summary-price .p-price .price', '.p-price .price', '[class*="price-now" i]', '[class*="jd-price" i]', '[class*="price"] [class*="num"]', ...common.price],
       store: ['#shop-name', '.popbox-inner .name', '[class*="shop-name"]', ...common.store],
       image: ['#spec-img', '#preview img', ...common.image],
@@ -222,13 +222,24 @@
     if (platform() === '拼多多') return location.pathname.match(/\/(?:goods|detail)\/(\d{5,})/)?.[1] || '';
     return '';
   };
+  const waitForJdTitle = async () => {
+    if (platform() !== '京东') return;
+    const selectors = ['.sku-name', '#name h1', '[class*="sku-name" i]', '[class*="product-title" i]', '[itemprop="name"]'];
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (selectors.some((selector) => clean(document.querySelector(selector)?.textContent))) return;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  };
   const collect = () => {
     const selectors = profile();
     const source = scriptText();
     const structured = productJson();
     const offers = structured.offers && !Array.isArray(structured.offers) ? structured.offers : {};
-    const embeddedTitle = embeddedString(source, ['itemTitle', 'rawTitle', 'shortTitle', 'productTitle', 'skuName', 'goodsName', 'goods_name']);
-    const title = bestTitle(structured.name, embeddedTitle, selectors.title);
+    const embeddedTitle = platform() === '京东' ? '' : embeddedString(source, ['itemTitle', 'rawTitle', 'shortTitle', 'productTitle', 'skuName', 'goodsName', 'goods_name']);
+    const variant = selectedVariant();
+    const foundTitle = bestTitle(structured.name, embeddedTitle, selectors.title, platform() !== '京东', platform() !== '京东');
+    const title = foundTitle || (platform() === '京东' && variant.length >= 20 ? variant : '');
     const bodyText = document.body?.innerText?.slice(0, 200000) || '';
     const priceContextText = firstText([
       '[class*="Price--root"]', '[class*="Price--priceWrapper"]', '[class*="priceWrap"]',
@@ -280,9 +291,9 @@
       subsidy: 0, pay_discount: 0, shipping: 0, gift_value: 0, condition: /二手|翻新|拆封/.test(bodyText) ? 'used_or_refurbished' : 'new',
       official_store: /官方旗舰|官方店|京东自营|品牌直营/.test(bodyText), return_days: 7,
       warranty_months: 12, store_name: storeName(offers.seller?.name || embeddedString(source, ['mallName', 'shopName', 'storeName', 'merchantName']) || firstText(selectors.store) || storeFromBody()), image_url: String(imageUrl).slice(0, 1000),
-      selected_variant: selectedVariant(), region: firstText(selectors.region) || 'unknown',
+      selected_variant: variant, region: firstText(selectors.region) || 'unknown',
       membership: memberPriceText ? '页面显示会员条件' : 'unknown', observation_status: 'requires_confirmation',
-      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.3', price_basis: effectivePrice ? 'visible_effective_price' : wholesalePrice ? 'visible_wholesale_minimum' : 'visible_page_price' },
+      evidence: { type: 'browser_visible_page', url: canonicalUrl(), page_title: document.title, image_url: imageUrl, collector_version: '0.4.4', price_basis: effectivePrice ? 'visible_effective_price' : wholesalePrice ? 'visible_wholesale_minimum' : 'visible_page_price' },
       notes: `由 ValuSee 扩展读取当前可见页面；${effectivePrice ? '当前价格采用页面券后/到手价，不再重复扣减页面优惠；' : ''}${wholesalePrice ? '当前价格采用批发区间最低价，最终价格须按包装规格和采购数量确认；' : ''}发送前请确认 SKU、地区、会员资格、优惠和价格。`,
     };
     const missing = [];
@@ -293,10 +304,13 @@
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'VALUSee_PING_V6' || message?.type === 'VALUSee_PING_V5' || message?.type === 'VALUSee_PING_V4' || message?.type === 'VALUSee_PING_V3' || message?.type === 'VALUSee_PING_V2') sendResponse({ ok: true, version: '0.4.3' });
-    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V6' || message?.type === 'VALUSee_COLLECT_PRODUCT_V5' || message?.type === 'VALUSee_COLLECT_PRODUCT_V4' || message?.type === 'VALUSee_COLLECT_PRODUCT_V3' || message?.type === 'VALUSee_COLLECT_PRODUCT_V2') {
-      try { sendResponse({ ok: true, ...collect() }); }
-      catch (error) { sendResponse({ ok: false, error: `页面读取失败：${error.message}` }); }
+    if (message?.type === 'VALUSee_PING_V7') sendResponse({ ok: true, version: '0.4.4' });
+    if (message?.type === 'VALUSee_COLLECT_PRODUCT_V7') {
+      (async () => {
+        try { await waitForJdTitle(); sendResponse({ ok: true, ...collect() }); }
+        catch (error) { sendResponse({ ok: false, error: `页面读取失败：${error.message}` }); }
+      })();
+      return true;
     }
   });
 })();
