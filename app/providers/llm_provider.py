@@ -20,7 +20,7 @@ class LLMProvider:
     def __init__(self):
         self.project_root = Path(__file__).resolve().parents[2]
         self.env_path = self.project_root / ".env"
-        self.default_model = "gpt-5.5"
+        self.default_model = "gpt-5.6-sol"
         self._user_config_context: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("valuesee_user_llm_config", default=None)
         self.known_agents = [
             "planner",
@@ -532,13 +532,13 @@ class LLMProvider:
         return {
             "api_key": api_key,
             "base_url": base_url,
-            "model": value("OPENAI_VISION_FALLBACK_MODEL") or "gpt-5.5",
-            "wire_api": value("OPENAI_VISION_FALLBACK_WIRE_API") or "chat_completions",
+            "model": value("OPENAI_VISION_FALLBACK_MODEL") or "gpt-5.6-sol",
+            "wire_api": value("OPENAI_VISION_FALLBACK_WIRE_API") or "responses",
             "source": "vision_fallback",
         }
 
     def _invoke_vision_http(self, config: dict[str, str], messages: list[dict[str, Any]]) -> dict[str, Any]:
-        wire_api = config.get("wire_api", "chat_completions")
+        wire_api = config.get("wire_api", "responses")
         if wire_api == "responses":
             payload_object = {
                 "model": config["model"],
@@ -583,7 +583,7 @@ class LLMProvider:
                 errors.append(f"{endpoint}: {type(exc).__name__}")
         raise RuntimeError("; ".join(errors)[:800] or "vision provider unavailable")
 
-    def _vision_endpoints(self, base_url: str, wire_api: str = "chat_completions") -> list[str]:
+    def _vision_endpoints(self, base_url: str, wire_api: str = "responses") -> list[str]:
         base = base_url.strip().rstrip("/")
         suffix = "responses" if wire_api == "responses" else "chat/completions"
         if not base:
@@ -823,7 +823,7 @@ class LLMProvider:
             "wire_api": (
                 os.getenv("OPENAI_WIRE_API", "")
                 or env_file.get("OPENAI_WIRE_API", "")
-                or "chat_completions"
+                or "responses"
             ).strip().lower(),
             "source": "process_env" if api_key_from_process else ".env" if env_file.get("OPENAI_API_KEY") else "fallback",
         }

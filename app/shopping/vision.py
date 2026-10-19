@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import logging
 import re
 import unicodedata
 from io import BytesIO
@@ -11,8 +12,10 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.object_storage import persist_upload
-from app.core.paths import runtime_data_dir
+from app.core.paths import runtime_data_dir, runtime_root
 from app.providers.llm_provider import llm_provider
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -40,7 +43,18 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str,
     stored_name = f"img_{uuid4().hex}{ALLOWED_IMAGE_TYPES[content_type]}"
     stored_path = upload_dir / stored_name
     stored_path.write_bytes(content)
-    storage = persist_upload(stored_path, content_type)
+    storage_warning = ""
+    try:
+        storage = persist_upload(stored_path, content_type)
+    except Exception:
+        # Production keeps /app/data on a persistent volume, so OCR can still
+        # complete when the optional object-storage service is temporarily down.
+        logger.exception("Product screenshot object-storage upload failed; keeping local copy")
+        storage = {
+            "backend": "local",
+            "key": str(stored_path.relative_to(runtime_root())).replace("\\", "/"),
+        }
+        storage_warning = "图片暂存到本地存储；对象存储暂时不可用。"
 
     supplied_text = client_ocr_text.strip()[:30_000]
     vision_payload, provider, warning = _extract_with_vision(content, content_type, supplied_text, user_config=user_config)
@@ -72,7 +86,7 @@ def inspect_product_image(content: bytes, content_type: str, original_name: str,
         "asset_id": stored_name.rsplit(".", 1)[0], "file_name": stored_name,
         "content_type": content_type, "size": len(content), "sha256": digest,
         "storage": storage, "ocr_provider": provider, "ocr_text": text,
-        "product": product, "requires_confirmation": True, "warning": warning,
+        "product": product, "requires_confirmation": True, "warning": _join_warnings(warning, storage_warning),
         "recognition_status": recognition_status, "confidence": confidence,
         "missing_fields": missing_fields,
     }

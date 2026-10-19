@@ -17,6 +17,18 @@ def prepare_storage(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(vision, "persist_upload", lambda path, _content_type: {"backend": "test", "key": path.name})
 
 
+def test_llm_defaults_to_gpt_56_sol_and_responses(monkeypatch, tmp_path) -> None:
+    provider = LLMProvider()
+    provider.env_path = tmp_path / "missing.env"
+    for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_WIRE_API", "DEV_AGENT_LLM_MODEL"):
+        monkeypatch.delenv(key, raising=False)
+
+    config = provider._config()
+
+    assert config["model"] == "gpt-5.6-sol"
+    assert config["wire_api"] == "responses"
+
+
 def test_unavailable_ocr_never_uses_upload_filename_as_product_title(monkeypatch, tmp_path) -> None:
     prepare_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args, **_kwargs: ({}, "vision_unavailable", "视觉模型不可用。"))
@@ -28,6 +40,25 @@ def test_unavailable_ocr_never_uses_upload_filename_as_product_title(monkeypatch
     assert result["product"]["title"] == "截图商品（待确认）"
     assert "iPhone" not in result["product"]["title"]
     assert result["missing_fields"] == ["商品标题", "当前价格", "型号/SKU/已选规格"]
+
+
+def test_object_storage_failure_falls_back_to_local_and_ocr_continues(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(vision, "runtime_data_dir", lambda _name: tmp_path)
+    monkeypatch.setattr(vision, "runtime_root", lambda: tmp_path.parent)
+    monkeypatch.setattr(
+        vision,
+        "persist_upload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("MinIO unavailable")),
+    )
+    monkeypatch.setattr(vision, "_extract_with_vision", lambda *_args, **_kwargs: ({}, "vision_unavailable", ""))
+    monkeypatch.setattr(vision, "_extract_with_tesseract", lambda _path: ("AirPods Pro 2", "tesseract", ""))
+
+    result = vision.inspect_product_image(png_bytes(), "image/png", "screenshot.png")
+
+    assert result["storage"]["backend"] == "local"
+    assert result["storage"]["key"].endswith(result["file_name"])
+    assert result["warning"]
+    assert result["ocr_provider"] == "tesseract"
 
 
 def test_multimodal_result_becomes_an_editable_structured_product(monkeypatch, tmp_path) -> None:
@@ -191,10 +222,10 @@ def test_multimodal_provider_sends_image_without_storing_base64_in_trace(monkeyp
 def test_vision_endpoint_normalization_supports_standard_and_gateway_urls() -> None:
     provider = LLMProvider()
 
-    assert provider._vision_endpoints("") == ["https://api.openai.com/v1/chat/completions"]
-    assert provider._vision_endpoints("https://gateway.example/v1") == ["https://gateway.example/v1/chat/completions"]
+    assert provider._vision_endpoints("") == ["https://api.openai.com/v1/responses"]
+    assert provider._vision_endpoints("https://gateway.example/v1") == ["https://gateway.example/v1/responses"]
     assert provider._vision_endpoints("https://gateway.example") == [
-        "https://gateway.example/v1/chat/completions", "https://gateway.example/chat/completions",
+        "https://gateway.example/v1/responses", "https://gateway.example/responses",
     ]
     assert provider._vision_endpoints("https://congee.pro", "responses") == [
         "https://congee.pro/v1/responses", "https://congee.pro/responses",

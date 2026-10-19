@@ -8,6 +8,31 @@ from app.persistence.rag_store import SQLiteRagStore
 
 
 class RagGovernanceTest(unittest.TestCase):
+    def test_chinese_queries_rank_matching_shopping_knowledge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteRagStore(Path(tmpdir) / "rag.db")
+            documents = [
+                {"path": "returns.md", "size": 40},
+                {"path": "warranty.md", "size": 40},
+            ]
+            chunks = [
+                {
+                    "path": "returns.md",
+                    "chunk_id": "returns.md#1",
+                    "content": "网购七日无理由退货自收到商品之日起计算。无理由退货运费通常由消费者承担。",
+                },
+                {
+                    "path": "warranty.md",
+                    "chunk_id": "warranty.md#1",
+                    "content": "购买前核对保修质保期限、售后服务主体、维修范围和服务网点。",
+                },
+            ]
+            store.ingest("shopping", documents, chunks)
+
+            result = store.query("shopping", "七日无理由退货运费", limit=1)
+
+            self.assertEqual(result[0]["path"], "returns.md")
+
     def test_incremental_versioning_acl_and_gold_cases(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = SQLiteRagStore(Path(tmpdir) / "rag.db")

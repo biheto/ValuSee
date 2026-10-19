@@ -786,7 +786,15 @@ def _content_hash(chunks: list[dict[str, str]]) -> str:
 
 
 def _tokens(text: str) -> list[str]:
-    return re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,}|[\u4e00-\u9fa5]{1,}", text.lower())
+    tokens: list[str] = []
+    for match in re.finditer(r"[A-Za-z][A-Za-z0-9_-]{1,}|[\u4e00-\u9fa5]+", text.lower()):
+        value = match.group(0)
+        if value[0].isascii():
+            tokens.append(value)
+            continue
+        tokens.extend(value)
+        tokens.extend(value[index : index + 2] for index in range(len(value) - 1))
+    return tokens
 
 
 def _rank_hybrid(question: str, rows: list[dict[str, Any]], vector_score_key: str | None = None) -> list[dict[str, Any]]:

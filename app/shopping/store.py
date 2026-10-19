@@ -1310,7 +1310,7 @@ class ShoppingStore:
         base_url = str(payload.get("base_url") or "").strip().rstrip("/")
         if base_url:
             _validate_llm_base_url(base_url)
-        model = _validate_llm_model(str(payload.get("model") or current.get("model") or "gpt-5.5").strip())
+        model = _validate_llm_model(str(payload.get("model") or current.get("model") or "gpt-5.6-sol").strip())
         vision_model = _validate_llm_model(str(payload.get("vision_model") or current.get("vision_model") or model).strip())
         wire_api = str(payload.get("wire_api") or current.get("wire_api") or "responses").strip().lower()
         if wire_api not in {"responses", "chat_completions"}:

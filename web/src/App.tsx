@@ -422,7 +422,7 @@ export function App() {
     quiet_start: null,
     quiet_end: null,
   });
-  const [llmConfig, setLlmConfig] = useState<UserLLMConfig>({ configured: false, enabled: false, base_url: "", model: "gpt-5.5", vision_model: "gpt-5.5", wire_api: "responses" });
+  const [llmConfig, setLlmConfig] = useState<UserLLMConfig>({ configured: false, enabled: false, base_url: "", model: "gpt-5.6-sol", vision_model: "gpt-5.6-sol", wire_api: "responses" });
   const [url, setUrl] = useState("");
   const linkRequestInFlight = useRef(false);
   const [linkLoading, setLinkLoading] = useState(false);
@@ -1199,7 +1199,7 @@ export function App() {
     } catch (err) { setError(err instanceof Error ? err.message : "用户 LLM 连接测试失败"); }
   }
   async function deleteUserLLMConfig() {
-    try { await request("/api/v1/shopping/llm-config", { method: "DELETE" }); setLlmConfig({ configured: false, enabled: false, base_url: "", model: "gpt-5.5", vision_model: "gpt-5.5", wire_api: "responses" }); setMessage("个人 LLM 配置已清除，智能对比将暂停使用。"); }
+    try { await request("/api/v1/shopping/llm-config", { method: "DELETE" }); setLlmConfig({ configured: false, enabled: false, base_url: "", model: "gpt-5.6-sol", vision_model: "gpt-5.6-sol", wire_api: "responses" }); setMessage("个人 LLM 配置已清除，智能对比将暂停使用。"); }
     catch (err) { setError(err instanceof Error ? err.message : "用户 LLM 配置清除失败"); }
   }
   async function submitAccount(event: FormEvent) {
@@ -2392,10 +2392,10 @@ function SettingsPanel({ profile, budget, preferences, llmConfig, onProfile, onB
       .filter(Boolean);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(llmConfig.base_url);
-  const [model, setModel] = useState(llmConfig.model || "gpt-5.5");
-  const [visionModel, setVisionModel] = useState(llmConfig.vision_model || "gpt-5.5");
+  const [model, setModel] = useState(llmConfig.model || "gpt-5.6-sol");
+  const [visionModel, setVisionModel] = useState(llmConfig.vision_model || "gpt-5.6-sol");
   const [wireApi, setWireApi] = useState(llmConfig.wire_api || "responses");
-  useEffect(() => { setBaseUrl(llmConfig.base_url); setModel(llmConfig.model || "gpt-5.5"); setVisionModel(llmConfig.vision_model || "gpt-5.5"); setWireApi(llmConfig.wire_api || "responses"); }, [llmConfig.base_url, llmConfig.model, llmConfig.vision_model, llmConfig.wire_api]);
+  useEffect(() => { setBaseUrl(llmConfig.base_url); setModel(llmConfig.model || "gpt-5.6-sol"); setVisionModel(llmConfig.vision_model || "gpt-5.6-sol"); setWireApi(llmConfig.wire_api || "responses"); }, [llmConfig.base_url, llmConfig.model, llmConfig.vision_model, llmConfig.wire_api]);
   return (
     <section className="page-section">
       <PageTitle icon={<Settings size={22} />} title="偏好设置" subtitle="让每次推荐都结合你的预算、已有设备和可接受风险。" />
